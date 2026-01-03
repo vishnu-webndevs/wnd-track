@@ -1,0 +1,36 @@
+# Node modules & Vendor
+node_modules/
+vendor/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# IDE files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# Build output
+dist/
+build/
+release-packager*/
+release-installer/
+out/
+
+# Logs
+logs/
+*.log
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Large zips/binaries
+*.zip
+*.exe
+*.dll
