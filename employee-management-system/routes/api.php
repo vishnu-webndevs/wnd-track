@@ -20,6 +20,9 @@ use App\Http\Controllers\DesktopAppController;
 | be assigned to the "api" middleware group. Make something great!
 |
 */
+Route::get('/up', function () {
+    return response()->json(['status' => 'ok']);
+});
 
 // Public routes
 Route::post('/login', [AuthController::class, 'login']);
