@@ -2,12 +2,16 @@ FROM serversideup/php:8.2-fpm-nginx
 
 USER root
 
+USER root
+
 # Copy application files
 COPY . /var/www/html
-RUN mkdir -p /var/www/html/storage/logs /var/www/html/bootstrap/cache && chown -R webuser:webgroup /var/www/html/storage /var/www/html/bootstrap/cache && composer install --no-interaction --optimize-autoloader --no-dev --no-scripts
+RUN mkdir -p /var/www/html/storage/logs /var/www/html/bootstrap/cache \
+    && chmod -R 0777 /var/www/html/storage /var/www/html/bootstrap/cache \
+    && composer install --no-interaction --optimize-autoloader --no-dev --no-scripts
 
 # Set permissions
-RUN chown -R webuser:webgroup /var/www/html
+# Using world-writable for storage and cache to accommodate non-root runtime user
 
 USER webuser
 
