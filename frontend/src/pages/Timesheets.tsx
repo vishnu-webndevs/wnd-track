@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { usersAPI } from '../api/users';
 import { timeTrackingAPI } from '../api/timeTracking';
@@ -18,16 +18,20 @@ export default function Timesheets() {
   const [selectedShot, setSelectedShot] = useState<Screenshot | null>(null);
   const [isLiveWatching, setIsLiveWatching] = useState(false);
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const pcRef = useRef<RTCPeerConnection | null>(null);
 
   useEffect(() => {
     let interval: number;
     let keepAliveInterval: number;
+    let signalInterval: number;
     
     if (isLiveWatching && selectedLog && !selectedLog.end_time && employeeId) {
-       // Refresh screenshots
+       // Refresh screenshots (keep existing logic as fallback or history)
        interval = window.setInterval(() => {
           queryClient.invalidateQueries({ queryKey: ['timesheets', 'shots', employeeId] });
-       }, 3000);
+       }, 10000); // Slower refresh for history
        
        // Keep live session alive
        keepAliveInterval = window.setInterval(() => {
@@ -35,11 +39,46 @@ export default function Timesheets() {
              toast.error('Live session disconnected');
              setIsLiveWatching(false);
           });
-       }, 45000); // Renew every 45s (cache is 60s)
+       }, 45000); 
+
+       // Polling for signaling (Answer & Candidates)
+       signalInterval = window.setInterval(async () => {
+           if (!pcRef.current) return;
+           
+           try {
+               // Check for Answer if not set
+               if (pcRef.current.signalingState === 'have-local-offer') {
+                   const answer = await usersAPI.getSignal(employeeId, 'answer');
+                   if (answer && answer.sdp) {
+                       await pcRef.current.setRemoteDescription(new RTCSessionDescription(answer));
+                   }
+               }
+               
+               // Check for Candidates
+               if (pcRef.current.remoteDescription) {
+                   const candidates = await usersAPI.getSignal(employeeId, 'candidate');
+                   if (candidates && Array.isArray(candidates)) {
+                       for (const cand of candidates) {
+                           if (cand.candidate) {
+                               try {
+                                   await pcRef.current.addIceCandidate(cand.candidate);
+                               } catch (e) { console.warn(e); }
+                           }
+                       }
+                   }
+               }
+           } catch (e) { console.warn(e); }
+       }, 2000);
     }
     return () => {
        window.clearInterval(interval);
        window.clearInterval(keepAliveInterval);
+       window.clearInterval(signalInterval);
+       
+       if (pcRef.current) {
+           pcRef.current.close();
+           pcRef.current = null;
+       }
     };
   }, [isLiveWatching, selectedLog, employeeId, queryClient]);
 
@@ -49,7 +88,47 @@ export default function Timesheets() {
       try {
         await usersAPI.triggerLive(employeeId);
         setIsLiveWatching(true);
-        toast.success('Live View requested. Waiting for stream...');
+        toast.success('Live View requested. Connecting...');
+        
+        // Init WebRTC
+        if (pcRef.current) {
+            pcRef.current.close();
+        }
+
+        const pc = new RTCPeerConnection({
+            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        });
+        pcRef.current = pc;
+        
+        pc.addTransceiver('video', { direction: 'recvonly' });
+        
+        pc.ontrack = (event) => {
+            console.log('Stream received', event.streams);
+            if (videoRef.current && event.streams[0]) {
+                videoRef.current.srcObject = event.streams[0];
+                videoRef.current.play().catch(e => console.error('Auto-play failed', e));
+            }
+        };
+
+        pc.onconnectionstatechange = () => {
+             console.log('Connection State:', pc.connectionState);
+             if (pc.connectionState === 'connected') {
+                 toast.success('Stream Connected');
+             } else if (pc.connectionState === 'failed') {
+                 toast.error('Connection Failed. Retrying...');
+             }
+        };
+        
+        pc.onicecandidate = (event) => {
+             if (event.candidate) {
+                 usersAPI.signal(employeeId, { type: 'candidate', candidate: event.candidate });
+             }
+        };
+        
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        await usersAPI.signal(employeeId, { type: 'offer', sdp: offer.sdp });
+        
       } catch (e) {
         toast.error('Failed to start Live View');
       }
@@ -61,6 +140,10 @@ export default function Timesheets() {
         console.error(e);
       }
       setIsLiveWatching(false);
+      if (pcRef.current) {
+          pcRef.current.close();
+          pcRef.current = null;
+      }
     }
   };
 
@@ -298,6 +381,22 @@ export default function Timesheets() {
               </div>
             
             <div className="flex-1 overflow-y-auto p-6">
+              {isLiveWatching && (
+                  <div className="mb-6 bg-black rounded-lg overflow-hidden shadow-lg aspect-video flex items-center justify-center relative group">
+                      <video 
+                        ref={videoRef} 
+                        autoPlay 
+                        playsInline 
+                        muted
+                        controls 
+                        className="w-full h-full object-contain"
+                      />
+                      <div className="absolute top-4 right-4 bg-red-600 text-white px-2 py-1 rounded text-xs animate-pulse">
+                          LIVE
+                      </div>
+                  </div>
+              )}
+
               {logScreenshots.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {logScreenshots.map(shot => {

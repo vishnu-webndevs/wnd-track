@@ -50,6 +50,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/users/{user}/screenshots', [UserController::class, 'getScreenshots']);
     Route::post('/users/{user}/trigger-live', [UserController::class, 'triggerLive']);
     Route::post('/users/{user}/stop-live', [UserController::class, 'stopLive']);
+    Route::post('/users/{user}/signal', [UserController::class, 'signal']);
+    Route::get('/users/{user}/signal', [UserController::class, 'getSignal']);
     Route::get('/users/{user}/activity-summary', [UserController::class, 'getActivitySummary']);
 
     // Clients

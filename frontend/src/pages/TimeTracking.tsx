@@ -37,6 +37,7 @@ export default function TimeTracking() {
   const previousFrameDataRef = useRef<Uint8ClampedArray | null>(null);
   const randomShotTimeoutsRef = useRef<number[]>([]);
   const screenStreamRef = useRef<MediaStream | null>(null);
+  const pcRef = useRef<RTCPeerConnection | null>(null);
   const lastActivityRef = useRef<Date>(new Date());
   const lastCaptureTimeRef = useRef<Date>(new Date());
   const trackerKey = 'tt-tracker';
@@ -291,8 +292,10 @@ export default function TimeTracking() {
       const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
       screenStreamRef.current = stream;
       startVisualActivityCheck();
+      return stream;
     } catch {
       toast.error('Screen capture permission denied');
+      return null;
     }
   };
 
@@ -632,11 +635,67 @@ export default function TimeTracking() {
     
     const pollLiveStatus = async () => {
        try {
-         const { live_mode } = await usersAPI.checkLiveStatus();
+         const { live_mode, offer } = await usersAPI.checkLiveStatus();
          
          if (live_mode) {
+            // WebRTC Logic
+             if (offer && user) {
+                 // If we already have a PC, check if this is a NEW offer (re-connection)
+                 // or if we are stuck. For simplicity, if we see an offer, we assume it's a new handshake request.
+                 if (pcRef.current) {
+                     console.log('Replacing existing WebRTC connection with new offer');
+                     pcRef.current.close();
+                     pcRef.current = null;
+                 }
+
+                 // toast.info('Starting Live Stream...'); // Silent start
+                 
+                 // Ensure we have a stream (Auto-accept/Auto-recover)
+                 if (!screenStreamRef.current) {
+                     await requestScreenCapture();
+                 }
+
+                 const pc = new RTCPeerConnection({
+                     iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+                 });
+                 pcRef.current = pc;
+                 
+                 pc.onicecandidate = (event) => {
+                     if (event.candidate) {
+                         usersAPI.signal(user.id, { type: 'candidate', candidate: event.candidate });
+                     }
+                 };
+                 
+                 // Add tracks
+                 if (screenStreamRef.current) {
+                     screenStreamRef.current.getTracks().forEach(track => {
+                         pc.addTrack(track, screenStreamRef.current!);
+                     });
+                 }
+                 
+                 await pc.setRemoteDescription(new RTCSessionDescription(offer));
+                 const answer = await pc.createAnswer();
+                 await pc.setLocalDescription(answer);
+                 
+                 await usersAPI.signal(user.id, { type: 'answer', sdp: answer.sdp });
+            }
+            
+            // Poll for candidates
+            if (pcRef.current && user) {
+                 const candidates = await usersAPI.getSignal(user.id, 'candidate');
+                 if (candidates && Array.isArray(candidates)) {
+                     for (const cand of candidates) {
+                         if (cand.candidate) { 
+                            try {
+                                await pcRef.current.addIceCandidate(cand.candidate);
+                            } catch (e) { console.warn(e); }
+                         }
+                     }
+                 }
+            }
+
             if (!liveModeIntervalRef.current) {
-               toast.info('Live View Requested by Admin');
+               // toast.info('Live View Requested by Admin'); // Silent mode
                
                // Clear normal intervals
                if (screenshotIntervalRef.current) window.clearInterval(screenshotIntervalRef.current);
@@ -644,20 +703,22 @@ export default function TimeTracking() {
                randomShotTimeoutsRef.current.forEach(window.clearTimeout);
                randomShotTimeoutsRef.current = [];
                
-               // Start fast interval (3 seconds)
+               // Start fast interval (3 seconds) for keep-alive/polling
                liveModeIntervalRef.current = window.setInterval(() => {
-                  captureScreenshot();
+                  // captureScreenshot(); // Disabled for WebRTC stream
                }, 3000);
-               
-               // Capture immediately
-               captureScreenshot();
             }
          } else {
             if (liveModeIntervalRef.current) {
                window.clearInterval(liveModeIntervalRef.current);
                liveModeIntervalRef.current = null;
-               toast.info('Live View Ended');
+               // toast.info('Live View Ended'); // Silent mode
                
+               if (pcRef.current) {
+                   pcRef.current.close();
+                   pcRef.current = null;
+               }
+
                // Restore normal interval
                captureScreenshot();
                scheduleRandomScreenshots();

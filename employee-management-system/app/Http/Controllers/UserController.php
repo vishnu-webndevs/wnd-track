@@ -404,7 +404,67 @@ class UserController extends Controller
     public function checkLiveStatus(Request $request)
     {
         // User checks if they should be streaming
-        $isLive = Cache::get('live_view_' . auth()->id(), false);
-        return response()->json(['live_mode' => $isLive]);
+        $userId = auth()->id();
+        $isLive = Cache::get('live_view_' . $userId, false);
+        
+        // Also check for WebRTC offer
+        $offer = Cache::pull('signal_offer_' . $userId);
+
+        return response()->json([
+            'live_mode' => $isLive,
+            'offer' => $offer
+        ]);
+    }
+
+    public function signal(Request $request, User $user)
+    {
+        $data = $request->validate([
+            'type' => 'required|string|in:offer,answer,candidate',
+            'sdp' => 'nullable',
+            'candidate' => 'nullable', 
+        ]);
+
+        // Determine direction
+        // If auth user is the target user => sending TO admin (e.g. answer, candidate)
+        // If auth user is admin (not target) => sending TO user (e.g. offer, candidate)
+        $isTargetUser = auth()->id() === $user->id;
+
+        if ($data['type'] === 'candidate') {
+             $direction = $isTargetUser ? 'from_user' : 'from_admin';
+             $cacheKey = "signal_candidates_{$user->id}_{$direction}";
+             $candidates = Cache::get($cacheKey, []);
+             $candidates[] = $data;
+             Cache::put($cacheKey, $candidates, 60);
+        } else {
+             // Offer or Answer
+             // Offer: Admin -> User (key: signal_offer_{id})
+             // Answer: User -> Admin (key: signal_answer_{id})
+             $key = "signal_{$data['type']}_{$user->id}";
+             Cache::put($key, $data, 60);
+        }
+
+        return response()->json(['status' => 'ok']);
+    }
+
+    public function getSignal(Request $request, User $user)
+    {
+        $type = $request->query('type');
+        
+        if ($type === 'candidate') {
+            // If I am the user, I want candidates FROM admin.
+            // If I am admin, I want candidates FROM user.
+            $isTargetUser = auth()->id() === $user->id;
+            $direction = $isTargetUser ? 'from_admin' : 'from_user';
+            
+            $key = "signal_candidates_{$user->id}_{$direction}";
+            $data = Cache::pull($key, []); 
+            return response()->json($data);
+        }
+        
+        // For Answer (Admin polling for answer)
+        // For Offer (User polling for offer - handled in checkLiveStatus but can be here too)
+        $key = "signal_{$type}_{$user->id}";
+        $data = Cache::pull($key); 
+        return response()->json($data);
     }
 }

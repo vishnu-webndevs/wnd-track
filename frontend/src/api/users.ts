@@ -52,8 +52,17 @@ export const usersAPI = {
     await api.post(`/users/${id}/stop-live`);
   },
 
-  checkLiveStatus: async (): Promise<{ live_mode: boolean }> => {
+  checkLiveStatus: async (): Promise<{ live_mode: boolean; offer?: any }> => {
     const response = await api.get('/user/live-status');
+    return response.data;
+  },
+
+  signal: async (id: number, data: any): Promise<void> => {
+    await api.post(`/users/${id}/signal`, data);
+  },
+
+  getSignal: async (id: number, type: 'offer' | 'answer' | 'candidate'): Promise<any> => {
+    const response = await api.get(`/users/${id}/signal?type=${type}`);
     return response.data;
   },
 };
