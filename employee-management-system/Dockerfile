@@ -21,4 +21,5 @@ USER www-data
 RUN php artisan package:discover --ansi
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-  CMD curl -fsS http://localhost/up || exit 1
+  CMD curl -fsS http://localhost:8080/api/up || exit 1
+
