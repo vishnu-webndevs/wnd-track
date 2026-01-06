@@ -35,13 +35,15 @@ export default function TimeTracking() {
   const heartbeatIntervalRef = useRef<number | null>(null);
   const visualCheckIntervalRef = useRef<number | null>(null);
   const previousFrameDataRef = useRef<Uint8ClampedArray | null>(null);
-  const randomShotTimeoutsRef = useRef<number[]>([]);
+  const randomShotTimesRef = useRef<Date[]>([]);
+  const fixedShotNextTimeRef = useRef<Date | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const lastActivityRef = useRef<Date>(new Date());
   const lastCaptureTimeRef = useRef<Date>(new Date());
+  const lastCapturedMinuteRef = useRef<string | null>(localStorage.getItem('tt-last-captured-minute'));
   const trackerKey = 'tt-tracker';
-  
+  const captureScreenshotRef = useRef<() => Promise<void>>(async () => {});
   const getMinuteKey = (date: Date) => {
     const offset = date.getTimezoneOffset() * 60000;
     const localDate = new Date(date.getTime() - offset);
@@ -152,13 +154,13 @@ export default function TimeTracking() {
     
     window.addEventListener('mousemove', handleActivity);
     window.addEventListener('keydown', handleActivity);
-    window.addEventListener('click', handleActivity);
+    window.addEventListener('mousedown', handleActivity);
     window.addEventListener('wheel', handleActivity);
     window.addEventListener('scroll', handleActivity);
     return () => {
       window.removeEventListener('mousemove', handleActivity);
       window.removeEventListener('keydown', handleActivity);
-      window.removeEventListener('click', handleActivity);
+      window.removeEventListener('mousedown', handleActivity);
       window.removeEventListener('wheel', handleActivity);
       window.removeEventListener('scroll', handleActivity);
       if (cleanupElectron) cleanupElectron();
@@ -241,7 +243,8 @@ export default function TimeTracking() {
           }
           
           // Heuristic: If significant change, count as activity
-          if (diffScore > 50000) {
+          // Lowered thresholds for 64x36 resolution
+          if (diffScore > 2000) {
              const now = new Date();
              lastActivityRef.current = now;
              const minuteKey = getMinuteKey(now);
@@ -263,16 +266,15 @@ export default function TimeTracking() {
              activityDataRef.current[minuteKey].total_activity += 1;
 
              // Heuristic for clicks and keys based on intensity of change
-             // A click often causes a localized change (diffScore > 100k)
-             // A scroll or window switch causes large change (diffScore > 300k)
-             // Typing causes rapid small-medium changes, but here we just approximate.
+             // A click often causes a localized change (diffScore > 10k)
+             // A scroll or window switch causes large change (diffScore > 20k)
              
-             if (diffScore > 100000) {
+             if (diffScore > 10000) {
                  activityDataRef.current[minuteKey].mouse_clicks += 1;
                  activityDataRef.current[minuteKey].total_activity += 1;
              }
 
-             if (diffScore > 300000) {
+             if (diffScore > 20000) {
                  // Assume large change might involve keyboard (typing/enter) or scroll
                  activityDataRef.current[minuteKey].keyboard_clicks += 1;
                  activityDataRef.current[minuteKey].total_activity += 1;
@@ -302,7 +304,7 @@ export default function TimeTracking() {
   const captureScreenshot = async () => {
     // Check if we are still tracking
     if (!isTrackingRef.current) {
-       console.log('Skipping screenshot: Not tracking');
+       // console.log('Skipping screenshot: Not tracking');
        return;
     }
 
@@ -337,7 +339,7 @@ export default function TimeTracking() {
     
     let blob: Blob | null = null;
     try {
-      console.log('Attempting to capture screenshot...');
+      // console.log('Attempting to capture screenshot...');
       if (imageCapture && imageCapture.grabFrame) {
         const frame: ImageBitmap = await imageCapture.grabFrame();
         const canvas = document.createElement('canvas');
@@ -394,22 +396,33 @@ export default function TimeTracking() {
       }
       
       if (blob) {
-        console.log('Screenshot captured successfully, uploading...');
+        // console.log('Screenshot captured successfully, uploading...');
 
-        // Fill gaps between last capture and now
+        // Determine the "Logical Capture Time" (target :59)
+        // If we are executing early in a minute (e.g. 10:01:02), we likely missed the exact 10:00:59 mark
+        // so we attribute this to the previous minute's :59.
         const now = new Date();
-        const start = lastCaptureTimeRef.current;
+        let captureTargetTime = new Date(now);
         
+        // If we are in the first 30 seconds, assume we belong to previous minute
+        if (now.getSeconds() < 30) {
+           captureTargetTime.setMinutes(now.getMinutes() - 1);
+        }
+        captureTargetTime.setSeconds(59);
+        captureTargetTime.setMilliseconds(0);
+
+        // Fill gaps between last capture and target time
+        const start = lastCaptureTimeRef.current;
         let loopTime = new Date(start);
         loopTime.setSeconds(0);
         loopTime.setMilliseconds(0);
         
-        // Cap at 24 hours to prevent infinite loops
-        if (now.getTime() - loopTime.getTime() > 24 * 60 * 60 * 1000) {
-             loopTime = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        // Cap at 24 hours
+        if (captureTargetTime.getTime() - loopTime.getTime() > 24 * 60 * 60 * 1000) {
+             loopTime = new Date(captureTargetTime.getTime() - 24 * 60 * 60 * 1000);
         }
 
-        const endTime = new Date(now);
+        const endTime = new Date(captureTargetTime);
         
         while (loopTime <= endTime) {
            const key = getMinuteKey(loopTime);
@@ -426,17 +439,60 @@ export default function TimeTracking() {
            }
            loopTime.setMinutes(loopTime.getMinutes() + 1);
         }
-        lastCaptureTimeRef.current = now;
+        lastCaptureTimeRef.current = captureTargetTime;
 
         const file = new File([blob], `screenshot_${Date.now()}.webp`, { type: 'image/webp' });
-        const breakdown = Object.values(activityDataRef.current);
+
+        // Filter activity data: Only send minutes <= captureTargetTime
+        // Keep future minutes (e.g. if capture delayed into next minute) for the next screenshot
+        const allKeys = Object.keys(activityDataRef.current);
+        const targetKeyTime = captureTargetTime.getTime();
+        
+        const breakdown: any[] = [];
+        const remainingActivity: typeof activityDataRef.current = {};
+
+        allKeys.forEach(key => {
+            // key is YYYY-MM-DDTHH:mm
+            // We can treat it as a date to compare
+            const keyDate = new Date(key);
+            // Add 59 seconds to keyDate to compare with captureTargetTime
+            // If key is 10:00, it covers 10:00:00 to 10:00:59.
+            // If captureTargetTime is 10:00:59, we include 10:00.
+            // If captureTargetTime is 10:00:59, we exclude 10:01.
+            
+            // To be safe, compare minute vs minute
+            const keyTime = keyDate.getTime();
+            // captureTargetTime (e.g. 10:00:59)
+            // We want to include everything UP TO the minute of captureTargetTime
+            const targetMinuteTime = new Date(captureTargetTime);
+            targetMinuteTime.setSeconds(0);
+            targetMinuteTime.setMilliseconds(0);
+            
+            if (keyTime <= targetMinuteTime.getTime()) {
+                breakdown.push(activityDataRef.current[key]);
+            } else {
+                remainingActivity[key] = activityDataRef.current[key];
+            }
+        });
+
         breakdown.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
-        // Reset breakdown after capture
-        activityDataRef.current = {};
+        // Update ref to keep only remaining future activity
+        activityDataRef.current = remainingActivity;
         
-        // Format capturedAt as local time "YYYY-MM-DD HH:mm:ss" to match user expectation in DB
-        const localCapturedAt = toLocalISOString(new Date());
+        // Format capturedAt
+        const localCapturedAt = toLocalISOString(captureTargetTime);
+        const currentMinute = localCapturedAt.substring(0, 16);
+
+        if (lastCapturedMinuteRef.current === currentMinute) {
+          //  console.log(`Skipping screenshot: Already captured for minute ${currentMinute}`);
+           // If we skip, we should probably put the data back? 
+           // Or just discard it as "already sent"? 
+           // If we skip, it means we already sent this minute. 
+           // So the data we extracted for this minute is likely duplicate or negligible.
+           // Safe to discard.
+           return;
+        }
 
         await uploadShot.mutateAsync({ 
           projectId, 
@@ -445,27 +501,75 @@ export default function TimeTracking() {
           minuteBreakdown: breakdown,
           timeLogId: activeTimeLogIdRef.current
         });
-        console.log('Screenshot uploaded successfully');
+        
+        lastCapturedMinuteRef.current = currentMinute;
+        localStorage.setItem('tt-last-captured-minute', currentMinute);
+        // console.log('Screenshot uploaded successfully');
       } else {
-        console.error('Failed to create blob from screenshot');
+        // console.error('Failed to create blob from screenshot');
       }
     } catch (e) {
       console.error('Screenshot capture failed', e);
     }
   };
+  
+  useEffect(() => {
+    captureScreenshotRef.current = captureScreenshot;
+  }, [captureScreenshot]);
+
+  const runTick = useCallback(() => {
+    setElapsed((e) => e + 1);
+    
+    const now = new Date();
+    const remainingTimes: Date[] = [];
+    
+    randomShotTimesRef.current.forEach(time => {
+      if (now.getTime() >= time.getTime()) {
+        // console.log('Executing scheduled screenshot:', time.toLocaleTimeString());
+        captureScreenshotRef.current();
+      } else {
+        remainingTimes.push(time);
+      }
+    });
+    randomShotTimesRef.current = remainingTimes;
+    
+    if (fixedShotNextTimeRef.current && now.getTime() >= fixedShotNextTimeRef.current.getTime()) {
+      captureScreenshotRef.current();
+      const d = new Date(fixedShotNextTimeRef.current);
+      d.setMinutes(d.getMinutes() + 10);
+      fixedShotNextTimeRef.current = d;
+    }
+  }, []);
 
   const scheduleRandomScreenshots = () => {
-    randomShotTimeoutsRef.current.forEach(window.clearTimeout);
-    randomShotTimeoutsRef.current = [];
+    // Generate new shots for the next 10 minutes
     const SHOT_COUNT = 3;
-    const INTERVAL_MS = 10 * 60 * 1000;
-    for (let i = 0; i < SHOT_COUNT; i++) {
-      const delay = Math.floor(Math.random() * INTERVAL_MS);
-      const timeoutId = window.setTimeout(() => {
-        captureScreenshot();
-      }, delay);
-      randomShotTimeoutsRef.current.push(timeoutId);
+    const WINDOW_MINUTES = 10;
+    
+    // Generate distinct minute offsets (0 to 9)
+    const minuteOffsets = new Set<number>();
+    while (minuteOffsets.size < SHOT_COUNT) {
+      minuteOffsets.add(Math.floor(Math.random() * WINDOW_MINUTES));
     }
+    
+    const now = new Date();
+    const newTimes: Date[] = [];
+    
+    minuteOffsets.forEach(offset => {
+      // Calculate target time: Current time + offset minutes, set to 59 seconds
+      const target = new Date(now);
+      target.setMinutes(now.getMinutes() + offset);
+      target.setSeconds(59);
+      target.setMilliseconds(0);
+      
+      // Only add if it's in the future (or very close)
+      if (target.getTime() > now.getTime()) {
+         newTimes.push(target);
+      }
+    });
+    
+    randomShotTimesRef.current = newTimes;
+    // console.log('Scheduled screenshots at:', newTimes.map(d => d.toLocaleTimeString()));
   };
 
   const stopMediaTracks = () => {
@@ -599,9 +703,7 @@ export default function TimeTracking() {
             startHeartbeat(parsed.timeLogId, startDate);
           }
           if (tickIntervalRef.current) window.clearInterval(tickIntervalRef.current);
-          tickIntervalRef.current = window.setInterval(() => {
-            setElapsed((e) => e + 1);
-          }, 1000);
+          tickIntervalRef.current = window.setInterval(runTick, 1000);
           
           if (screenshotIntervalRef.current) window.clearInterval(screenshotIntervalRef.current);
           if (fixedScreenshotIntervalRef.current) window.clearInterval(fixedScreenshotIntervalRef.current);
@@ -610,10 +712,23 @@ export default function TimeTracking() {
           // But to be safe and consistent with startTracking:
           captureScreenshot();
           scheduleRandomScreenshots();
+          {
+            const now2 = new Date();
+            const m = now2.getMinutes();
+            const endMin = Math.floor(m / 10) * 10 + 9;
+            const target = new Date(now2);
+            if (m > endMin || (m === endMin && now2.getSeconds() >= 59)) {
+              target.setMinutes(endMin + 10);
+            } else {
+              target.setMinutes(endMin);
+            }
+            target.setSeconds(59);
+            target.setMilliseconds(0);
+            fixedShotNextTimeRef.current = target;
+          }
           
           // Interval for both fixed and random schedule
           screenshotIntervalRef.current = window.setInterval(() => {
-            captureScreenshot(); // Fixed shot every 10 mins
             scheduleRandomScreenshots(); // Schedule next batch of randoms
           }, 10 * 60 * 1000);
 
@@ -625,7 +740,7 @@ export default function TimeTracking() {
       if (screenshotIntervalRef.current) window.clearInterval(screenshotIntervalRef.current);
       if (fixedScreenshotIntervalRef.current) window.clearInterval(fixedScreenshotIntervalRef.current);
       if (heartbeatIntervalRef.current) window.clearInterval(heartbeatIntervalRef.current);
-      randomShotTimeoutsRef.current.forEach(window.clearTimeout);
+      randomShotTimesRef.current = [];
       stopMediaTracks();
     };
   }, []);
@@ -694,19 +809,18 @@ export default function TimeTracking() {
                  }
             }
 
-            if (!liveModeIntervalRef.current) {
-               // toast.info('Live View Requested by Admin'); // Silent mode
-               
-               // Clear normal intervals
-               if (screenshotIntervalRef.current) window.clearInterval(screenshotIntervalRef.current);
-               if (fixedScreenshotIntervalRef.current) window.clearInterval(fixedScreenshotIntervalRef.current);
-               randomShotTimeoutsRef.current.forEach(window.clearTimeout);
-               randomShotTimeoutsRef.current = [];
-               
-               // Start fast interval (3 seconds) for keep-alive/polling
-               liveModeIntervalRef.current = window.setInterval(() => {
-                  // captureScreenshot(); // Disabled for WebRTC stream
-               }, 3000);
+           if (!liveModeIntervalRef.current) {
+              // toast.info('Live View Requested by Admin'); // Silent mode
+              
+              // Clear normal intervals
+              if (screenshotIntervalRef.current) window.clearInterval(screenshotIntervalRef.current);
+              if (fixedScreenshotIntervalRef.current) window.clearInterval(fixedScreenshotIntervalRef.current);
+              randomShotTimesRef.current = [];
+              
+              // Start fast interval (3 seconds) for keep-alive/polling
+              liveModeIntervalRef.current = window.setInterval(() => {
+                 // captureScreenshot(); // Disabled for WebRTC stream
+              }, 3000);
             }
          } else {
             if (liveModeIntervalRef.current) {
@@ -794,25 +908,32 @@ export default function TimeTracking() {
 
     await requestScreenCapture();
     if (tickIntervalRef.current) window.clearInterval(tickIntervalRef.current);
-    tickIntervalRef.current = window.setInterval(() => {
-      setElapsed((e) => e + 1);
-    }, 1000);
+    tickIntervalRef.current = window.setInterval(runTick, 1000);
     
     if (screenshotIntervalRef.current) window.clearInterval(screenshotIntervalRef.current);
     if (fixedScreenshotIntervalRef.current) window.clearInterval(fixedScreenshotIntervalRef.current);
     
     // Initial schedule
     scheduleRandomScreenshots();
+    {
+      const now2 = new Date();
+      const m = now2.getMinutes();
+      const endMin = Math.floor(m / 10) * 10 + 9;
+      const target = new Date(now2);
+      if (m > endMin || (m === endMin && now2.getSeconds() >= 59)) {
+        target.setMinutes(endMin + 10);
+      } else {
+        target.setMinutes(endMin);
+      }
+      target.setSeconds(59);
+      target.setMilliseconds(0);
+      fixedShotNextTimeRef.current = target;
+    }
     
     // Repeat every 10 minutes
     screenshotIntervalRef.current = window.setInterval(() => {
       scheduleRandomScreenshots();
     }, 10 * 60 * 1000);
-
-    // Fixed 1 per minute
-    fixedScreenshotIntervalRef.current = window.setInterval(() => {
-       captureScreenshot();
-    }, 60 * 1000);
     
     toast.success('Tracking started');
   };
@@ -835,8 +956,8 @@ export default function TimeTracking() {
     if (screenshotIntervalRef.current) window.clearInterval(screenshotIntervalRef.current);
     if (fixedScreenshotIntervalRef.current) window.clearInterval(fixedScreenshotIntervalRef.current);
     if (heartbeatIntervalRef.current) window.clearInterval(heartbeatIntervalRef.current);
-    randomShotTimeoutsRef.current.forEach(window.clearTimeout);
-    randomShotTimeoutsRef.current = [];
+    randomShotTimesRef.current = [];
+    fixedShotNextTimeRef.current = null;
     
     // 2. Stop media tracks
     try {

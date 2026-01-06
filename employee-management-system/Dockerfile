@@ -6,15 +6,17 @@ USER root
 COPY . /var/www/html
 
 # Prepare Laravel
-RUN mkdir -p storage/logs bootstrap/cache \
-    && chown -R www-data:www-data storage bootstrap/cache public \
-    && chmod -R 775 storage bootstrap/cache public \
+RUN mkdir -p storage/logs bootstrap/cache storage/app/public \
+    && chown -R www-data:www-data storage bootstrap/cache storage/app/public public \
+    && chmod -R 775 storage bootstrap/cache storage/app/public public \
     && composer install \
         --no-interaction \
         --optimize-autoloader \
         --no-dev \
         --no-scripts \
-    && php artisan storage:link || true
+    && php artisan storage:link || true \
+    && chown -h www-data:www-data public/storage
+
 
 # Switch to valid user
 USER www-data
