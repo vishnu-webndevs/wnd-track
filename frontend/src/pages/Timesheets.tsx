@@ -198,10 +198,21 @@ export default function Timesheets() {
 
   const secureUrl = (u?: string) => {
     if (!u) return '';
-    if (u.startsWith('http://')) return 'https://' + u.slice(7);
-    if (u.startsWith('//')) return 'https:' + u;
-    if (u.startsWith('/')) return window.location.origin + u;
-    return u;
+    const proto = window.location.protocol;
+    let s = u.trim().replace(/^["'`]+|["'`]+$/g, '');
+    if (s.startsWith('http://') || s.startsWith('https://')) {
+      return proto + '//' + s.replace(/^https?:\/\//, '');
+    }
+    if (s.startsWith('//')) return proto + s;
+    if (s.startsWith('/')) return window.location.origin + s;
+    if (s.startsWith('screenshots/')) return window.location.origin + '/storage/' + s;
+    return s;
+  };
+  const buildSrc = (shot: Screenshot, preferUrl: boolean) => {
+    const primary = preferUrl ? (shot.url || '') : (shot.file_path || '');
+    if (primary) return secureUrl(primary);
+    if (shot.file_path) return secureUrl(shot.file_path);
+    return '';
   };
 
 
@@ -421,9 +432,10 @@ export default function Timesheets() {
                          <div 
                            className="cursor-pointer relative group"
                            onClick={() => setSelectedShot(shot)}
-                        >
-                          <img 
-                            src={secureUrl(shot.url ?? shot.file_path)} 
+                         >
+                           <img 
+                            src={buildSrc(shot, true)} 
+                            onError={(e) => { (e.currentTarget as HTMLImageElement).src = buildSrc(shot, false); }}
                             alt={shot.file_name} 
                             className="w-full h-48 object-cover group-hover:opacity-95 transition-opacity" 
                           />
@@ -528,7 +540,7 @@ export default function Timesheets() {
               <button onClick={() => setSelectedShot(null)} className="px-2 py-1 text-sm rounded bg-gray-100 text-gray-700">Close</button>
             </div>
             <div className="p-4">
-              <img src={secureUrl(selectedShot.url ?? selectedShot.file_path)} alt={selectedShot.file_name} className="max-w-[85vw] max-h-[75vh] object-contain rounded" />
+              <img src={buildSrc(selectedShot, true)} onError={(e) => { (e.currentTarget as HTMLImageElement).src = buildSrc(selectedShot, false); }} alt={selectedShot.file_name} className="max-w-[85vw] max-h-[75vh] object-contain rounded" />
             </div>
           </div>
         </div>
