@@ -48,6 +48,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/users/{user}/reset-password', [UserController::class, 'resetPassword']);
     Route::get('/users/{user}/time-logs', [UserController::class, 'getTimeLogs']);
     Route::get('/users/{user}/screenshots', [UserController::class, 'getScreenshots']);
+    Route::get('/users/{user}/screenshots/{screenshot}/file', [UserController::class, 'getScreenshotFile']);
     Route::post('/users/{user}/trigger-live', [UserController::class, 'triggerLive']);
     Route::post('/users/{user}/stop-live', [UserController::class, 'stopLive']);
     Route::post('/users/{user}/signal', [UserController::class, 'signal']);

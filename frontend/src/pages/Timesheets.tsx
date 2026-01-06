@@ -6,6 +6,7 @@ import { useAuthStore } from '../stores/authStore';
 import type { TimeLog, User, Screenshot } from '../types';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { toast } from 'sonner';
+import { api } from '../lib/api';
 
 export default function Timesheets() {
   const queryClient = useQueryClient();
@@ -199,7 +200,7 @@ export default function Timesheets() {
   const secureUrl = (u?: string) => {
     if (!u) return '';
     const proto = window.location.protocol;
-    let s = u.trim().replace(/^["'`]+|["'`]+$/g, '');
+    const s = u.trim().replace(/^["'`]+|["'`]+$/g, '');
     if (s.startsWith('http://') || s.startsWith('https://')) {
       return proto + '//' + s.replace(/^https?:\/\//, '');
     }
@@ -213,6 +214,15 @@ export default function Timesheets() {
     if (primary) return secureUrl(primary);
     if (shot.file_path) return secureUrl(shot.file_path);
     return '';
+  };
+
+  const blobUrlCacheRef = useRef<Record<number, string>>({});
+  const loadBlobUrl = async (shot: Screenshot) => {
+    if (blobUrlCacheRef.current[shot.id]) return blobUrlCacheRef.current[shot.id];
+    const res = await api.get(`/users/${shot.user_id}/screenshots/${shot.id}/file`, { responseType: 'blob' });
+    const url = URL.createObjectURL(res.data);
+    blobUrlCacheRef.current[shot.id] = url;
+    return url;
   };
 
 
@@ -435,7 +445,12 @@ export default function Timesheets() {
                          >
                            <img 
                             src={buildSrc(shot, true)} 
-                            onError={(e) => { (e.currentTarget as HTMLImageElement).src = buildSrc(shot, false); }}
+                            onError={async (e) => { 
+                              try {
+                                const url = await loadBlobUrl(shot);
+                                (e.currentTarget as HTMLImageElement).src = url;
+                              } catch {}
+                            }}
                             alt={shot.file_name} 
                             className="w-full h-48 object-cover group-hover:opacity-95 transition-opacity" 
                           />
@@ -540,7 +555,17 @@ export default function Timesheets() {
               <button onClick={() => setSelectedShot(null)} className="px-2 py-1 text-sm rounded bg-gray-100 text-gray-700">Close</button>
             </div>
             <div className="p-4">
-              <img src={buildSrc(selectedShot, true)} onError={(e) => { (e.currentTarget as HTMLImageElement).src = buildSrc(selectedShot, false); }} alt={selectedShot.file_name} className="max-w-[85vw] max-h-[75vh] object-contain rounded" />
+              <img 
+                src={buildSrc(selectedShot, true)} 
+                onError={async (e) => { 
+                  try {
+                    const url = await loadBlobUrl(selectedShot);
+                    (e.currentTarget as HTMLImageElement).src = url;
+                  } catch {}
+                }} 
+                alt={selectedShot.file_name} 
+                className="max-w-[85vw] max-h-[75vh] object-contain rounded" 
+              />
             </div>
           </div>
         </div>

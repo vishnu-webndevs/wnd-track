@@ -226,6 +226,25 @@ class UserController extends Controller
         return response()->json($screenshots);
     }
 
+    public function getScreenshotFile(Request $request, User $user, Screenshot $screenshot)
+    {
+        $this->authorize('view', $user);
+        if ($screenshot->user_id !== $user->id) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+        $disk = Storage::disk('public');
+        if (!$disk->exists($screenshot->file_path)) {
+            return response()->json(['message' => 'Not Found'], 404);
+        }
+        $stream = $disk->readStream($screenshot->file_path);
+        return response()->stream(function () use ($stream) {
+            fpassthru($stream);
+        }, 200, [
+            'Content-Type' => $screenshot->mime_type ?: 'application/octet-stream',
+            'Cache-Control' => 'public, max-age=31536000',
+        ]);
+    }
+
     public function getActivitySummary(Request $request, User $user)
     {
         $this->authorize('view', $user);
