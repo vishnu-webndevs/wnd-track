@@ -142,7 +142,13 @@ export default function TimeTracking() {
       } else if (e.type === 'click' || e.type === 'mousedown') {
         entry.mouse_clicks++;
         entry.total_activity++;
-      } else if (e.type === 'wheel' || e.type === 'scroll') {
+      } else if (e.type === 'wheel') {
+        const w = e as WheelEvent;
+        if (Math.abs(w.deltaY) > 0 || Math.abs(w.deltaX) > 0) {
+          entry.mouse_scrolls++;
+          entry.total_activity++;
+        }
+      } else if (e.type === 'scroll') {
         entry.mouse_scrolls++;
         entry.total_activity++;
       } else if (e.type === 'mousemove') {
@@ -157,12 +163,16 @@ export default function TimeTracking() {
     window.addEventListener('mousedown', handleActivity);
     window.addEventListener('wheel', handleActivity);
     window.addEventListener('scroll', handleActivity);
+    document.addEventListener('wheel', handleActivity, { passive: true });
+    document.addEventListener('touchmove', handleActivity, { passive: true });
     return () => {
       window.removeEventListener('mousemove', handleActivity);
       window.removeEventListener('keydown', handleActivity);
       window.removeEventListener('mousedown', handleActivity);
       window.removeEventListener('wheel', handleActivity);
       window.removeEventListener('scroll', handleActivity);
+      document.removeEventListener('wheel', handleActivity);
+      document.removeEventListener('touchmove', handleActivity);
       if (cleanupElectron) cleanupElectron();
     };
   }, []); // Remove isTracking dependency, use ref instead
@@ -542,32 +552,29 @@ export default function TimeTracking() {
   }, []);
 
   const scheduleRandomScreenshots = () => {
-    // Generate new shots for the next 10 minutes
+    // Generate 3 random shots for the next 10 minutes, excluding the fixed :59 minute
     const SHOT_COUNT = 3;
     const WINDOW_MINUTES = 10;
-    
-    // Generate distinct minute offsets (0 to 9)
-    const minuteOffsets = new Set<number>();
-    while (minuteOffsets.size < SHOT_COUNT) {
-      minuteOffsets.add(Math.floor(Math.random() * WINDOW_MINUTES));
-    }
-    
     const now = new Date();
+    const fixedNext = fixedShotNextTimeRef.current;
     const newTimes: Date[] = [];
-    
-    minuteOffsets.forEach(offset => {
-      // Calculate target time: Current time + offset minutes, set to 59 seconds
+    const usedOffsets = new Set<number>();
+    while (newTimes.length < SHOT_COUNT) {
+      const offset = Math.floor(Math.random() * WINDOW_MINUTES);
+      if (usedOffsets.has(offset)) continue;
       const target = new Date(now);
       target.setMinutes(now.getMinutes() + offset);
       target.setSeconds(59);
       target.setMilliseconds(0);
-      
-      // Only add if it's in the future (or very close)
-      if (target.getTime() > now.getTime()) {
-         newTimes.push(target);
+      if (target.getTime() <= now.getTime()) continue;
+      // Exclude the fixed :59 minute of the 10-min block
+      if (fixedNext && getMinuteKey(target) === getMinuteKey(fixedNext)) {
+        usedOffsets.add(offset);
+        continue;
       }
-    });
-    
+      newTimes.push(target);
+      usedOffsets.add(offset);
+    }
     randomShotTimesRef.current = newTimes;
     // console.log('Scheduled screenshots at:', newTimes.map(d => d.toLocaleTimeString()));
   };
@@ -663,29 +670,28 @@ export default function TimeTracking() {
           const lastHeartbeat = parsed.lastHeartbeat ? new Date(parsed.lastHeartbeat) : new Date(parsed.startAt);
           const timeSinceLastHeartbeat = now.getTime() - lastHeartbeat.getTime();
 
-          // Even if it is a reload, if the gap is HUGE (> 5 mins), it might be a "suspend/resume" scenario.
+          // Even if it is a reload, if the gap is significant (> 60s), treat as crash/sleep and stop previous.
           // But since sessionStorage usually clears on close, isReload=true implies the browser/process stayed open.
           // We'll trust isReload for now, but maybe keep the crash check as a fallback if needed.
           // Actually, if the computer slept for 10 hours with app open, and then woke up, 
           // isReload might be true (if session persisted), but time gap is huge.
           // Let's keep the crash check as a secondary safety for "Sleep Mode" issues.
-          if (timeSinceLastHeartbeat > 5 * 60 * 1000) {
-              // ... Same crash logic as before ...
-              toast.error('Tracking stopped due to system sleep/suspension.');
-              const start = new Date(parsed.startAt);
-              const durationMinutes = Math.round((lastHeartbeat.getTime() - start.getTime()) / 1000 / 60);
-              if (parsed.timeLogId) {
-                updateTimeLog.mutate({
-                  id: parsed.timeLogId,
-                  payload: {
-                    duration: durationMinutes,
-                    end_time: toLocalISOString(lastHeartbeat),
-                    description: parsed.note
-                  }
-                });
-              }
-              localStorage.removeItem(trackerKey);
-              return;
+          if (timeSinceLastHeartbeat > 60 * 1000) {
+            toast.error('Tracking stopped due to power/network cut.');
+            const start = new Date(parsed.startAt);
+            const durationMinutes = Math.round((lastHeartbeat.getTime() - start.getTime()) / 1000 / 60);
+            if (parsed.timeLogId) {
+              updateTimeLog.mutate({
+                id: parsed.timeLogId,
+                payload: {
+                  duration: durationMinutes,
+                  end_time: toLocalISOString(lastHeartbeat),
+                  description: parsed.note
+                }
+              });
+            }
+            localStorage.removeItem(trackerKey);
+            return;
           }
 
           // Resume normally
@@ -735,6 +741,15 @@ export default function TimeTracking() {
         }
       }
     } catch (e) { void e; }
+    
+    // Auto stop when the browser goes offline (power/network cut)
+    const handleOffline = () => {
+      if (isTrackingRef.current) {
+        toast.error('Offline detected. Tracking stopped automatically.');
+        stopTrackingRef.current();
+      }
+    };
+    window.addEventListener('offline', handleOffline);
     return () => {
       if (tickIntervalRef.current) window.clearInterval(tickIntervalRef.current);
       if (screenshotIntervalRef.current) window.clearInterval(screenshotIntervalRef.current);
@@ -742,6 +757,7 @@ export default function TimeTracking() {
       if (heartbeatIntervalRef.current) window.clearInterval(heartbeatIntervalRef.current);
       randomShotTimesRef.current = [];
       stopMediaTracks();
+      window.removeEventListener('offline', handleOffline);
     };
   }, []);
 
