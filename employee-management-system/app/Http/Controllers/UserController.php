@@ -233,16 +233,24 @@ class UserController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
         $disk = Storage::disk('public');
-        if (!$disk->exists($screenshot->file_path)) {
-            return response()->json(['message' => 'Not Found'], 404);
-        }
-        $stream = $disk->readStream($screenshot->file_path);
-        return response()->stream(function () use ($stream) {
-            fpassthru($stream);
-        }, 200, [
-            'Content-Type' => $screenshot->mime_type ?: 'application/octet-stream',
+        $mime = $screenshot->mime_type ?: 'application/octet-stream';
+        $headers = [
+            'Content-Type' => $mime,
             'Cache-Control' => 'public, max-age=31536000',
-        ]);
+        ];
+        try {
+            $path = $disk->path($screenshot->file_path);
+            if (is_file($path)) {
+                return response()->file($path, $headers);
+            }
+        } catch (\Throwable $e) {
+            // ignore and try alt
+        }
+        $alt = public_path('storage/' . ltrim($screenshot->file_path, '/'));
+        if (is_file($alt)) {
+            return response()->file($alt, $headers);
+        }
+        return response()->json(['message' => 'Not Found'], 404);
     }
 
     public function getActivitySummary(Request $request, User $user)
