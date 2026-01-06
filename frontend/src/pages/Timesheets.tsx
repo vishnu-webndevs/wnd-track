@@ -196,6 +196,14 @@ export default function Timesheets() {
     });
   }, [selectedLog, screenshots, activityRange, sortOrder]);
 
+  const secureUrl = (u?: string) => {
+    if (!u) return '';
+    if (u.startsWith('http://')) return 'https://' + u.slice(7);
+    if (u.startsWith('//')) return 'https:' + u;
+    if (u.startsWith('/')) return window.location.origin + u;
+    return u;
+  };
+
 
 
   const groupedByDate = useMemo(() => {
@@ -413,12 +421,12 @@ export default function Timesheets() {
                          <div 
                            className="cursor-pointer relative group"
                            onClick={() => setSelectedShot(shot)}
-                         >
-                           <img 
-                             src={shot.url ?? shot.file_path} 
-                             alt={shot.file_name} 
-                             className="w-full h-48 object-cover group-hover:opacity-95 transition-opacity" 
-                           />
+                        >
+                          <img 
+                            src={secureUrl(shot.url ?? shot.file_path)} 
+                            alt={shot.file_name} 
+                            className="w-full h-48 object-cover group-hover:opacity-95 transition-opacity" 
+                          />
                            <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/10 transition-colors">
                              <div className="opacity-0 group-hover:opacity-100 bg-black/50 text-white text-xs px-2 py-1 rounded">
                                View Full
@@ -520,7 +528,7 @@ export default function Timesheets() {
               <button onClick={() => setSelectedShot(null)} className="px-2 py-1 text-sm rounded bg-gray-100 text-gray-700">Close</button>
             </div>
             <div className="p-4">
-              <img src={selectedShot.url ?? selectedShot.file_path} alt={selectedShot.file_name} className="max-w-[85vw] max-h-[75vh] object-contain rounded" />
+              <img src={secureUrl(selectedShot.url ?? selectedShot.file_path)} alt={selectedShot.file_name} className="max-w-[85vw] max-h-[75vh] object-contain rounded" />
             </div>
           </div>
         </div>
