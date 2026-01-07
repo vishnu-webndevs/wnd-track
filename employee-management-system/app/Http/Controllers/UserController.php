@@ -232,42 +232,17 @@ class UserController extends Controller
         if ($screenshot->user_id !== $user->id) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
-        
-        $filePath = $screenshot->file_path;
-        // Clean path
-        $filePath = ltrim($filePath, '/');
-
-        // 1. Try Storage facade (Standard)
         $disk = Storage::disk('public');
-        if ($disk->exists($filePath)) {
-             return response()->file($disk->path($filePath), [
-                'Content-Type' => $screenshot->mime_type ?: 'image/webp',
-                'Cache-Control' => 'public, max-age=31536000',
-             ]);
+        if (!$disk->exists($screenshot->file_path)) {
+            return response()->json(['message' => 'Not Found'], 404);
         }
-
-        // 2. Try absolute path in storage/app/public (Direct check)
-        $storagePath = storage_path('app/public/' . $filePath);
-        if (file_exists($storagePath)) {
-            return response()->file($storagePath, [
-                'Content-Type' => $screenshot->mime_type ?: 'image/webp',
-                'Cache-Control' => 'public, max-age=31536000',
-            ]);
-        }
-
-        // 3. Try public folder symlink (Fallback)
-        $publicPath = public_path('storage/' . $filePath);
-        if (file_exists($publicPath)) {
-            return response()->file($publicPath, [
-                'Content-Type' => $screenshot->mime_type ?: 'image/webp',
-                'Cache-Control' => 'public, max-age=31536000',
-            ]);
-        }
-
-        // Log the failure for debugging
-        \Log::error("Screenshot not found. ID: {$screenshot->id}. Checked: StorageDisk, {$storagePath}, {$publicPath}");
-
-        return response()->json(['message' => 'Not Found'], 404);
+        $stream = $disk->readStream($screenshot->file_path);
+        return response()->stream(function () use ($stream) {
+            fpassthru($stream);
+        }, 200, [
+            'Content-Type' => $screenshot->mime_type ?: 'application/octet-stream',
+            'Cache-Control' => 'public, max-age=31536000',
+        ]);
     }
 
     public function getActivitySummary(Request $request, User $user)
