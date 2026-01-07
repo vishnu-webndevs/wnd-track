@@ -232,24 +232,41 @@ class UserController extends Controller
         if ($screenshot->user_id !== $user->id) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
+        
+        $filePath = $screenshot->file_path;
+        // Clean path
+        $filePath = ltrim($filePath, '/');
+
+        // 1. Try Storage facade (Standard)
         $disk = Storage::disk('public');
-        $mime = $screenshot->mime_type ?: 'application/octet-stream';
-        $headers = [
-            'Content-Type' => $mime,
-            'Cache-Control' => 'public, max-age=31536000',
-        ];
-        try {
-            $path = $disk->path($screenshot->file_path);
-            if (is_file($path)) {
-                return response()->file($path, $headers);
-            }
-        } catch (\Throwable $e) {
-            // ignore and try alt
+        if ($disk->exists($filePath)) {
+             return response()->file($disk->path($filePath), [
+                'Content-Type' => $screenshot->mime_type ?: 'image/webp',
+                'Cache-Control' => 'public, max-age=31536000',
+             ]);
         }
-        $alt = public_path('storage/' . ltrim($screenshot->file_path, '/'));
-        if (is_file($alt)) {
-            return response()->file($alt, $headers);
+
+        // 2. Try absolute path in storage/app/public (Direct check)
+        $storagePath = storage_path('app/public/' . $filePath);
+        if (file_exists($storagePath)) {
+            return response()->file($storagePath, [
+                'Content-Type' => $screenshot->mime_type ?: 'image/webp',
+                'Cache-Control' => 'public, max-age=31536000',
+            ]);
         }
+
+        // 3. Try public folder symlink (Fallback)
+        $publicPath = public_path('storage/' . $filePath);
+        if (file_exists($publicPath)) {
+            return response()->file($publicPath, [
+                'Content-Type' => $screenshot->mime_type ?: 'image/webp',
+                'Cache-Control' => 'public, max-age=31536000',
+            ]);
+        }
+
+        // Log the failure for debugging
+        \Log::error("Screenshot not found. ID: {$screenshot->id}. Checked: StorageDisk, {$storagePath}, {$publicPath}");
+
         return response()->json(['message' => 'Not Found'], 404);
     }
 
