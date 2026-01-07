@@ -14,7 +14,8 @@
     "check": "tsc -b --noEmit",
     "electron": "wait-on tcp:5173 && electron .",
     "electron:dev": "concurrently -k \"cross-env BROWSER=none npm run dev\" \"npm run electron\"",
-    "electron:build": "npm run build && electron-builder"
+    "electron:build": "npm run build && electron-builder",
+    "electron:pack": "npm run build && electron-packager . --overwrite --platform=win32 --arch=x64 --prune=true --out=release-builds --asar"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

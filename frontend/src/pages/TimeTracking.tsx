@@ -105,9 +105,18 @@ export default function TimeTracking() {
         };
         
         ipcRenderer.on('activity-update', handleActivityUpdate);
+
+        const handleAppClose = async () => {
+             if (isTrackingRef.current) {
+                 await stopTrackingRef.current();
+             }
+             ipcRenderer.send('app-closed-confirmed');
+        };
+        ipcRenderer.on('app-close', handleAppClose);
         
         cleanupElectron = () => {
           ipcRenderer.removeListener('activity-update', handleActivityUpdate);
+          ipcRenderer.removeListener('app-close', handleAppClose);
         };
       }
     } catch (e) {
@@ -597,10 +606,15 @@ export default function TimeTracking() {
 
   const stopMediaTracks = () => {
     if (visualCheckIntervalRef.current) window.clearInterval(visualCheckIntervalRef.current);
-    const stream = screenStreamRef.current;
+    
+    // Check both ref and global to ensure we really stop the stream
+    const stream = screenStreamRef.current || (window as any).__ttStream;
     if (stream) {
-      stream.getTracks().forEach((t) => t.stop());
+      try {
+        stream.getTracks().forEach((t: MediaStreamTrack) => t.stop());
+      } catch (e) { console.error('Error stopping tracks', e); }
     }
+    
     screenStreamRef.current = null;
     setHasStream(false);
     try { (window as any).__ttStream = null; } catch {}
