@@ -34,6 +34,8 @@ export default function Layout({ children }: LayoutProps) {
   const startAtRef = useRef<string | null>(null);
   const projectIdRef = useRef<number | null>(null);
   const lastFlushAtRef = useRef<Date | null>(null);
+  const [elapsed, setElapsed] = useState<string>('');
+  const [trackingOn, setTrackingOn] = useState<boolean>(false);
 
   
 
@@ -136,6 +138,40 @@ export default function Layout({ children }: LayoutProps) {
       listenersCleanup();
     };
   }, [location.pathname]);
+
+  // Global timer ticker
+  useEffect(() => {
+    const tick = () => {
+      const raw = localStorage.getItem('tt-tracker');
+      let isTracking = false;
+      let startAt: string | null = null;
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          isTracking = !!parsed.isTracking;
+          startAt = parsed.startAt || null;
+        } catch {}
+      }
+      setTrackingOn(isTracking && !!startAt);
+      if (isTracking && startAt) {
+        const start = new Date(startAt).getTime();
+        const now = Date.now();
+        const diff = Math.max(0, Math.floor((now - start) / 1000));
+        const h = Math.floor(diff / 3600);
+        const m = Math.floor((diff % 3600) / 60);
+        const s = diff % 60;
+        const hh = h.toString().padStart(2, '0');
+        const mm = m.toString().padStart(2, '0');
+        const ss = s.toString().padStart(2, '0');
+        setElapsed(`${hh}:${mm}:${ss}`);
+      } else {
+        setElapsed('');
+      }
+    };
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, []);
 
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: Home },
@@ -376,6 +412,20 @@ export default function Layout({ children }: LayoutProps) {
         </div>
         <main className="flex-1 relative overflow-y-auto focus:outline-none">
           <div className="py-6">
+            {trackingOn && (
+              <div className="sticky top-0 z-20 mb-4">
+                <div className="flex items-center justify-between bg-green-50 text-green-700 border border-green-200 rounded px-3 py-2 shadow-sm">
+                  <div className="flex items-center gap-2">
+                    <Timer className="w-4 h-4" />
+                    <span className="font-semibold">Tracking</span>
+                    <span className="font-mono">{elapsed}</span>
+                  </div>
+                  <Link to="/time-tracking" className="text-xs px-2 py-1 rounded bg-green-100 hover:bg-green-200">
+                    Open Tracker
+                  </Link>
+                </div>
+              </div>
+            )}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
               {children}
             </div>

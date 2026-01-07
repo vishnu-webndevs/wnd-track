@@ -38,12 +38,18 @@ export default function TimeTracking() {
   const randomShotTimesRef = useRef<Date[]>([]);
   const fixedShotNextTimeRef = useRef<Date | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
+  const [hasStream, setHasStream] = useState<boolean>(!!((window as any).__ttStream));
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const lastActivityRef = useRef<Date>(new Date());
   const lastCaptureTimeRef = useRef<Date>(new Date());
   const lastCapturedMinuteRef = useRef<string | null>(localStorage.getItem('tt-last-captured-minute'));
   const trackerKey = 'tt-tracker';
   const captureScreenshotRef = useRef<() => Promise<void>>(async () => {});
+  const mountedRef = useRef<boolean>(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
   const getMinuteKey = (date: Date) => {
     const offset = date.getTimezoneOffset() * 60000;
     const localDate = new Date(date.getTime() - offset);
@@ -303,6 +309,16 @@ export default function TimeTracking() {
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
       screenStreamRef.current = stream;
+      setHasStream(true);
+      // Persist stream globally to survive route changes
+      (window as any).__ttStream = stream;
+      // If user stops sharing manually, clear global reference
+      stream.getVideoTracks().forEach((t) => {
+        t.addEventListener('ended', () => {
+          try { (window as any).__ttStream = null; } catch {}
+          setHasStream(false);
+        });
+      });
       startVisualActivityCheck();
       return stream;
     } catch {
@@ -528,7 +544,7 @@ export default function TimeTracking() {
   }, [captureScreenshot]);
 
   const runTick = useCallback(() => {
-    setElapsed((e) => e + 1);
+    if (mountedRef.current) setElapsed((e) => e + 1);
     
     const now = new Date();
     const remainingTimes: Date[] = [];
@@ -586,6 +602,8 @@ export default function TimeTracking() {
       stream.getTracks().forEach((t) => t.stop());
     }
     screenStreamRef.current = null;
+    setHasStream(false);
+    try { (window as any).__ttStream = null; } catch {}
     previousFrameDataRef.current = null;
   };
 
@@ -699,6 +717,7 @@ export default function TimeTracking() {
           isTrackingRef.current = true;
           const startDate = new Date(parsed.startAt);
           setStartAt(startDate);
+          setElapsed(Math.max(0, Math.floor((Date.now() - startDate.getTime()) / 1000)));
           const tId = parsed.taskId ? Number(parsed.taskId) : undefined;
           setSelectedTaskId(tId);
           selectedTaskIdRef.current = tId;
@@ -708,6 +727,25 @@ export default function TimeTracking() {
             setActiveTimeLogId(parsed.timeLogId);
             startHeartbeat(parsed.timeLogId, startDate);
           }
+          // Ensure screen stream is active after navigation
+          (async () => {
+            try {
+              const cur = screenStreamRef.current || (window as any).__ttStream;
+              const track = cur ? cur.getVideoTracks()[0] : undefined;
+              if (!cur || !track || track.readyState === 'ended') {
+                // If global exists and track live, reattach without prompt
+                const g = (window as any).__ttStream;
+                const gTrack = g ? g.getVideoTracks()[0] : undefined;
+                if (g && gTrack && gTrack.readyState === 'live') {
+                  screenStreamRef.current = g;
+                  startVisualActivityCheck();
+                  setHasStream(true);
+                } else {
+                  await requestScreenCapture();
+                }
+              }
+            } catch {}
+          })();
           if (tickIntervalRef.current) window.clearInterval(tickIntervalRef.current);
           tickIntervalRef.current = window.setInterval(runTick, 1000);
           
@@ -751,12 +789,15 @@ export default function TimeTracking() {
     };
     window.addEventListener('offline', handleOffline);
     return () => {
-      if (tickIntervalRef.current) window.clearInterval(tickIntervalRef.current);
-      if (screenshotIntervalRef.current) window.clearInterval(screenshotIntervalRef.current);
-      if (fixedScreenshotIntervalRef.current) window.clearInterval(fixedScreenshotIntervalRef.current);
-      if (heartbeatIntervalRef.current) window.clearInterval(heartbeatIntervalRef.current);
-      randomShotTimesRef.current = [];
-      stopMediaTracks();
+      mountedRef.current = false;
+      if (!isTrackingRef.current) {
+        if (tickIntervalRef.current) window.clearInterval(tickIntervalRef.current);
+        if (screenshotIntervalRef.current) window.clearInterval(screenshotIntervalRef.current);
+        if (fixedScreenshotIntervalRef.current) window.clearInterval(fixedScreenshotIntervalRef.current);
+        if (heartbeatIntervalRef.current) window.clearInterval(heartbeatIntervalRef.current);
+        randomShotTimesRef.current = [];
+        stopMediaTracks();
+      }
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
@@ -1061,7 +1102,7 @@ export default function TimeTracking() {
           ) : (
             <button onClick={stopTracking} className="px-4 py-2 rounded bg-red-600 text-white">Stop</button>
           )}
-          {isTracking && !screenStreamRef.current && (
+          {isTracking && !hasStream && (
             <button onClick={requestScreenCapture} className="px-4 py-2 rounded bg-gray-200 text-gray-800">Resume Screenshots</button>
           )}
         </div>
