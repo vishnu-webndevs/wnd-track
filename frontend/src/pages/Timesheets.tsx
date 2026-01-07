@@ -445,15 +445,8 @@ export default function Timesheets() {
                          >
                            <img 
                             src={buildSrc(shot, true)} 
-                            // onError={async (e) => { 
-                            //   try {
-                            //     const url = await loadBlobUrl(shot);
-                            //     (e.currentTarget as HTMLImageElement).src = url;
-                            //   } catch {}
-                            // }}
-                            onError={(e) => {
-                              (e.currentTarget as HTMLImageElement).src = '/placeholder-image.png'; // Fallback to placeholder if main fails
-                              // Commented out API fallback as per request to stop 404 logs
+                            onError={(e) => { 
+                              (e.currentTarget as HTMLImageElement).src = '/placeholder-image.png';
                             }}
                             alt={shot.file_name} 
                             className="w-full h-48 object-cover group-hover:opacity-95 transition-opacity" 
@@ -561,15 +554,9 @@ export default function Timesheets() {
             <div className="p-4">
               <img 
                 src={buildSrc(selectedShot, true)} 
-                // onError={async (e) => { 
-                //   try {
-                //     const url = await loadBlobUrl(selectedShot);
-                //     (e.currentTarget as HTMLImageElement).src = url;
-                //   } catch {}
-                // }} 
-                onError={(e) => {
+                onError={(e) => { 
                   (e.currentTarget as HTMLImageElement).src = '/placeholder-image.png';
-                }}
+                }} 
                 alt={selectedShot.file_name} 
                 className="max-w-[85vw] max-h-[75vh] object-contain rounded" 
               />
