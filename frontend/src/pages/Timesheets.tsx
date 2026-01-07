@@ -446,7 +446,11 @@ export default function Timesheets() {
                            <img 
                             src={buildSrc(shot, true)} 
                             onError={(e) => { 
-                              (e.currentTarget as HTMLImageElement).src = '/placeholder-image.png';
+                              const img = e.currentTarget as HTMLImageElement;
+                              if (img.dataset.errored === 'true') return;
+                              img.dataset.errored = 'true';
+                              img.onerror = null;
+                              img.src = '/placeholder-image.png';
                             }}
                             alt={shot.file_name} 
                             className="w-full h-48 object-cover group-hover:opacity-95 transition-opacity" 
@@ -555,7 +559,11 @@ export default function Timesheets() {
               <img 
                 src={buildSrc(selectedShot, true)} 
                 onError={(e) => { 
-                  (e.currentTarget as HTMLImageElement).src = '/placeholder-image.png';
+                  const img = e.currentTarget as HTMLImageElement;
+                  if (img.dataset.errored === 'true') return;
+                  img.dataset.errored = 'true';
+                  img.onerror = null;
+                  img.src = '/placeholder-image.png';
                 }} 
                 alt={selectedShot.file_name} 
                 className="max-w-[85vw] max-h-[75vh] object-contain rounded" 
