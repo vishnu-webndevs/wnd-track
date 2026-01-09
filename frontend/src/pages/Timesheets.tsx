@@ -6,7 +6,10 @@ import { useAuthStore } from '../stores/authStore';
 import type { TimeLog, User, Screenshot } from '../types';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { toast } from 'sonner';
-import { api } from '../lib/api';
+
+type SimplePeerInstance = import('simple-peer').Instance;
+type SimplePeerSignalData = import('simple-peer').SignalData;
+type SimplePeerConstructor = typeof import('simple-peer')['default'];
 
 export default function Timesheets() {
   const queryClient = useQueryClient();
@@ -21,14 +24,25 @@ export default function Timesheets() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const pcRef = useRef<RTCPeerConnection | null>(null);
+  const peerRef = useRef<SimplePeerInstance | null>(null);
+
+  // We need to dynamically import SimplePeer because it requires Node polyfills
+  // which might cause issues if imported at the top level in some environments
+  const [SimplePeer, setSimplePeer] = useState<SimplePeerConstructor | null>(null);
 
   useEffect(() => {
+    import('simple-peer').then((module) => {
+       setSimplePeer(() => module.default);
+    });
+  }, []);
+
+  useEffect(() => {
+    shouldBeLiveRef.current = isLiveWatching;
     let interval: number;
     let keepAliveInterval: number;
     let signalInterval: number;
     
-    if (isLiveWatching && selectedLog && !selectedLog.end_time && employeeId) {
+    if (isLiveWatching && selectedLog && !selectedLog.end_time && employeeId && SimplePeer) {
        // Refresh screenshots (keep existing logic as fallback or history)
        interval = window.setInterval(() => {
           queryClient.invalidateQueries({ queryKey: ['timesheets', 'shots', employeeId] });
@@ -42,115 +56,234 @@ export default function Timesheets() {
           });
        }, 45000); 
 
-       // Polling for signaling (Answer & Candidates)
-       signalInterval = window.setInterval(async () => {
-           if (!pcRef.current) return;
+      // Polling for signaling (Answer & Candidates)
+      signalInterval = window.setInterval(async () => {
+           if (!peerRef.current) return;
            
            try {
-               // Check for Answer if not set
-               if (pcRef.current.signalingState === 'have-local-offer') {
-                   const answer = await usersAPI.getSignal(employeeId, 'answer');
-                   if (answer && answer.sdp) {
-                       await pcRef.current.setRemoteDescription(new RTCSessionDescription(answer));
-                   }
-               }
-               
-               // Check for Candidates
-               if (pcRef.current.remoteDescription) {
-                   const candidates = await usersAPI.getSignal(employeeId, 'candidate');
-                   if (candidates && Array.isArray(candidates)) {
-                       for (const cand of candidates) {
-                           if (cand.candidate) {
+               const offerData = await usersAPI.getSignal(employeeId, 'offer');
+               if (offerData) {
+                   const sanitizeSdp = (sdp: string) => {
+                       const lines = sdp.split(/\r\n|\n/);
+                       const filtered = lines.filter((l) => !l.startsWith('a=max-message-size:'));
+                       const rebuilt = filtered.join('\r\n').trim();
+                       return rebuilt ? `${rebuilt}\r\n` : rebuilt;
+                   };
+
+                   const normalizeOffer = (input: unknown): SimplePeerSignalData | null => {
+                       if (!input) return null;
+                       if (typeof input === 'string') {
+                           const trimmed = input.trim();
+                           if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
                                try {
-                                   await pcRef.current.addIceCandidate(cand.candidate);
-                               } catch (e) { console.warn(e); }
+                                   return JSON.parse(trimmed) as SimplePeerSignalData;
+                               } catch {
+                                   return { type: 'offer', sdp: trimmed } as SimplePeerSignalData;
+                               }
+                           }
+                           return { type: 'offer', sdp: trimmed } as SimplePeerSignalData;
+                       }
+                       if (typeof input === 'object') {
+                           const obj = input as Record<string, unknown>;
+                           if (typeof obj.type === 'string' && (typeof obj.sdp === 'string' || typeof obj.candidate === 'string' || typeof obj.candidate === 'object')) {
+                               return obj as unknown as SimplePeerSignalData;
+                           }
+                           if (typeof obj.sdp === 'string') {
+                               return { type: 'offer', sdp: obj.sdp } as SimplePeerSignalData;
                            }
                        }
+                       return null;
+                   };
+
+                   const normalized = normalizeOffer(offerData);
+                   const cleanedSdp =
+                       normalized && typeof (normalized as unknown as { sdp?: unknown }).sdp === 'string'
+                           ? sanitizeSdp((normalized as unknown as { sdp: string }).sdp)
+                           : null;
+                   const dedupeKey = cleanedSdp ?? JSON.stringify(normalized);
+
+                   if (normalized && dedupeKey && dedupeKey !== lastSignalRef.current) {
+                        lastSignalRef.current = dedupeKey;
+                        if (isPeerConnectedRef.current) {
+                             startLiveSession();
+                        } else {
+                             const toSignal =
+                                 cleanedSdp && typeof (normalized as unknown as { sdp?: unknown }).sdp === 'string'
+                                     ? ({ ...(normalized as unknown as Record<string, unknown>), sdp: cleanedSdp } as unknown as SimplePeerSignalData)
+                                     : normalized;
+                             peerRef.current.signal(toSignal);
+                        }
                    }
                }
-           } catch (e) { console.warn(e); }
-       }, 2000);
+
+               // Check for candidates
+               const candidates = await usersAPI.getSignal(employeeId, 'candidate');
+               if (candidates && Array.isArray(candidates)) {
+                   const normalizeCandidate = (input: unknown): SimplePeerSignalData | null => {
+                       if (!input) return null;
+                       if (typeof input === 'string') {
+                           try {
+                               const parsed = JSON.parse(input) as unknown;
+                               return normalizeCandidate(parsed);
+                           } catch {
+                               return null;
+                           }
+                       }
+                       if (typeof input === 'object') {
+                           const obj = input as Record<string, unknown>;
+                           if (typeof obj.type === 'string') return obj as unknown as SimplePeerSignalData;
+                           if (typeof obj.candidate === 'string') return { type: 'candidate', candidate: obj.candidate } as unknown as SimplePeerSignalData;
+                           return { type: 'candidate', candidate: obj as unknown as RTCIceCandidateInit } as unknown as SimplePeerSignalData;
+                       }
+                       return null;
+                   };
+
+                   for (const cand of candidates as Array<{ candidate?: unknown }>) {
+                       const raw = cand?.candidate;
+                       if (!raw) continue;
+                       const normalized = normalizeCandidate(raw);
+                       if (!normalized) continue;
+                       peerRef.current.signal(normalized);
+                   }
+               }
+
+           } catch (e) { void e; }
+       }, 2000); // Poll faster for responsiveness
     }
     return () => {
        window.clearInterval(interval);
        window.clearInterval(keepAliveInterval);
        window.clearInterval(signalInterval);
        
-       if (pcRef.current) {
-           pcRef.current.close();
-           pcRef.current = null;
+       if (peerRef.current) {
+           peerRef.current.destroy();
+           peerRef.current = null;
        }
     };
-  }, [isLiveWatching, selectedLog, employeeId, queryClient]);
+  }, [isLiveWatching, selectedLog, employeeId, queryClient, SimplePeer]);
+
+  const lastSignalRef = useRef<string | null>(null);
+  const isPeerConnectedRef = useRef(false);
+  const shouldBeLiveRef = useRef(false);
+
+  const startLiveSession = async () => {
+    if (!employeeId || !SimplePeer) return;
+    shouldBeLiveRef.current = true;
+    
+    try {
+        if (peerRef.current) {
+            try { peerRef.current.destroy(); } catch (e) { void e; }
+            peerRef.current = null;
+        }
+        isPeerConnectedRef.current = false;
+
+        // Ensure we trigger live mode on backend
+        await usersAPI.triggerLive(employeeId);
+        
+        const getIceServers = () => {
+            const env = (import.meta as unknown as { env: Record<string, string | undefined> }).env;
+            const turnUrl = env?.VITE_TURN_URL;
+            const turnUser = env?.VITE_TURN_USERNAME;
+            const turnPass = env?.VITE_TURN_PASSWORD;
+            const servers: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }];
+            if (turnUrl && turnUser && turnPass) {
+                servers.push({ urls: turnUrl, username: turnUser, credential: turnPass });
+            }
+            return servers;
+        };
+
+        const p = new SimplePeer({
+            initiator: false,
+            trickle: true,
+            config: { iceServers: getIceServers() }
+        });
+        peerRef.current = p;
+
+        p.on('signal', async (data: SimplePeerSignalData) => {
+            const sanitizeSdp = (sdp: string) => {
+                const lines = sdp.split(/\r\n|\n/);
+                const filtered = lines.filter((l) => !l.startsWith('a=max-message-size:'));
+                const rebuilt = filtered.join('\r\n').trim();
+                return rebuilt ? `${rebuilt}\r\n` : rebuilt;
+            };
+
+            // console.info('[LiveView][Admin] Signal generated', data.type);
+            if ((data as { type?: string }).type === 'answer') {
+                const sdp = (data as unknown as { sdp?: unknown }).sdp;
+                const payload = { ...(data as unknown as Record<string, unknown>) };
+                if (typeof sdp === 'string') payload.sdp = sanitizeSdp(sdp);
+                await usersAPI.signal(employeeId, { type: 'answer', sdp: payload });
+            } else if ((data as { type?: string }).type === 'candidate') {
+                 await usersAPI.signal(employeeId, { type: 'candidate', candidate: data as unknown as Record<string, unknown> });
+            } else {
+                 await usersAPI.signal(employeeId, { type: 'answer', sdp: data as unknown as Record<string, unknown> });
+            }
+        });
+
+        p.on('connect', () => {
+            isPeerConnectedRef.current = true;
+            toast.success('Stream Connected');
+        });
+
+        p.on('stream', (stream: MediaStream) => {
+            if (videoRef.current) {
+                videoRef.current.srcObject = stream;
+                videoRef.current.play().catch(() => {});
+            }
+        });
+        
+        p.on('error', (err: unknown) => {
+            void err;
+        });
+
+        p.on('close', () => {
+            isPeerConnectedRef.current = false;
+            if (shouldBeLiveRef.current) {
+                setTimeout(() => startLiveSession(), 1000);
+            }
+        });
+
+    } catch (error) {
+        void error;
+        toast.error('Failed to start Live View');
+    }
+  };
+
+  const stopLiveSession = async () => {
+      shouldBeLiveRef.current = false;
+      if (employeeId) {
+          try { await usersAPI.stopLive(employeeId); } catch (e) { void e; }
+      }
+      if (peerRef.current) {
+          try { peerRef.current.destroy(); } catch (e) { void e; }
+          peerRef.current = null;
+      }
+      isPeerConnectedRef.current = false;
+      setIsLiveWatching(false);
+      if (videoRef.current) videoRef.current.srcObject = null;
+  };
 
   const handleLiveToggle = async () => {
     if (!employeeId) return;
+    if (!SimplePeer) {
+        toast.error('WebRTC library not loaded yet, please wait...');
+        return;
+    }
+
     if (!isLiveWatching) {
-      try {
-        await usersAPI.triggerLive(employeeId);
         setIsLiveWatching(true);
-        toast.success('Live View requested. Connecting...');
-        
-        // Init WebRTC
-        if (pcRef.current) {
-            pcRef.current.close();
-        }
-
-        const pc = new RTCPeerConnection({
-            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-        });
-        pcRef.current = pc;
-        
-        pc.addTransceiver('video', { direction: 'recvonly' });
-        
-        pc.ontrack = (event) => {
-            console.log('Stream received', event.streams);
-            if (videoRef.current && event.streams[0]) {
-                videoRef.current.srcObject = event.streams[0];
-                videoRef.current.play().catch(e => console.error('Auto-play failed', e));
-            }
-        };
-
-        pc.onconnectionstatechange = () => {
-             console.log('Connection State:', pc.connectionState);
-             if (pc.connectionState === 'connected') {
-                 toast.success('Stream Connected');
-             } else if (pc.connectionState === 'failed') {
-                 toast.error('Connection Failed. Retrying...');
-             }
-        };
-        
-        pc.onicecandidate = (event) => {
-             if (event.candidate) {
-                 usersAPI.signal(employeeId, { type: 'candidate', candidate: event.candidate });
-             }
-        };
-        
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        await usersAPI.signal(employeeId, { type: 'offer', sdp: offer.sdp });
-        
-      } catch (e) {
-        toast.error('Failed to start Live View');
-      }
+        toast.success('Live View requested...');
+        await startLiveSession();
     } else {
-      try {
-        await usersAPI.stopLive(employeeId);
+        await stopLiveSession();
         toast.info('Live View Stopped');
-      } catch (e) {
-        console.error(e);
-      }
-      setIsLiveWatching(false);
-      if (pcRef.current) {
-          pcRef.current.close();
-          pcRef.current = null;
-      }
     }
   };
 
   const { data: employees, isLoading: loadingEmployees } = useQuery<{ data: User[] }>({
     queryKey: ['employees', 'timesheets', search],
     queryFn: () => usersAPI.getUsers({ role: 'employee', search, page: 1 }),
+    enabled: !!user && user.role === 'admin',
   });
 
   const { data: timeLogs, isLoading: loadingLogs } = useQuery<TimeLog[]>({
@@ -216,14 +349,6 @@ export default function Timesheets() {
     return '';
   };
 
-  const blobUrlCacheRef = useRef<Record<number, string>>({});
-  const loadBlobUrl = async (shot: Screenshot) => {
-    if (blobUrlCacheRef.current[shot.id]) return blobUrlCacheRef.current[shot.id];
-    const res = await api.get(`/users/${shot.user_id}/screenshots/${shot.id}/file`, { responseType: 'blob' });
-    const url = URL.createObjectURL(res.data);
-    blobUrlCacheRef.current[shot.id] = url;
-    return url;
-  };
 
 
 
@@ -394,7 +519,7 @@ export default function Timesheets() {
                   <button 
                     onClick={async () => { 
                       if (isLiveWatching && employeeId) {
-                        try { await usersAPI.stopLive(employeeId); } catch(e){}
+                        try { await usersAPI.stopLive(employeeId); } catch { void 0; }
                       }
                       setSelectedLog(null); 
                       setIsLiveWatching(false); 

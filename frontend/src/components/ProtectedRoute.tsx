@@ -1,5 +1,6 @@
 import { Navigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
+import LoadingSpinner from './LoadingSpinner';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -7,7 +8,11 @@ interface ProtectedRouteProps {
 }
 
 export default function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
-  const { isAuthenticated, user } = useAuthStore();
+  const { isAuthenticated, user, authChecked } = useAuthStore();
+
+  if (!authChecked) {
+    return <LoadingSpinner size="md" className="h-64" />;
+  }
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;

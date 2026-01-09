@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 
 interface User {
   id: number;
@@ -16,39 +15,34 @@ interface User {
 
 interface AuthState {
   user: User | null;
-  token: string | null;
   isAuthenticated: boolean;
-  login: (user: User, token: string) => void;
+  authChecked: boolean;
+  login: (user: User) => void;
   logout: () => void;
   updateUser: (user: Partial<User>) => void;
+  setAuthChecked: (checked: boolean) => void;
 }
 
-export const useAuthStore = create<AuthState>()(
-  persist(
-    (set) => ({
-      user: null,
-      token: null,
-      isAuthenticated: false,
-      login: (user, token) => {
-        set({ user, token, isAuthenticated: true });
-        localStorage.setItem('token', token);
-        localStorage.setItem('user', JSON.stringify(user));
-      },
-      logout: () => {
-        set({ user: null, token: null, isAuthenticated: false });
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-      },
-      updateUser: (userData) => {
-        set((state) => ({
-          user: state.user ? { ...state.user, ...userData } : null,
-        }));
-        const updatedUser = { ...JSON.parse(localStorage.getItem('user') || '{}'), ...userData };
-        localStorage.setItem('user', JSON.stringify(updatedUser));
-      },
-    }),
-    {
-      name: 'auth-storage',
-    }
-  )
-);
+const AUTH_LAST_USED_KEY = 'auth-last-used-at';
+
+export const useAuthStore = create<AuthState>()((set) => ({
+  user: null,
+  isAuthenticated: false,
+  authChecked: false,
+  login: (user) => {
+    set({ user, isAuthenticated: true, authChecked: true });
+    localStorage.setItem(AUTH_LAST_USED_KEY, String(Date.now()));
+  },
+  logout: () => {
+    set({ user: null, isAuthenticated: false, authChecked: true });
+    localStorage.removeItem(AUTH_LAST_USED_KEY);
+  },
+  updateUser: (userData) => {
+    set((state) => ({
+      user: state.user ? { ...state.user, ...userData } : null,
+    }));
+  },
+  setAuthChecked: (checked) => {
+    set({ authChecked: checked });
+  },
+}));

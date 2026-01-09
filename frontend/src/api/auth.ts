@@ -18,16 +18,16 @@ export interface RegisterData {
 }
 
 export const authAPI = {
-  login: async (credentials: LoginCredentials): Promise<{ user: User; token: string }> => {
+  login: async (credentials: LoginCredentials): Promise<{ user: User }> => {
     const response = await api.post('/login', credentials);
-    const { user, token } = response.data;
-    return { user, token };
+    const { user } = response.data;
+    return { user };
   },
 
-  register: async (data: RegisterData): Promise<{ user: User; token: string }> => {
+  register: async (data: RegisterData): Promise<{ user: User }> => {
     const response = await api.post('/register', data);
-    const { user, token } = response.data;
-    return { user, token };
+    const { user } = response.data;
+    return { user };
   },
 
   logout: async (): Promise<void> => {

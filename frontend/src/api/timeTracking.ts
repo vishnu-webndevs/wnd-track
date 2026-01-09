@@ -25,6 +25,16 @@ export interface ActivityPayload {
   mouse_scroll_count?: number;
 }
 
+export interface ActivityMinute {
+  time: string;
+  keyboard_clicks: number;
+  mouse_clicks: number;
+  mouse_scrolls: number;
+  mouse_movements: number;
+  total_activity: number;
+  timestamp: string;
+}
+
 export const timeTrackingAPI = {
   syncTimeLog: async (payload: SyncTimeLogPayload) => {
     const res = await api.post('/desktop/time-log', payload);
@@ -34,7 +44,7 @@ export const timeTrackingAPI = {
     const res = await api.put(`/desktop/time-log/${id}`, payload);
     return res.data.time_log;
   },
-  uploadScreenshot: async (project_id: number, file: File, captured_at: string, minute_breakdown?: any[], time_log_id?: number) => {
+  uploadScreenshot: async (project_id: number, file: File, captured_at: string, minute_breakdown?: ActivityMinute[], time_log_id?: number) => {
     const form = new FormData();
     form.append('project_id', String(project_id));
     form.append('screenshot', file);

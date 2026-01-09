@@ -76,6 +76,7 @@ export default function Projects() {
   const { data: users } = useQuery<{ data: User[] }>({
     queryKey: ['users', 'for-projects'],
     queryFn: () => usersAPI.getUsers({ page: 1 }),
+    enabled: currentUser?.role === 'admin',
   });
 
   const clientOptions = useMemo(() => (clients?.data ?? []), [clients]);

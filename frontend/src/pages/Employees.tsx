@@ -30,6 +30,7 @@ export default function Employees() {
       status: statusFilter as 'active' | 'inactive' | undefined,
       page,
     }),
+    enabled: currentUser?.role === 'admin',
   });
 
   const createSchema = z.object({

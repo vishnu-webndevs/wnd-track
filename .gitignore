@@ -20,6 +20,9 @@ dist/
 build/
 release-packager*/
 release-installer/
+release-builds-live/
+release-builds-rc/
+release-builds/
 out/
 
 # Logs

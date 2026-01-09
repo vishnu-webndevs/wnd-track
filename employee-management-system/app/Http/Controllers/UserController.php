@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Models\Signal;
 use App\Models\TimeLog;
 use App\Models\Screenshot;
 use App\Models\ActivityLog;
@@ -410,13 +411,14 @@ class UserController extends Controller
     public function triggerLive(Request $request, User $user)
     {
         // Allow admin/manager to trigger live view for a user
-        Cache::put('live_view_' . $user->id, true, 60); // 1 minute
+        Cache::put('live_view_' . $user->id, true, 120);
         return response()->json(['message' => 'Live view triggered']);
     }
 
     public function stopLive(Request $request, User $user)
     {
         Cache::forget('live_view_' . $user->id);
+        Signal::where('user_id', $user->id)->delete();
         return response()->json(['message' => 'Live view stopped']);
     }
 
@@ -426,8 +428,19 @@ class UserController extends Controller
         $userId = auth()->id();
         $isLive = Cache::get('live_view_' . $userId, false);
         
-        // Also check for WebRTC offer
-        $offer = Cache::pull('signal_offer_' . $userId);
+        $offer = null;
+        if ($isLive) {
+            $signal = Signal::where('user_id', $userId)
+                ->where('from_admin', true)
+                ->where('type', 'offer')
+                ->where('created_at', '>=', now()->subMinutes(2))
+                ->latest()
+                ->first();
+            
+            if ($signal) {
+                $offer = json_decode($signal->sdp);
+            }
+        }
 
         return response()->json([
             'live_mode' => $isLive,
@@ -444,23 +457,20 @@ class UserController extends Controller
         ]);
 
         // Determine direction
-        // If auth user is the target user => sending TO admin (e.g. answer, candidate)
-        // If auth user is admin (not target) => sending TO user (e.g. offer, candidate)
         $isTargetUser = auth()->id() === $user->id;
+        $fromAdmin = !$isTargetUser;
 
-        if ($data['type'] === 'candidate') {
-             $direction = $isTargetUser ? 'from_user' : 'from_admin';
-             $cacheKey = "signal_candidates_{$user->id}_{$direction}";
-             $candidates = Cache::get($cacheKey, []);
-             $candidates[] = $data;
-             Cache::put($cacheKey, $candidates, 60);
-        } else {
-             // Offer or Answer
-             // Offer: Admin -> User (key: signal_offer_{id})
-             // Answer: User -> Admin (key: signal_answer_{id})
-             $key = "signal_{$data['type']}_{$user->id}";
-             Cache::put($key, $data, 60);
-        }
+        $sdp = isset($data['sdp']) ? (is_string($data['sdp']) ? $data['sdp'] : json_encode($data['sdp'])) : null;
+        $candidate = isset($data['candidate']) ? (is_string($data['candidate']) ? $data['candidate'] : json_encode($data['candidate'])) : null;
+
+        Signal::create([
+            'user_id' => $user->id,
+            'from_admin' => $fromAdmin,
+            'type' => $data['type'],
+            'sdp' => $sdp,
+            'candidate' => $candidate,
+            'is_read' => false
+        ]);
 
         return response()->json(['status' => 'ok']);
     }
@@ -469,21 +479,53 @@ class UserController extends Controller
     {
         $type = $request->query('type');
         
-        if ($type === 'candidate') {
-            // If I am the user, I want candidates FROM admin.
-            // If I am admin, I want candidates FROM user.
-            $isTargetUser = auth()->id() === $user->id;
-            $direction = $isTargetUser ? 'from_admin' : 'from_user';
-            
-            $key = "signal_candidates_{$user->id}_{$direction}";
-            $data = Cache::pull($key, []); 
-            return response()->json($data);
+        $isTargetUser = auth()->id() === $user->id;
+        // If I am user, I want signals FROM admin (from_admin=true).
+        // If I am admin, I want signals FROM user (from_admin=false).
+        $wantFromAdmin = $isTargetUser; 
+
+        $query = Signal::where('user_id', $user->id)
+            ->where('from_admin', $wantFromAdmin)
+            ->where('is_read', false);
+
+        if ($type) {
+            $query->where('type', $type);
         }
-        
-        // For Answer (Admin polling for answer)
-        // For Offer (User polling for offer - handled in checkLiveStatus but can be here too)
-        $key = "signal_{$type}_{$user->id}";
-        $data = Cache::pull($key); 
-        return response()->json($data);
+
+        if ($type === 'candidate') {
+            $signals = $query->get();
+            
+            // Mark as read
+            if ($signals->isNotEmpty()) {
+                Signal::whereIn('id', $signals->pluck('id'))->update(['is_read' => true]);
+            }
+            
+            $data = $signals->map(function($s) {
+                return [
+                    'type' => 'candidate',
+                    'candidate' => json_decode($s->candidate),
+                ];
+            });
+            
+            return response()->json($data);
+        } else {
+            $signal = $query->latest()->first();
+            
+            if ($signal) {
+                $signal->update(['is_read' => true]);
+                // Merge sdp object with type
+                $sdpData = json_decode($signal->sdp, true);
+                if (is_array($sdpData)) {
+                    return response()->json($sdpData);
+                }
+                return response()->json([
+                    'type' => $signal->type,
+                    'sdp' => $sdpData, // might be string or object
+                    'candidate' => json_decode($signal->candidate)
+                ]);
+            }
+            
+            return response()->json(null);
+        }
     }
 }

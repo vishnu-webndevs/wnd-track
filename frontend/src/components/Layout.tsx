@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import { timeTrackingAPI } from '../api/timeTracking';
+import { authAPI } from '../api/auth';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -26,7 +27,6 @@ export default function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
 
-  type ActivityType = 'app_focus' | 'window_switch' | 'idle' | 'active' | 'mouse_click' | 'keyboard_input' | 'scroll';
   const activityCountsRef = useRef({ keyboard: 0, mouse: 0, scroll: 0 });
   const flushIntervalRef = useRef<number | null>(null);
   const pollIntervalRef = useRef<number | null>(null);
@@ -150,7 +150,7 @@ export default function Layout({ children }: LayoutProps) {
           const parsed = JSON.parse(raw);
           isTracking = !!parsed.isTracking;
           startAt = parsed.startAt || null;
-        } catch {}
+        } catch { void 0; }
       }
       setTrackingOn(isTracking && !!startAt);
       if (isTracking && startAt) {
@@ -187,7 +187,12 @@ export default function Layout({ children }: LayoutProps) {
     { name: 'Settings', href: '/settings', icon: Settings },
   ];
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await authAPI.logout();
+    } catch (e) {
+      void e;
+    }
     logout();
     navigate('/login');
   };
@@ -198,11 +203,9 @@ export default function Layout({ children }: LayoutProps) {
 
   // Handle Electron App Close Gracefully
   useEffect(() => {
-    // Check if running in Electron
-    // @ts-ignore
-    if (window.require) {
-      // @ts-ignore
-      const { ipcRenderer } = window.require('electron');
+    const w = window as unknown as { require?: (name: 'electron') => { ipcRenderer: { on: (channel: string, listener: (...args: unknown[]) => void) => void; removeListener: (channel: string, listener: (...args: unknown[]) => void) => void; send: (channel: string, ...args: unknown[]) => void } } };
+    if (typeof w.require === 'function') {
+      const { ipcRenderer } = w.require('electron');
       
       const handleAppClose = async () => {
         const raw = localStorage.getItem('tt-tracker');

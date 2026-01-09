@@ -11,6 +11,7 @@ node_modules
 dist
 dist-ssr
 release-builds
+release-builds-live
 release-installer
 cache
 *.local

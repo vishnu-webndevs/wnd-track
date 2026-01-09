@@ -1,12 +1,16 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { timeTrackingAPI } from '../api/timeTracking';
+import { useQuery, useMutation } from '@tanstack/react-query';
+import { timeTrackingAPI, ActivityMinute } from '../api/timeTracking';
 import { tasksAPI } from '../api/tasks';
 import { projectsAPI } from '../api/projects';
 import { usersAPI } from '../api/users';
 import { useAuthStore } from '../stores/authStore';
 import { toast } from 'sonner';
 import LoadingSpinner from '../components/LoadingSpinner';
+
+type SimplePeerInstance = import('simple-peer').Instance;
+type SimplePeerSignalData = import('simple-peer').SignalData;
+type SimplePeerConstructor = typeof import('simple-peer')['default'];
 
 export default function TimeTracking() {
   const { user } = useAuthStore();
@@ -38,10 +42,26 @@ export default function TimeTracking() {
   const randomShotTimesRef = useRef<Date[]>([]);
   const fixedShotNextTimeRef = useRef<Date | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
-  const [hasStream, setHasStream] = useState<boolean>(!!((window as any).__ttStream));
-  const pcRef = useRef<RTCPeerConnection | null>(null);
+  const [hasStream, setHasStream] = useState<boolean>(!!((window as unknown as { __ttStream?: MediaStream | null }).__ttStream));
+  const peerRef = useRef<SimplePeerInstance | null>(null);
+  const lastOfferSdpRef = useRef<string | null>(null);
+  const lastAnswerSdpRef = useRef<string | null>(null);
   const lastActivityRef = useRef<Date>(new Date());
+  
+  // We need to dynamically import SimplePeer because it requires Node polyfills
+  const [SimplePeer, setSimplePeer] = useState<SimplePeerConstructor | null>(null);
+
+  useEffect(() => {
+    import('simple-peer').then((module) => {
+       setSimplePeer(() => module.default);
+    });
+  }, []);
+
   const lastCaptureTimeRef = useRef<Date>(new Date());
+  const [livePromptOpen, setLivePromptOpen] = useState(false);
+  const liveRequestActiveRef = useRef<boolean>(false);
+  const livePromptAckRef = useRef<boolean>(false);
+  const screenshotMissingWarnedRef = useRef<boolean>(false);
   const lastCapturedMinuteRef = useRef<string | null>(localStorage.getItem('tt-last-captured-minute'));
   const trackerKey = 'tt-tracker';
   const captureScreenshotRef = useRef<() => Promise<void>>(async () => {});
@@ -49,6 +69,17 @@ export default function TimeTracking() {
   useEffect(() => {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
+  }, []);
+  useEffect(() => {
+    try {
+      const g = (window as unknown as { __ttStream?: MediaStream | null }).__ttStream || null;
+      const t = g ? g.getVideoTracks()[0] : undefined;
+      const isLive = !!(g && t && t.readyState === 'live');
+      setHasStream(isLive);
+      if (!isLive) {
+        try { (window as unknown as { __ttStream?: MediaStream | null }).__ttStream = null; } catch { void 0; }
+      }
+    } catch { void 0; }
   }, []);
   const getMinuteKey = (date: Date) => {
     const offset = date.getTimezoneOffset() * 60000;
@@ -74,11 +105,23 @@ export default function TimeTracking() {
 
     // Try to setup Electron IPC listener
     try {
-      if ((window as any).require) {
-         const { ipcRenderer } = (window as any).require('electron');
+      const w = window as unknown as {
+        require?: (name: 'electron') => {
+          ipcRenderer: {
+            on: (channel: string, listener: (...args: unknown[]) => void) => void;
+            removeListener: (channel: string, listener: (...args: unknown[]) => void) => void;
+            send: (channel: string, ...args: unknown[]) => void;
+          };
+        };
+      };
+      if (w.require) {
+         const { ipcRenderer } = w.require('electron');
          isElectron = true;
          
-         const handleActivityUpdate = (_e: any, counts: any) => {
+         const handleActivityUpdate = (
+           _e: unknown,
+           counts: { keyboard: number; mouseClicks: number; mouseScrolls: number; mouseMovements: number }
+         ) => {
              if (!isTrackingRef.current) return;
              const now = new Date();
              lastActivityRef.current = now;
@@ -119,8 +162,8 @@ export default function TimeTracking() {
           ipcRenderer.removeListener('app-close', handleAppClose);
         };
       }
-    } catch (e) {
-      console.warn('Not in Electron environment');
+    } catch {
+      void 0;
     }
 
     if (isElectron) {
@@ -227,9 +270,32 @@ export default function TimeTracking() {
   
 
   const uploadShot = useMutation({
-    mutationFn: (args: { projectId: number; file: File; capturedAt: string; minuteBreakdown?: any[]; timeLogId?: number }) =>
+    mutationFn: (args: { projectId: number; file: File; capturedAt: string; minuteBreakdown?: ActivityMinute[]; timeLogId?: number }) =>
       timeTrackingAPI.uploadScreenshot(args.projectId, args.file, args.capturedAt, args.minuteBreakdown, args.timeLogId),
   });
+
+  const startShotSchedule = () => {
+    if (screenshotIntervalRef.current) window.clearInterval(screenshotIntervalRef.current);
+    if (fixedScreenshotIntervalRef.current) window.clearInterval(fixedScreenshotIntervalRef.current);
+    scheduleRandomScreenshots();
+    {
+      const now2 = new Date();
+      const m = now2.getMinutes();
+      const endMin = Math.floor(m / 10) * 10 + 9;
+      const target = new Date(now2);
+      if (m > endMin || (m === endMin && now2.getSeconds() >= 59)) {
+        target.setMinutes(endMin + 10);
+      } else {
+        target.setMinutes(endMin);
+      }
+      target.setSeconds(59);
+      target.setMilliseconds(0);
+      fixedShotNextTimeRef.current = target;
+    }
+    screenshotIntervalRef.current = window.setInterval(() => {
+      scheduleRandomScreenshots();
+    }, 10 * 60 * 1000);
+  };
 
   const startVisualActivityCheck = async () => {
     if (visualCheckIntervalRef.current) window.clearInterval(visualCheckIntervalRef.current);
@@ -308,8 +374,8 @@ export default function TimeTracking() {
         }
         
         previousFrameDataRef.current = frameData;
-      } catch (e) {
-        console.warn('Visual activity check failed', e);
+      } catch {
+        void 0;
       }
     }, 1000); // Check every second
   };
@@ -319,16 +385,32 @@ export default function TimeTracking() {
       const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
       screenStreamRef.current = stream;
       setHasStream(true);
+      screenshotMissingWarnedRef.current = false;
+
+      // If we have an active peer connection, we should reset it so it picks up the new stream
+      if (peerRef.current) {
+        try { peerRef.current.destroy(); } catch { void 0; }
+        peerRef.current = null;
+        // The next pollLiveStatus tick will recreate the peer with the new stream
+      }
       // Persist stream globally to survive route changes
-      (window as any).__ttStream = stream;
+      (window as unknown as { __ttStream?: MediaStream | null }).__ttStream = stream;
       // If user stops sharing manually, clear global reference
       stream.getVideoTracks().forEach((t) => {
         t.addEventListener('ended', () => {
-          try { (window as any).__ttStream = null; } catch {}
+          try { (window as unknown as { __ttStream?: MediaStream | null }).__ttStream = null; } catch { void 0; }
+          try { peerRef.current?.destroy(); peerRef.current = null; } catch { void 0; }
           setHasStream(false);
+          if (screenshotIntervalRef.current) window.clearInterval(screenshotIntervalRef.current);
+          if (fixedScreenshotIntervalRef.current) window.clearInterval(fixedScreenshotIntervalRef.current);
+          randomShotTimesRef.current = [];
+          fixedShotNextTimeRef.current = null;
         });
       });
       startVisualActivityCheck();
+      if (isTrackingRef.current) {
+        startShotSchedule();
+      }
       return stream;
     } catch {
       toast.error('Screen capture permission denied');
@@ -345,26 +427,40 @@ export default function TimeTracking() {
 
     const projectId = getProjectId(selectedTaskIdRef.current);
     if (!projectId) {
-      console.warn('Skipping screenshot: No project ID found for task', selectedTaskIdRef.current);
       return;
     }
     
-    const stream = screenStreamRef.current;
+    let stream = screenStreamRef.current;
     if (!stream) {
-      console.warn('Skipping screenshot: No screen stream available');
+      const g = (window as unknown as { __ttStream?: MediaStream | null }).__ttStream || null;
+      const gTrack = g ? g.getVideoTracks()[0] : undefined;
+      if (g && gTrack && gTrack.readyState === 'live') {
+        screenStreamRef.current = g;
+        setHasStream(true);
+        stream = g;
+      }
+    }
+    if (!stream) {
+      if (!screenshotMissingWarnedRef.current) {
+        screenshotMissingWarnedRef.current = true;
+        // toast.info('Screen sharing stopped. Click “Resume Screenshots” to continue.');
+      }
       return;
     }
     
     const track = stream.getVideoTracks()[0];
     if (!track) {
-      console.warn('Skipping screenshot: No video track found');
       return;
     }
 
     if (track.readyState === 'ended') {
-      console.warn('Skipping screenshot: Video track ended');
-      // Potentially stop tracking here or notify user?
-      toast.error('Screen sharing stopped. Please resume to capture screenshots.');
+      screenStreamRef.current = null;
+      setHasStream(false);
+      try { (window as unknown as { __ttStream?: MediaStream | null }).__ttStream = null; } catch { void 0; }
+      if (!screenshotMissingWarnedRef.current) {
+        screenshotMissingWarnedRef.current = true;
+        // toast.info('Screen sharing stopped. Click “Resume Screenshots” to continue.');
+      }
       return;
     }
 
@@ -437,7 +533,7 @@ export default function TimeTracking() {
         // If we are executing early in a minute (e.g. 10:01:02), we likely missed the exact 10:00:59 mark
         // so we attribute this to the previous minute's :59.
         const now = new Date();
-        let captureTargetTime = new Date(now);
+        const captureTargetTime = new Date(now);
         
         // If we are in the first 30 seconds, assume we belong to previous minute
         if (now.getSeconds() < 30) {
@@ -481,9 +577,8 @@ export default function TimeTracking() {
         // Filter activity data: Only send minutes <= captureTargetTime
         // Keep future minutes (e.g. if capture delayed into next minute) for the next screenshot
         const allKeys = Object.keys(activityDataRef.current);
-        const targetKeyTime = captureTargetTime.getTime();
         
-        const breakdown: any[] = [];
+        const breakdown: ActivityMinute[] = [];
         const remainingActivity: typeof activityDataRef.current = {};
 
         allKeys.forEach(key => {
@@ -544,7 +639,7 @@ export default function TimeTracking() {
         // console.error('Failed to create blob from screenshot');
       }
     } catch (e) {
-      console.error('Screenshot capture failed', e);
+      void e;
     }
   };
   
@@ -608,16 +703,21 @@ export default function TimeTracking() {
     if (visualCheckIntervalRef.current) window.clearInterval(visualCheckIntervalRef.current);
     
     // Check both ref and global to ensure we really stop the stream
-    const stream = screenStreamRef.current || (window as any).__ttStream;
+    const stream =
+      screenStreamRef.current ||
+      (window as unknown as { __ttStream?: MediaStream | null }).__ttStream ||
+      null;
     if (stream) {
       try {
         stream.getTracks().forEach((t: MediaStreamTrack) => t.stop());
-      } catch (e) { console.error('Error stopping tracks', e); }
+    } catch {
+      void 0;
+    }
     }
     
     screenStreamRef.current = null;
     setHasStream(false);
-    try { (window as any).__ttStream = null; } catch {}
+    try { (window as unknown as { __ttStream?: MediaStream | null }).__ttStream = null; } catch { void 0; }
     previousFrameDataRef.current = null;
   };
 
@@ -637,7 +737,7 @@ export default function TimeTracking() {
             lastHeartbeat: now.toISOString()
           }));
         }
-      } catch (e) { console.error(e); }
+      } catch { void 0; }
 
       updateTimeLog.mutate({
         id: logId,
@@ -664,14 +764,13 @@ export default function TimeTracking() {
           // we must assume the app was closed/crashed. We should STOP the previous session.
           // The user explicitly requested: "jb employee ne .exe file close kr di... auto stop ho jaye"
           if (!isReload) {
-             const now = new Date();
              const lastHeartbeat = parsed.lastHeartbeat ? new Date(parsed.lastHeartbeat) : new Date(parsed.startAt);
              
              // Calculate duration until the LAST HEARTBEAT (when app was last alive)
              const start = new Date(parsed.startAt);
              const durationMinutes = Math.round((lastHeartbeat.getTime() - start.getTime()) / 1000 / 60);
              
-             toast.info('Previous tracking session was closed unexpectedly. Tracking has been stopped.');
+            //  toast.info('Previous tracking session was closed unexpectedly. Tracking has been stopped.');
 
              // Close the log on server
              if (parsed.timeLogId) {
@@ -744,11 +843,14 @@ export default function TimeTracking() {
           // Ensure screen stream is active after navigation
           (async () => {
             try {
-              const cur = screenStreamRef.current || (window as any).__ttStream;
+              const cur =
+                screenStreamRef.current ||
+                (window as unknown as { __ttStream?: MediaStream | null }).__ttStream ||
+                null;
               const track = cur ? cur.getVideoTracks()[0] : undefined;
               if (!cur || !track || track.readyState === 'ended') {
                 // If global exists and track live, reattach without prompt
-                const g = (window as any).__ttStream;
+                const g = (window as unknown as { __ttStream?: MediaStream | null }).__ttStream;
                 const gTrack = g ? g.getVideoTracks()[0] : undefined;
                 if (g && gTrack && gTrack.readyState === 'live') {
                   screenStreamRef.current = g;
@@ -758,7 +860,7 @@ export default function TimeTracking() {
                   await requestScreenCapture();
                 }
               }
-            } catch {}
+            } catch { void 0; }
           })();
           if (tickIntervalRef.current) window.clearInterval(tickIntervalRef.current);
           tickIntervalRef.current = window.setInterval(runTick, 1000);
@@ -792,7 +894,7 @@ export default function TimeTracking() {
 
         }
       }
-    } catch (e) { void e; }
+    } catch { void 0; }
     
     // Auto stop when the browser goes offline (power/network cut)
     const handleOffline = () => {
@@ -817,113 +919,196 @@ export default function TimeTracking() {
   }, []);
 
   useEffect(() => {
-    if (!isTracking) return;
     
     const pollLiveStatus = async () => {
        try {
          const { live_mode, offer } = await usersAPI.checkLiveStatus();
+         const shouldStart = !!live_mode;
+         void offer;
          
-         if (live_mode) {
-            // WebRTC Logic
-             if (offer && user) {
-                 // If we already have a PC, check if this is a NEW offer (re-connection)
-                 // or if we are stuck. For simplicity, if we see an offer, we assume it's a new handshake request.
-                 if (pcRef.current) {
-                     console.log('Replacing existing WebRTC connection with new offer');
-                     pcRef.current.close();
-                     pcRef.current = null;
-                 }
-
-                 // toast.info('Starting Live Stream...'); // Silent start
-                 
-                 // Ensure we have a stream (Auto-accept/Auto-recover)
-                 if (!screenStreamRef.current) {
-                     await requestScreenCapture();
-                 }
-
-                 const pc = new RTCPeerConnection({
-                     iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-                 });
-                 pcRef.current = pc;
-                 
-                 pc.onicecandidate = (event) => {
-                     if (event.candidate) {
-                         usersAPI.signal(user.id, { type: 'candidate', candidate: event.candidate });
-                     }
-                 };
-                 
-                 // Add tracks
-                 if (screenStreamRef.current) {
-                     screenStreamRef.current.getTracks().forEach(track => {
-                         pc.addTrack(track, screenStreamRef.current!);
-                     });
-                 }
-                 
-                 await pc.setRemoteDescription(new RTCSessionDescription(offer));
-                 const answer = await pc.createAnswer();
-                 await pc.setLocalDescription(answer);
-                 
-                 await usersAPI.signal(user.id, { type: 'answer', sdp: answer.sdp });
+        if (shouldStart) {
+            if (!liveRequestActiveRef.current) {
+                liveRequestActiveRef.current = true;
+                void 0;
             }
-            
-            // Poll for candidates
-            if (pcRef.current && user) {
-                 const candidates = await usersAPI.getSignal(user.id, 'candidate');
-                 if (candidates && Array.isArray(candidates)) {
-                     for (const cand of candidates) {
-                         if (cand.candidate) { 
+            {
+                const cur =
+                  screenStreamRef.current ||
+                  (window as unknown as { __ttStream?: MediaStream | null }).__ttStream ||
+                  null;
+                const tracks = cur ? cur.getVideoTracks() : [];
+                const liveTrackExists = tracks.some(t => t.readyState === 'live');
+                const hasActiveStream = !!cur && liveTrackExists;
+                if (!hasActiveStream && !hasStream && isTrackingRef.current && !livePromptAckRef.current && !livePromptOpen) {
+                    setLivePromptOpen(true);
+                    void 0;
+                }
+            }
+
+            const stream =
+              screenStreamRef.current ||
+              (window as unknown as { __ttStream?: MediaStream | null }).__ttStream ||
+              null;
+
+            if (user && SimplePeer && stream) {
+                const sanitizeSdp = (sdp: string) => {
+                    const lines = sdp.split(/\r\n|\n/);
+                    const filtered = lines.filter((l) => !l.startsWith('a=max-message-size:'));
+                    const rebuilt = filtered.join('\r\n').trim();
+                    return rebuilt ? `${rebuilt}\r\n` : rebuilt;
+                };
+
+                const getIceServers = () => {
+                    const env = (import.meta as unknown as { env: Record<string, string | undefined> }).env;
+                    const turnUrl = env?.VITE_TURN_URL;
+                    const turnUser = env?.VITE_TURN_USERNAME;
+                    const turnPass = env?.VITE_TURN_PASSWORD;
+                    const servers: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }];
+                    if (turnUrl && turnUser && turnPass) {
+                      servers.push({ urls: turnUrl, username: turnUser, credential: turnPass });
+                    }
+                    return servers;
+                };
+
+                if (!peerRef.current || peerRef.current.destroyed) {
+                    const p = new SimplePeer({
+                        initiator: true,
+                        trickle: true,
+                        stream: stream,
+                        config: { iceServers: getIceServers() }
+                    });
+                    peerRef.current = p;
+                    lastOfferSdpRef.current = null;
+                    lastAnswerSdpRef.current = null;
+
+                    p.on('signal', async (data: SimplePeerSignalData) => {
+                        const t = (data as { type?: string }).type;
+                        if (t === 'offer') {
+                            const sdp = (data as unknown as { sdp?: unknown }).sdp;
+                            const payload = { ...(data as unknown as Record<string, unknown>) };
+                            if (typeof sdp === 'string') {
+                                const cleaned = sanitizeSdp(sdp);
+                                payload.sdp = cleaned;
+                                lastOfferSdpRef.current = cleaned;
+                            }
+                            await usersAPI.signal(user.id, { type: 'offer', sdp: payload });
+                        } else if (t === 'candidate') {
+                            await usersAPI.signal(user.id, { type: 'candidate', candidate: data as unknown as Record<string, unknown> });
+                        } else {
+                            await usersAPI.signal(user.id, { type: 'offer', sdp: data as unknown as Record<string, unknown> });
+                        }
+                    });
+
+                    p.on('connect', () => {
+                        void 0;
+                    });
+
+                    p.on('error', (err: unknown) => {
+                        void err;
+                    });
+
+                    p.on('close', () => {
+                        peerRef.current = null;
+                    });
+                }
+
+                const normalizeAnswer = (input: unknown): SimplePeerSignalData | null => {
+                    if (!input) return null;
+                    if (typeof input === 'string') {
+                        const trimmed = input.trim();
+                        if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
                             try {
-                                await pcRef.current.addIceCandidate(cand.candidate);
-                            } catch (e) { console.warn(e); }
+                                return JSON.parse(trimmed) as SimplePeerSignalData;
+                            } catch {
+                                return { type: 'answer', sdp: trimmed } as SimplePeerSignalData;
+                            }
+                        }
+                        return { type: 'answer', sdp: trimmed } as SimplePeerSignalData;
+                    }
+                    if (typeof input === 'object') {
+                        const obj = input as Record<string, unknown>;
+                        if (typeof obj.type === 'string' && (typeof obj.sdp === 'string' || typeof obj.candidate === 'string' || typeof obj.candidate === 'object')) {
+                            return obj as unknown as SimplePeerSignalData;
+                        }
+                        if (typeof obj.sdp === 'string') {
+                            return { type: 'answer', sdp: obj.sdp } as SimplePeerSignalData;
+                        }
+                    }
+                    return null;
+                };
+
+                try {
+                    const answer = await usersAPI.getSignal(user.id, 'answer');
+                    const normalized = normalizeAnswer(answer);
+                    const sdp = normalized && typeof (normalized as unknown as { sdp?: unknown }).sdp === 'string'
+                        ? sanitizeSdp((normalized as unknown as { sdp: string }).sdp)
+                        : null;
+                    if (normalized && sdp && sdp !== lastAnswerSdpRef.current && peerRef.current && !peerRef.current.destroyed) {
+                        lastAnswerSdpRef.current = sdp;
+                        peerRef.current.signal({ ...(normalized as unknown as Record<string, unknown>), sdp } as unknown as SimplePeerSignalData);
+                    }
+                } catch (e) { void e; }
+
+                if (peerRef.current && !peerRef.current.destroyed) {
+                     try {
+                         const candidates = await usersAPI.getSignal(user.id, 'candidate');
+                         if (candidates && Array.isArray(candidates)) {
+                             for (const cand of candidates as Array<{ candidate?: unknown }>) {
+                                 const raw = cand?.candidate;
+                                 if (!raw) continue;
+                                 try {
+                                     const signalData = (typeof raw === 'string' ? JSON.parse(raw) : raw) as SimplePeerSignalData;
+                                     peerRef.current.signal(signalData);
+                                 } catch (e) { void e; }
+                             }
                          }
-                     }
-                 }
+                     } catch (e) { void e; }
+                }
             }
 
            if (!liveModeIntervalRef.current) {
-              // toast.info('Live View Requested by Admin'); // Silent mode
-              
-              // Clear normal intervals
-              if (screenshotIntervalRef.current) window.clearInterval(screenshotIntervalRef.current);
-              if (fixedScreenshotIntervalRef.current) window.clearInterval(fixedScreenshotIntervalRef.current);
-              randomShotTimesRef.current = [];
-              
-              // Start fast interval (3 seconds) for keep-alive/polling
-              liveModeIntervalRef.current = window.setInterval(() => {
-                 // captureScreenshot(); // Disabled for WebRTC stream
-              }, 3000);
+              if (isTracking) {
+                if (screenshotIntervalRef.current) window.clearInterval(screenshotIntervalRef.current);
+                if (fixedScreenshotIntervalRef.current) window.clearInterval(fixedScreenshotIntervalRef.current);
+                randomShotTimesRef.current = [];
+              }
+              liveModeIntervalRef.current = window.setInterval(() => {}, 3000);
             }
          } else {
+            if (liveRequestActiveRef.current) {
+               liveRequestActiveRef.current = false;
+               livePromptAckRef.current = false;
+               setLivePromptOpen(false);
+            }
             if (liveModeIntervalRef.current) {
                window.clearInterval(liveModeIntervalRef.current);
                liveModeIntervalRef.current = null;
-               // toast.info('Live View Ended'); // Silent mode
-               
-               if (pcRef.current) {
-                   pcRef.current.close();
-                   pcRef.current = null;
+               if (peerRef.current) {
+                   peerRef.current.destroy();
+                   peerRef.current = null;
                }
 
-               // Restore normal interval
-               captureScreenshot();
-               scheduleRandomScreenshots();
-               screenshotIntervalRef.current = window.setInterval(() => {
+               if (isTracking) {
                  captureScreenshot();
                  scheduleRandomScreenshots();
-               }, 10 * 60 * 1000);
+                 screenshotIntervalRef.current = window.setInterval(() => {
+                   captureScreenshot();
+                   scheduleRandomScreenshots();
+                 }, 10 * 60 * 1000);
+               }
             }
          }
-       } catch (e) {
-         // silent fail
-       }
-    };
+          } catch (err) {
+            void err;
+          }
+        };
 
-    const poller = window.setInterval(pollLiveStatus, 5000); 
+    const poller = window.setInterval(pollLiveStatus, 2000); 
     return () => {
        window.clearInterval(poller);
        if (liveModeIntervalRef.current) window.clearInterval(liveModeIntervalRef.current);
     };
-  }, [isTracking]);
+  }, [isTracking, user, SimplePeer]);
 
   const startTracking = async () => {
     if (!selectedTaskId || !note) {
@@ -970,41 +1155,24 @@ export default function TimeTracking() {
       }));
 
       startHeartbeat(logId, serverStart);
-    } catch (e) { 
-      console.error(e);
+    } catch { 
       toast.error('Failed to start tracking on server');
       setIsTracking(false);
       return;
     }
 
     await requestScreenCapture();
+    if (liveRequestActiveRef.current && !screenStreamRef.current) {
+      setLivePromptOpen(true);
+    }
     if (tickIntervalRef.current) window.clearInterval(tickIntervalRef.current);
     tickIntervalRef.current = window.setInterval(runTick, 1000);
     
-    if (screenshotIntervalRef.current) window.clearInterval(screenshotIntervalRef.current);
-    if (fixedScreenshotIntervalRef.current) window.clearInterval(fixedScreenshotIntervalRef.current);
-    
-    // Initial schedule
-    scheduleRandomScreenshots();
-    {
-      const now2 = new Date();
-      const m = now2.getMinutes();
-      const endMin = Math.floor(m / 10) * 10 + 9;
-      const target = new Date(now2);
-      if (m > endMin || (m === endMin && now2.getSeconds() >= 59)) {
-        target.setMinutes(endMin + 10);
-      } else {
-        target.setMinutes(endMin);
-      }
-      target.setSeconds(59);
-      target.setMilliseconds(0);
-      fixedShotNextTimeRef.current = target;
+    if (screenStreamRef.current) {
+      startShotSchedule();
+    } else {
+      // toast.info('Screen sharing stopped. Click “Resume Screenshots” to continue.');
     }
-    
-    // Repeat every 10 minutes
-    screenshotIntervalRef.current = window.setInterval(() => {
-      scheduleRandomScreenshots();
-    }, 10 * 60 * 1000);
     
     toast.success('Tracking started');
   };
@@ -1014,13 +1182,13 @@ export default function TimeTracking() {
     if (isTrackingRef.current) {
       try {
         await captureScreenshot();
-      } catch (e) {
-        console.error('Failed to capture final screenshot', e);
+      } catch {
+        void 0;
       }
     }
 
     // 0. IMMEDIATE CLEANUP of storage to prevent auto-start on reload
-    try { localStorage.removeItem(trackerKey); } catch (e) { console.error('Failed to remove tracker key', e); }
+    try { localStorage.removeItem(trackerKey); } catch { void 0; }
 
     // 1. Clear intervals and timeouts FIRST to prevent new screenshots/heartbeats
     if (tickIntervalRef.current) window.clearInterval(tickIntervalRef.current);
@@ -1034,7 +1202,7 @@ export default function TimeTracking() {
     try {
       stopMediaTracks();
     } catch (e) {
-      console.error('Failed to stop media tracks', e);
+      void e;
     }
 
     // 3. Update state
@@ -1156,6 +1324,64 @@ export default function TimeTracking() {
         </div>
         {/* <p className="text-xs text-gray-500">3 random screenshots captured every 10 minutes.</p> */}
       </div>
+      
+      {livePromptOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white w-full max-w-md rounded-lg shadow-lg p-6 space-y-4">
+            <div className="text-lg font-semibold text-gray-900">Admin requested Live View</div>
+            <div className="text-sm text-gray-600">
+              {hasStream ? 'Your screen is currently shared. Admin live view will connect.' : 'Allow screen sharing to start live view.'}
+            </div>
+            <div className="flex gap-2 justify-end">
+              {hasStream ? (
+                <>
+                  <button
+                    className="px-4 py-2 rounded bg-gray-200 text-gray-800"
+                    onClick={async () => { 
+                      if (!hasStream) { await requestScreenCapture(); }
+                      livePromptAckRef.current = true; 
+                      setLivePromptOpen(false); 
+                    }}
+                  >
+                    OK
+                  </button>
+                  <button
+                    className="px-4 py-2 rounded bg-red-600 text-white"
+                    onClick={() => {
+                      try { stopMediaTracks(); } catch { void 0; }
+                      setHasStream(false);
+                      try { (window as unknown as { __ttStream?: MediaStream | null }).__ttStream = null; } catch { void 0; }
+                      livePromptAckRef.current = true;
+                      setLivePromptOpen(false);
+                    }}
+                  >
+                    Stop Sharing
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    className="px-4 py-2 rounded bg-gray-200 text-gray-800"
+                    onClick={() => { livePromptAckRef.current = true; setLivePromptOpen(false); }}
+                  >
+                    Not Now
+                  </button>
+                  <button
+                    className="px-4 py-2 rounded bg-indigo-600 text-white"
+                    onClick={async () => {
+                      await requestScreenCapture();
+                      livePromptAckRef.current = true;
+                      setLivePromptOpen(false);
+                    }}
+                  >
+                    Allow Screen Share
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
