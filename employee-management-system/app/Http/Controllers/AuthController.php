@@ -58,6 +58,7 @@ class AuthController extends Controller
             ->json([
             'user' => $user,
             'role' => $user->role,
+            'token' => $token,
         ])
             ->cookie(
                 self::AUTH_COOKIE_NAME,
@@ -140,6 +141,7 @@ class AuthController extends Controller
             ->json([
             'user' => $user,
             'role' => $user->role,
+            'token' => $token,
         ], 201)
             ->cookie(
                 self::AUTH_COOKIE_NAME,

@@ -20,7 +20,20 @@ export interface RegisterData {
 export const authAPI = {
   login: async (credentials: LoginCredentials): Promise<{ user: User }> => {
     const response = await api.post('/login', credentials);
-    const { user } = response.data;
+    const { user, token } = response.data;
+    
+    // Store token if provided (essential for Electron/Mobile)
+    if (token) {
+      localStorage.setItem('token', token);
+    } else {
+      // Fallback/Warning for debugging
+      if (window.location.protocol === 'file:') {
+        console.error('Login response missing token:', response.data);
+        throw new Error('Live Server outdated: Backend must return an authentication token for Desktop App. Please update the server.');
+      }
+      console.warn('Login response missing token in body. Relying on HttpOnly cookies or cached token.');
+    }
+    
     return { user };
   },
 
@@ -31,7 +44,11 @@ export const authAPI = {
   },
 
   logout: async (): Promise<void> => {
-    await api.post('/logout');
+    try {
+      await api.post('/logout');
+    } finally {
+      localStorage.removeItem('token');
+    }
   },
 
   getUser: async (): Promise<User> => {

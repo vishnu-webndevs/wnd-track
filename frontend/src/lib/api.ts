@@ -1,9 +1,9 @@
-import axios from 'axios';
+import axios, { AxiosHeaders } from 'axios';
 
 const getDefaultApiBaseUrl = () => {
   const { hostname, protocol } = window.location;
   if (protocol === 'file:') {
-    return 'http://127.0.0.1:8000/api';
+    return 'https://tracker.webndevs.com/api';
   }
 
   // If running on localhost/127.0.0.1, assume dev mode with port 8000
@@ -53,14 +53,14 @@ const clearAuth = () => {
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
-  withCredentials: true,
+  withCredentials: window.location.protocol !== 'file:',
   headers: {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
   },
 });
 
-// Request interceptor for auth TTL tracking
+// Request interceptor for auth TTL tracking + Desktop token injection
 api.interceptors.request.use((config) => {
   const now = Date.now();
   const lastUsedRaw = localStorage.getItem(AUTH_LAST_USED_KEY);
@@ -71,6 +71,17 @@ api.interceptors.request.use((config) => {
       window.location.href = getLoginUrl();
     }
     return Promise.reject(new Error('Auth expired'));
+  }
+
+  const token = localStorage.getItem('token');
+  if (token && window.location.protocol === 'file:') {
+    if (config.headers instanceof AxiosHeaders) {
+      config.headers.set('Authorization', `Bearer ${token}`);
+    } else if (config.headers) {
+      (config.headers as Record<string, string>).Authorization = `Bearer ${token}`;
+    } else {
+      config.headers = new AxiosHeaders({ Authorization: `Bearer ${token}` });
+    }
   }
 
   localStorage.setItem(AUTH_LAST_USED_KEY, String(now));

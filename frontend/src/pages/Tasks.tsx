@@ -75,13 +75,21 @@ export default function Tasks() {
     queryFn: () => projectsAPI.getProjects({ page: 1 }),
   });
 
+  const isAdmin = currentUser?.role === 'admin';
+
   const { data: users } = useQuery<{ data: User[] }>({
     queryKey: ['users', 'for-tasks'],
     queryFn: () => usersAPI.getUsers({ page: 1 }),
+    enabled: isAdmin,
   });
 
   const projectOptions = useMemo(() => (projects?.data ?? []), [projects]);
-  const userOptions = useMemo(() => (users?.data ?? []), [users]);
+  const userOptions = useMemo(() => {
+    if (!isAdmin) {
+      return currentUser ? [currentUser as unknown as User] : [];
+    }
+    return users?.data ?? [];
+  }, [currentUser, isAdmin, users]);
 
   const createForm = useForm<CreateTaskForm>({
     resolver: zodResolver(createSchema),

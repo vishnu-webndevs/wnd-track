@@ -238,8 +238,14 @@ class UserController extends Controller
             return response()->json(['message' => 'Not Found'], 404);
         }
         $stream = $disk->readStream($screenshot->file_path);
+        if ($stream === false) {
+            return response()->json(['message' => 'Not Found'], 404);
+        }
         return response()->stream(function () use ($stream) {
             fpassthru($stream);
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
         }, 200, [
             'Content-Type' => $screenshot->mime_type ?: 'application/octet-stream',
             'Cache-Control' => 'public, max-age=31536000',

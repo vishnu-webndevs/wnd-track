@@ -26,3 +26,7 @@ cache
 *.njsproj
 *.sln
 *.sw?
+
+release-builds-tracker-only/
+
+release-builds-tracker-final/
