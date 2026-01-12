@@ -5,6 +5,7 @@ USER root
 COPY . /var/www/html
 
 RUN mkdir -p storage/logs bootstrap/cache storage/app/public \
+    storage/framework/cache/data storage/framework/sessions storage/framework/views \
     && chown -R www-data:www-data storage bootstrap/cache storage/app/public public \
     && chmod -R 775 storage bootstrap/cache storage/app/public public \
     && composer install \
