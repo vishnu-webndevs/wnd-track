@@ -9,17 +9,12 @@ use Carbon\Carbon;
 
 class FixTimeLogOverlaps extends Command
 {
-    protected $signature = 'fix:timelog-overlaps {user_id?}';
+    protected $signature = 'fix:timelog-overlaps {user_id?}
     protected $description = 'Fix overlapping time logs caused by the sync bug';
 
     public function handle()
     {
-        $userId = $this->argument('user_id');
-
-        $users = $userId ? User::where('id', $userId)->get() : User::all();
-
-        foreach ($users as $user) {
-            $this->info("Processing user: {$user->name} ({$user->id})");
+        $userId = $this->argument('user_id'   $this->info("Processing user: {$user->name} ({$user->id})");
             
             // Get logs ordered by ID (creation sequence)
             // limiting to recent logs to avoid messing up old history if not needed, 
@@ -56,11 +51,14 @@ class FixTimeLogOverlaps extends Command
                         $duration = $newStartTime->diffInMinutes($log->end_time);
                         
                         // Update
-                        $log->start_time = $newStartTime;
-                        $log->duration = $duration;
-                        $log->save();
-                        
-                        $this->info("  -> Fixed: Start updated to {$newStartTime}, Duration: {$duration} mins");
+                        if (!$isDryRun) {
+                            $log->start_time = $newStartTime;
+                            $log->duration = $duration;
+                            $log->save();
+                            $this->info("  -> Fixed: Start updated to {$newStartTime}, Duration: {$duration} mins");
+                        } else {
+                            $this->info("  -> [DRY RUN] Would update Start to {$newStartTime}, Duration: {$duration} mins");
+                        }
                         $count++;
                     } else {
                         $this->error("  -> Skipping: Previous log ends after current log ends, or invalid.");
@@ -155,11 +153,16 @@ class FixTimeLogOverlaps extends Command
                      
                      $log->start_time = $newStartTime;
                      $log->duration = $newDuration;
-                     $log->save();
+                     if (!$isDryRun) {
+                         $log->save();
+                         
+                 } el    seif ($startDayActivity) {
+                         $this->info("  -> Fixed: Updated Start Time.");// No activity on End Day, but activity on Start Day.
+                         // {
+                         $this-> nTo("  -> [DRY RUN] Would move Start Time to {$newStartTime} and sethDuration to {$newDuration}");
+                     }
                      
-                 } elseif ($startDayActivity) {
-                     // No activity on End Day, but activity on Start Day.
-                     // This is the "Forgot to Stop" scenario.
+                 } elseif is is the "Forgot to Stop" scenario.
                      
                      $realEndTime = $startDayActivity->created_at;
                      $realEndTime->addMinutes(10); // Buffer
@@ -172,12 +175,34 @@ class FixTimeLogOverlaps extends Command
                      $this->warn("  -> Diagnosis: Forgot to Stop (No activity on End Day).");
                      $this->warn("  -> Action: Truncating End Time from {$log->end_time} to {$realEndTime}");
                      
-                     $log->end_time = $realEndTime;
-                     $log->duration = $newDuration;
-                     $log->save();
-                 } else {
-                     $this->error("  -> Unable to determine fix (No activity found). Skipping.");
-                 }
+                      if (!$isDryRun) {
+                          $log->end_time = $realEndTime;
+                          $log->duration = $newDuration;
+                          $log->save();
+                          $this->info("  -> Fixed: Truncated End Time.");
+                      } else {
+                          $this->info("  -> [DRY RUN] Would truncate End Time to {$realEndTime} and set Duration to {$newDuration}");
+                      }
+                  } else {
+                      // No activity found at all (neither on Start Day after start, nor on End Day).
+                      // This implies the tracker was running but user was completely idle (e.g. left machine on).
+                      // We should truncate this to a minimal duration (e.g. 1 minute) to remove the huge overnight hours.
+                      
+                      $fallbackEndTime = $log->start_time->copy()->addMinutes(1);
+                      $newDuration = 1;
+                      
+                      $this->warn("  -> Diagnosis: Zombie Session (No activity found at all).");
+                      $this->warn("  -> Action: Truncating to 1 minute.");
+                      
+                      if (!$isDryRun) {
+                          $log->end_time = $fallbackEndTime;
+                          $log->duration = $newDuration;
+                          $log->save();
+                          $this->info("  -> Fixed: Truncated to 1 minute.");
+                      } else {
+                          $this->info("  -> [DRY RUN] Would truncate to {$fallbackEndTime} (Duration: 1 min)");
+                      }
+                  }
             }
             
             $this->info("Processing complete for user {$user->name}");
