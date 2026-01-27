@@ -78,7 +78,11 @@ class FixTimeLogOverlaps extends Command
                 $prevLog = $log;
             }
 
+            /*
             // PASS 2: Fix Inconsistent Durations (Duration != End - Start)
+            // DISABLED: This might remove valid idle time calculations.
+            // Only enable if you are sure duration should strictly be End - Start.
+            
             $this->info("Checking for duration mismatches...");
             $mismatchCount = 0;
             foreach ($logs as $log) {
@@ -89,15 +93,16 @@ class FixTimeLogOverlaps extends Command
                     if (abs($log->duration - $calculatedDuration) > 2) {
                         $this->warn("Duration Mismatch detected: Log {$log->id} has Duration {$log->duration} but Start-End diff is {$calculatedDuration}");
                         
-                        $log->duration = $calculatedDuration;
-                        $log->save();
+                        // $log->duration = $calculatedDuration;
+                        // $log->save();
                         
-                        $this->info("  -> Fixed: Duration updated to {$calculatedDuration}");
-                        $mismatchCount++;
+                        // $this->info("  -> Fixed: Duration updated to {$calculatedDuration}");
+                        // $mismatchCount++;
                     }
                 }
             }
             $this->info("Fixed $mismatchCount duration mismatches for user {$user->name}");
+            */
 
             $this->info("Processing complete for user {$user->name}");
         }
