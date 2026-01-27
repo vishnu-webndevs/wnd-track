@@ -104,6 +104,57 @@ class FixTimeLogOverlaps extends Command
             $this->info("Fixed $mismatchCount duration mismatches for user {$user->name}");
             */
 
+            // PASS 3: Detect and Fix "Impossible" Long Durations (e.g. overnight/multi-day)
+            // Logic: If duration > 16 hours (960 mins), it's likely an error (forgot to stop tracker).
+            // We will truncate it to the last known activity time or a safe max (e.g. 1 hour after start).
+            
+            $this->info("Checking for suspiciously long durations (forgot-to-stop scenario)...");
+            $longLogCount = 0;
+            
+            // Check for logs longer than 16 hours (usually implies left running overnight)
+            $longLogs = TimeLog::where('user_id', $user->id)
+                ->where('duration', '>', 960) 
+                ->get();
+                
+            foreach ($longLogs as $log) {
+                 $this->warn("Suspicious Long Duration detected: Log {$log->id} is {$log->duration} mins ({$log->start_time} to {$log->end_time})");
+                 
+                 // Try to find the LAST activity log for this time log to determine real end time
+                 // Assuming ActivityLog has time_log_id or falls within range
+                 $lastActivity = \App\Models\ActivityLog::where('user_id', $user->id)
+                     ->where('created_at', '>=', $log->start_time)
+                     ->where('created_at', '<=', $log->end_time)
+                     ->orderBy('created_at', 'desc')
+                     ->first();
+                     
+                 if ($lastActivity) {
+                     $realEndTime = $lastActivity->created_at;
+                     // Add a buffer (e.g. 10 mins) to account for reading time
+                     $realEndTime->addMinutes(10);
+                     
+                     // Ensure we don't go past the original end time
+                     if ($realEndTime > $log->end_time) {
+                         $realEndTime = $log->end_time;
+                     }
+                     
+                     $newDuration = $log->start_time->diffInMinutes($realEndTime);
+                     
+                     if ($newDuration < $log->duration) {
+                        $log->end_time = $realEndTime;
+                        $log->duration = $newDuration;
+                        $log->save();
+                        
+                        $this->info("  -> Fixed: Truncated to last activity at {$realEndTime}, New Duration: {$newDuration} mins");
+                        $longLogCount++;
+                     }
+                 } else {
+                     // If no activity logs found, cap it at reasonable max? 
+                     // Or just leave it? For now, just warn.
+                     $this->error("  -> No activity logs found to verify true end time. Manual review needed.");
+                 }
+            }
+            $this->info("Fixed $longLogCount long duration logs for user {$user->name}");
+            
             $this->info("Processing complete for user {$user->name}");
         }
     }
