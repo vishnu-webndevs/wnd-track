@@ -48,18 +48,19 @@ class FixTimeLogOverlaps extends Command
                 $lastScreenshot = Screenshot::where('time_log_id', $log->id)->orderBy('created_at', 'desc')->first();
                 
                 // If no screenshots found by ID, try finding by time range (legacy support)
+                // We also strictly match project_id to ensure we don't mix up projects.
                 if (!$firstScreenshot) {
-                     $firstScreenshot = Screenshot::where('user_id', $user->id)
+                     $query = Screenshot::where('user_id', $user->id)
                          ->where('created_at', '>=', $log->start_time)
-                         ->where('created_at', '<=', $log->end_time)
-                         ->orderBy('created_at', 'asc')
-                         ->first();
+                         ->where('created_at', '<=', $log->end_time);
                          
-                     $lastScreenshot = Screenshot::where('user_id', $user->id)
-                         ->where('created_at', '>=', $log->start_time)
-                         ->where('created_at', '<=', $log->end_time)
-                         ->orderBy('created_at', 'desc')
-                         ->first();
+                     // If log has project_id, match it.
+                     if ($log->project_id) {
+                         $query->where('project_id', $log->project_id);
+                     }
+                         
+                     $firstScreenshot = (clone $query)->orderBy('created_at', 'asc')->first();
+                     $lastScreenshot = (clone $query)->orderBy('created_at', 'desc')->first();
                 }
 
                 if ($firstScreenshot && $lastScreenshot) {
