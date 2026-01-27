@@ -73,7 +73,7 @@ class DesktopAppController extends Controller
             'user_id' => auth()->id(),
             'project_id' => $request->project_id,
             'task_id' => $request->task_id,
-            'start_time' => $runningLog ? $runningLog->start_time : $request->start_time,
+            'start_time' => $request->start_time,
             'end_time' => $request->end_time,
             'duration' => $request->duration,
             'description' => $request->description,

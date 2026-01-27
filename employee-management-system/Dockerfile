@@ -18,6 +18,10 @@ ARG COOLIFY_RESOURCE_UUID=ykg0o0c8ck440gsc4ggsoss0
 
 USER root
 
+# Increase Nginx Buffer Size to prevent buffering to temp file
+ENV NGINX_CLIENT_BODY_BUFFER_SIZE=50M
+ENV NGINX_CLIENT_MAX_BODY_SIZE=50M
+
 COPY . /var/www/html
 
 RUN mkdir -p storage/logs bootstrap/cache storage/app/public \
