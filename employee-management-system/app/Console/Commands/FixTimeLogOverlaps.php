@@ -9,19 +9,24 @@ use Carbon\Carbon;
 
 class FixTimeLogOverlaps extends Command
 {
-    protected $signature = 'fix:timelog-overlaps {user_id?}
+    protected $signature = 'fix:timelog-overlaps {user_id?} {--dry-run : Run without saving changes}';
     protected $description = 'Fix overlapping time logs caused by the sync bug';
 
     public function handle()
     {
-        $userId = $this->argument('user_id'   $this->info("Processing user: {$user->name} ({$user->id})");
+        $userId = $this->argument('user_id');
+        $isDryRun = $this->option('dry-run');
+
+        if ($isDryRun) {
+            $this->warn("RUNNING IN DRY-RUN MODE. NO CHANGES WILL BE SAVED.");
+        }
+
+        $users = $userId ? User::where('id', $userId)->get() : User::all();
+
+        foreach ($users as $user) {
+            $this->info("Processing user: {$user->name} ({$user->id})");
             
             // Get logs ordered by ID (creation sequence)
-            // limiting to recent logs to avoid messing up old history if not needed, 
-            // but the user didn't specify. Let's do all, or maybe last 30 days.
-            // The user said "kl" (yesterday), so recent is enough.
-            // Let's do all for completeness, but safety first.
-            
             $logs = TimeLog::where('user_id', $user->id)
                 ->whereNotNull('end_time')
                 ->orderBy('id')
@@ -67,40 +72,10 @@ class FixTimeLogOverlaps extends Command
                 // Also check for general overlap where start < prev->end
                 elseif ($log->start_time < $prevLog->end_time) {
                      $this->warn("Overlap detected: Log {$log->id} starts {$log->start_time} before Prev {$prevLog->id} ends {$prevLog->end_time}");
-                     
-                     // If it's a pure overlap (not same start), we might trim it?
-                     // For now, let's stick to the specific bug fix (duplicate start) unless requested otherwise.
-                     // The user's issue "16.32 vs 8" is almost certainly the duplicate start (double counting).
                 }
 
                 $prevLog = $log;
             }
-
-            /*
-            // PASS 2: Fix Inconsistent Durations (Duration != End - Start)
-            // DISABLED: This might remove valid idle time calculations.
-            // Only enable if you are sure duration should strictly be End - Start.
-            
-            $this->info("Checking for duration mismatches...");
-            $mismatchCount = 0;
-            foreach ($logs as $log) {
-                if ($log->end_time && $log->start_time) {
-                    $calculatedDuration = $log->start_time->diffInMinutes($log->end_time);
-                    
-                    // Allow 1-2 minutes tolerance for seconds rounding
-                    if (abs($log->duration - $calculatedDuration) > 2) {
-                        $this->warn("Duration Mismatch detected: Log {$log->id} has Duration {$log->duration} but Start-End diff is {$calculatedDuration}");
-                        
-                        // $log->duration = $calculatedDuration;
-                        // $log->save();
-                        
-                        // $this->info("  -> Fixed: Duration updated to {$calculatedDuration}");
-                        // $mismatchCount++;
-                    }
-                }
-            }
-            $this->info("Fixed $mismatchCount duration mismatches for user {$user->name}");
-            */
 
             // PASS 3: Smart Fix for Overnight/Multi-day Logs
             // Distinguishes between "Forgot to Stop" vs "Buggy Start Time"
@@ -134,12 +109,6 @@ class FixTimeLogOverlaps extends Command
                      // but has a Wrong Start Time (inherited from previous day due to bug).
                      
                      // ACTION: Move Start Time forward to the first activity of the End Day
-                     // But we should be careful not to lose the Start Day work if it was a valid multi-day shift.
-                     // However, given the bug context, it's likely two separate sessions merged.
-                     // The safe bet is to split it? Or just move start if Start Day activity is negligible/covered by other logs.
-                     
-                     // Let's assume it's the "Sync Bug" where Start Time was copied from yesterday.
-                     // We update Start Time to the first activity of the End Day.
                      
                      $newStartTime = $endDayActivity->created_at;
                      // Add a small buffer backwards (e.g. 2 mins) just in case
@@ -151,18 +120,18 @@ class FixTimeLogOverlaps extends Command
                      $this->warn("  -> Diagnosis: Buggy Start Time (Activity found on End Day).");
                      $this->warn("  -> Action: Moving Start Time from {$log->start_time} to {$newStartTime}");
                      
-                     $log->start_time = $newStartTime;
-                     $log->duration = $newDuration;
                      if (!$isDryRun) {
+                         $log->start_time = $newStartTime;
+                         $log->duration = $newDuration;
                          $log->save();
-                         
-                 } el    seif ($startDayActivity) {
-                         $this->info("  -> Fixed: Updated Start Time.");// No activity on End Day, but activity on Start Day.
-                         // {
-                         $this-> nTo("  -> [DRY RUN] Would move Start Time to {$newStartTime} and sethDuration to {$newDuration}");
+                         $this->info("  -> Fixed: Updated Start Time.");
+                     } else {
+                         $this->info("  -> [DRY RUN] Would move Start Time to {$newStartTime} and set Duration to {$newDuration}");
                      }
                      
-                 } elseif is is the "Forgot to Stop" scenario.
+                 } elseif ($startDayActivity) {
+                     // No activity on End Day, but activity on Start Day.
+                     // This is the "Forgot to Stop" scenario.
                      
                      $realEndTime = $startDayActivity->created_at;
                      $realEndTime->addMinutes(10); // Buffer
@@ -175,34 +144,34 @@ class FixTimeLogOverlaps extends Command
                      $this->warn("  -> Diagnosis: Forgot to Stop (No activity on End Day).");
                      $this->warn("  -> Action: Truncating End Time from {$log->end_time} to {$realEndTime}");
                      
-                      if (!$isDryRun) {
-                          $log->end_time = $realEndTime;
-                          $log->duration = $newDuration;
-                          $log->save();
-                          $this->info("  -> Fixed: Truncated End Time.");
-                      } else {
-                          $this->info("  -> [DRY RUN] Would truncate End Time to {$realEndTime} and set Duration to {$newDuration}");
-                      }
-                  } else {
-                      // No activity found at all (neither on Start Day after start, nor on End Day).
-                      // This implies the tracker was running but user was completely idle (e.g. left machine on).
-                      // We should truncate this to a minimal duration (e.g. 1 minute) to remove the huge overnight hours.
-                      
-                      $fallbackEndTime = $log->start_time->copy()->addMinutes(1);
-                      $newDuration = 1;
-                      
-                      $this->warn("  -> Diagnosis: Zombie Session (No activity found at all).");
-                      $this->warn("  -> Action: Truncating to 1 minute.");
-                      
-                      if (!$isDryRun) {
-                          $log->end_time = $fallbackEndTime;
-                          $log->duration = $newDuration;
-                          $log->save();
-                          $this->info("  -> Fixed: Truncated to 1 minute.");
-                      } else {
-                          $this->info("  -> [DRY RUN] Would truncate to {$fallbackEndTime} (Duration: 1 min)");
-                      }
-                  }
+                     if (!$isDryRun) {
+                         $log->end_time = $realEndTime;
+                         $log->duration = $newDuration;
+                         $log->save();
+                         $this->info("  -> Fixed: Truncated End Time.");
+                     } else {
+                         $this->info("  -> [DRY RUN] Would truncate End Time to {$realEndTime} and set Duration to {$newDuration}");
+                     }
+                 } else {
+                     // No activity found at all (neither on Start Day after start, nor on End Day).
+                     // This implies the tracker was running but user was completely idle (e.g. left machine on).
+                     // We should truncate this to a minimal duration (e.g. 1 minute) to remove the huge overnight hours.
+                     
+                     $fallbackEndTime = $log->start_time->copy()->addMinutes(1);
+                     $newDuration = 1;
+                     
+                     $this->warn("  -> Diagnosis: Zombie Session (No activity found at all).");
+                     $this->warn("  -> Action: Truncating to 1 minute.");
+                     
+                     if (!$isDryRun) {
+                         $log->end_time = $fallbackEndTime;
+                         $log->duration = $newDuration;
+                         $log->save();
+                         $this->info("  -> Fixed: Truncated to 1 minute.");
+                     } else {
+                         $this->info("  -> [DRY RUN] Would truncate to {$fallbackEndTime} (Duration: 1 min)");
+                     }
+                 }
             }
             
             $this->info("Processing complete for user {$user->name}");
