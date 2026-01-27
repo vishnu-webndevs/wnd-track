@@ -104,87 +104,81 @@ class FixTimeLogOverlaps extends Command
             $this->info("Fixed $mismatchCount duration mismatches for user {$user->name}");
             */
 
-            // PASS 3: Detect and Fix "Impossible" Long Durations (e.g. overnight/multi-day)
-            // Logic: If duration > 16 hours (960 mins), it's likely an error (forgot to stop tracker).
-            // We will truncate it to the last known activity time or a safe max (e.g. 1 hour after start).
+            // PASS 3: Smart Fix for Overnight/Multi-day Logs
+            // Distinguishes between "Forgot to Stop" vs "Buggy Start Time"
             
-            $this->info("Checking for suspiciously long durations (forgot-to-stop scenario)...");
-            $longLogCount = 0;
+            $this->info("Analyzing overnight logs to decide between 'Forgot to Stop' vs 'Buggy Start'...");
             
-            // Check for logs longer than 12 hours (720 mins) to catch more cases
-            $longLogs = TimeLog::where('user_id', $user->id)
-                ->where('duration', '>', 720) 
+            $overnightLogs = TimeLog::where('user_id', $user->id)
+                ->whereRaw('DATE(start_time) != DATE(end_time)')
                 ->get();
                 
-            foreach ($longLogs as $log) {
-                 $this->warn("Suspicious Long Duration detected: Log {$log->id} is {$log->duration} mins ({$log->start_time} to {$log->end_time})");
+            foreach ($overnightLogs as $log) {
+                 $this->info("Processing Overnight Log {$log->id}: {$log->start_time} to {$log->end_time}");
                  
-                 // Try to find the LAST activity log for this time log to determine real end time
-                 // We look for activity that happened AFTER start time, but BEFORE the crazy end time.
-                 // We want the last activity that happened on the SAME DAY as the start time (assuming no overnight shifts)
-                 
-                 $sameDayEnd = (clone $log->start_time)->endOfDay();
-                 
-                 $lastActivity = \App\Models\ActivityLog::where('user_id', $user->id)
-                     ->where('created_at', '>=', $log->start_time)
-                     ->where('created_at', '<=', $log->end_time) // Look within the recorded range
-                     ->orderBy('created_at', 'desc')
+                 // Check for activity on the END date
+                 $endDayActivity = \App\Models\ActivityLog::where('user_id', $user->id)
+                     ->where('created_at', '>=', $log->end_time->copy()->startOfDay())
+                     ->where('created_at', '<=', $log->end_time)
+                     ->orderBy('created_at', 'asc')
                      ->first();
-                 
-                 // If the last activity is on a DIFFERENT day than start time, it means they might have worked overnight OR (more likely) just logged in next morning.
-                 // Let's check if there is a HUGE GAP (e.g. > 4 hours) between activities.
-                 
-                 if ($lastActivity) {
-                     $realEndTime = $lastActivity->created_at;
                      
-                     // If the real end time found is surprisingly close to the "buggy" end time (e.g. next morning),
-                     // we need to see if there was a big gap before it.
-                     // But simpler logic: If duration is > 12 hours, just cut it at the last activity of the START DAY.
-                     
-                     if ($realEndTime->diffInHours($log->start_time) > 12) {
-                         // Find last activity of the START DAY
-                         $lastActivityDay = \App\Models\ActivityLog::where('user_id', $user->id)
-                             ->where('created_at', '>=', $log->start_time)
-                             ->where('created_at', '<=', $sameDayEnd)
-                             ->orderBy('created_at', 'desc')
-                             ->first();
-                             
-                         if ($lastActivityDay) {
-                             $realEndTime = $lastActivityDay->created_at;
-                             $this->warn("  -> Found activity on next day, but assuming work ended on start day at {$realEndTime}");
-                         }
-                     }
+                 // Check for activity on the START date (after start time)
+                 $startDayActivity = \App\Models\ActivityLog::where('user_id', $user->id)
+                     ->where('created_at', '>=', $log->start_time)
+                     ->where('created_at', '<=', $log->start_time->copy()->endOfDay())
+                     ->orderBy('created_at', 'desc') // Last activity of start day
+                     ->first();
 
-                     // Add a buffer (e.g. 10 mins) to account for reading time
-                     $realEndTime->addMinutes(10);
+                 if ($endDayActivity) {
+                     // We have activity on the end day. 
+                     // This strongly suggests this log captures valid work on the End Day, 
+                     // but has a Wrong Start Time (inherited from previous day due to bug).
                      
-                     // Ensure we don't go past the original end time
-                     if ($realEndTime > $log->end_time) {
-                         $realEndTime = $log->end_time;
-                     }
+                     // ACTION: Move Start Time forward to the first activity of the End Day
+                     // But we should be careful not to lose the Start Day work if it was a valid multi-day shift.
+                     // However, given the bug context, it's likely two separate sessions merged.
+                     // The safe bet is to split it? Or just move start if Start Day activity is negligible/covered by other logs.
+                     
+                     // Let's assume it's the "Sync Bug" where Start Time was copied from yesterday.
+                     // We update Start Time to the first activity of the End Day.
+                     
+                     $newStartTime = $endDayActivity->created_at;
+                     // Add a small buffer backwards (e.g. 2 mins) just in case
+                     $newStartTime->subMinutes(2);
+                     
+                     // Recalculate duration
+                     $newDuration = $newStartTime->diffInMinutes($log->end_time);
+                     
+                     $this->warn("  -> Diagnosis: Buggy Start Time (Activity found on End Day).");
+                     $this->warn("  -> Action: Moving Start Time from {$log->start_time} to {$newStartTime}");
+                     
+                     $log->start_time = $newStartTime;
+                     $log->duration = $newDuration;
+                     $log->save();
+                     
+                 } elseif ($startDayActivity) {
+                     // No activity on End Day, but activity on Start Day.
+                     // This is the "Forgot to Stop" scenario.
+                     
+                     $realEndTime = $startDayActivity->created_at;
+                     $realEndTime->addMinutes(10); // Buffer
+                     
+                     // Ensure valid range
+                     if ($realEndTime > $log->end_time) $realEndTime = $log->end_time;
                      
                      $newDuration = $log->start_time->diffInMinutes($realEndTime);
                      
-                     if ($newDuration < $log->duration) {
-                        $log->end_time = $realEndTime;
-                        $log->duration = $newDuration;
-                        $log->save();
-                        
-                        $this->info("  -> Fixed: Truncated to last activity at {$realEndTime}, New Duration: {$newDuration} mins");
-                        $longLogCount++;
-                     }
+                     $this->warn("  -> Diagnosis: Forgot to Stop (No activity on End Day).");
+                     $this->warn("  -> Action: Truncating End Time from {$log->end_time} to {$realEndTime}");
+                     
+                     $log->end_time = $realEndTime;
+                     $log->duration = $newDuration;
+                     $log->save();
                  } else {
-                     // If no activity logs found AT ALL, maybe cut at 8 hours?
-                     // Or check if it spans multiple days
-                     if ($log->start_time->format('Y-m-d') != $log->end_time->format('Y-m-d')) {
-                         // Spans multiple days and no activity found?
-                         // Cut it at end of start day?
-                         // Let's be safe and just warn for now if no activity found.
-                         $this->error("  -> No activity logs found to verify true end time. Manual review needed.");
-                     }
+                     $this->error("  -> Unable to determine fix (No activity found). Skipping.");
                  }
             }
-            $this->info("Fixed $longLogCount long duration logs for user {$user->name}");
             
             $this->info("Processing complete for user {$user->name}");
         }
