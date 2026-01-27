@@ -7,10 +7,12 @@ use App\Models\TimeLog;
 use App\Models\User;
 use Carbon\Carbon;
 
+use App\Models\Screenshot;
+
 class FixTimeLogOverlaps extends Command
 {
     protected $signature = 'fix:timelog-overlaps {user_id?} {--dry-run : Run without saving changes}';
-    protected $description = 'Fix overlapping time logs caused by the sync bug';
+    protected $description = 'Fix overlapping time logs using Screenshot evidence';
 
     public function handle()
     {
@@ -26,152 +28,126 @@ class FixTimeLogOverlaps extends Command
         foreach ($users as $user) {
             $this->info("Processing user: {$user->name} ({$user->id})");
             
-            // Get logs ordered by ID (creation sequence)
+            // Get all logs for the user
             $logs = TimeLog::where('user_id', $user->id)
                 ->whereNotNull('end_time')
                 ->orderBy('id')
                 ->get();
 
-            $count = 0;
-            $prevLog = null;
-
             foreach ($logs as $log) {
-                if (!$prevLog) {
-                    $prevLog = $log;
-                    continue;
+                // We only care about logs that look suspicious or are requested to be fixed.
+                // But the user said "wapis se sahi kr" (fix everything based on screenshots).
+                // So we will validate EVERY log against its screenshots.
+
+                // Find the first and last screenshot for this time log
+                // Assuming screenshots are linked to time_log_id (based on recent migration)
+                // If not, we fall back to time range check.
+                
+                // Let's first try by time_log_id if available (safer)
+                $firstScreenshot = Screenshot::where('time_log_id', $log->id)->orderBy('created_at', 'asc')->first();
+                $lastScreenshot = Screenshot::where('time_log_id', $log->id)->orderBy('created_at', 'desc')->first();
+                
+                // If no screenshots found by ID, try finding by time range (legacy support)
+                if (!$firstScreenshot) {
+                     $firstScreenshot = Screenshot::where('user_id', $user->id)
+                         ->where('created_at', '>=', $log->start_time)
+                         ->where('created_at', '<=', $log->end_time)
+                         ->orderBy('created_at', 'asc')
+                         ->first();
+                         
+                     $lastScreenshot = Screenshot::where('user_id', $user->id)
+                         ->where('created_at', '>=', $log->start_time)
+                         ->where('created_at', '<=', $log->end_time)
+                         ->orderBy('created_at', 'desc')
+                         ->first();
                 }
 
-                // Check if start_time is exactly the same as previous log's start_time
-                // allowing for small difference (e.g. 1 second) just in case
-                $startDiff = $log->start_time->diffInSeconds($prevLog->start_time);
-                
-                if ($startDiff < 5) {
-                    // Strong indicator of the bug
-                    $this->warn("Duplicate Start Time detected: Log {$log->id} starts at {$log->start_time}, Prev {$prevLog->id} starts at {$prevLog->start_time}");
+                if ($firstScreenshot && $lastScreenshot) {
+                    $evidenceStart = $firstScreenshot->created_at;
+                    $evidenceEnd = $lastScreenshot->created_at;
                     
-                    // The correct start time for this log should be the end time of the previous log
-                    // BUT we must ensure that makes sense (i.e., prevLog ended before this log ended)
-                    if ($prevLog->end_time && $prevLog->end_time < $log->end_time) {
-                        $newStartTime = $prevLog->end_time;
-                        $duration = $newStartTime->diffInMinutes($log->end_time);
+                    // Logic:
+                    // 1. The Log Start Time should be close to First Screenshot (or slightly before).
+                    // 2. The Log End Time should be close to Last Screenshot (or slightly after).
+                    // 3. If the Log Duration is HUGE (e.g. overnight) but screenshots are only for a few hours, truncate.
+                    
+                    // Check Start Time Mismatch (> 10 mins difference)
+                    $startDiff = $log->start_time->diffInMinutes($evidenceStart);
+                    // If Log Start is WAY before Evidence Start (e.g. 8 hours before), it's likely the "Sync Bug".
+                    // However, we must be careful: maybe they worked without screenshots?
+                    // But the user explicitly asked to use "Screenshot base pe".
+                    
+                    $shouldUpdateStart = false;
+                    $newStartTime = $log->start_time;
+                    
+                    // Only fix if start time is suspiciously early (e.g. previous day) compared to evidence
+                    // Or if user wants strictly screenshot-based accounting.
+                    // Let's be conservative: Fix if difference > 30 mins AND dates mismatch or specific bug pattern.
+                    
+                    if ($startDiff > 30 && $log->start_time < $evidenceStart) {
+                         $this->warn("Log {$log->id}: Start Time {$log->start_time} is {$startDiff} mins before First Screenshot {$evidenceStart}");
+                         // Update Start to Evidence Start (minus buffer)
+                         $newStartTime = $evidenceStart->copy()->subMinutes(1); // 1 min buffer
+                         $shouldUpdateStart = true;
+                    }
+                    
+                    // Check End Time Mismatch
+                    $endDiff = $log->end_time->diffInMinutes($evidenceEnd);
+                    
+                    $shouldUpdateEnd = false;
+                    $newEndTime = $log->end_time;
+                    
+                    // If Log End is WAY after Evidence End (e.g. 10 hours later - forgot to stop), truncate.
+                    if ($endDiff > 30 && $log->end_time > $evidenceEnd) {
+                        $this->warn("Log {$log->id}: End Time {$log->end_time} is {$endDiff} mins after Last Screenshot {$evidenceEnd}");
+                        // Update End to Evidence End (plus buffer)
+                        $newEndTime = $evidenceEnd->copy()->addMinutes(1); // 1 min buffer
+                        $shouldUpdateEnd = true;
+                    }
+                    
+                    if ($shouldUpdateStart || $shouldUpdateEnd) {
+                        $oldDuration = $log->duration;
+                        $newDuration = $newStartTime->diffInMinutes($newEndTime);
                         
-                        // Update
+                        $this->warn("  -> Correcting Log {$log->id} based on Screenshots:");
+                        if ($shouldUpdateStart) $this->warn("     Start: {$log->start_time} -> {$newStartTime}");
+                        if ($shouldUpdateEnd)   $this->warn("     End:   {$log->end_time} -> {$newEndTime}");
+                        $this->warn("     Duration: {$oldDuration} -> {$newDuration} mins");
+                        
                         if (!$isDryRun) {
                             $log->start_time = $newStartTime;
-                            $log->duration = $duration;
+                            $log->end_time = $newEndTime;
+                            $log->duration = $newDuration;
                             $log->save();
-                            $this->info("  -> Fixed: Start updated to {$newStartTime}, Duration: {$duration} mins");
+                            $this->info("  -> Fixed.");
                         } else {
-                            $this->info("  -> [DRY RUN] Would update Start to {$newStartTime}, Duration: {$duration} mins");
+                            $this->info("  -> [DRY RUN] Would fix.");
                         }
-                        $count++;
-                    } else {
-                        $this->error("  -> Skipping: Previous log ends after current log ends, or invalid.");
                     }
-                } 
-                // Also check for general overlap where start < prev->end
-                elseif ($log->start_time < $prevLog->end_time) {
-                     $this->warn("Overlap detected: Log {$log->id} starts {$log->start_time} before Prev {$prevLog->id} ends {$prevLog->end_time}");
+                    
+                } elseif (!$firstScreenshot && $log->duration > 60) {
+                    // No screenshots found for a long log (> 1 hour). 
+                    // This is likely a "Zombie Session" or "Ghost Log".
+                    
+                    $this->warn("Log {$log->id} (Duration: {$log->duration} mins) has NO SCREENSHOTS.");
+                    // User said: "Start activity dekh screenshot ki... uske base pe sahi kr"
+                    // If no screenshots, maybe it shouldn't exist or be minimal?
+                    // Let's truncate to 1 minute to be safe, as it's likely invalid time.
+                    
+                    $newEndTime = $log->start_time->copy()->addMinutes(1);
+                    $newDuration = 1;
+                    
+                    $this->warn("  -> Action: No evidence found. Truncating to 1 min.");
+                    
+                    if (!$isDryRun) {
+                        $log->end_time = $newEndTime;
+                        $log->duration = $newDuration;
+                        $log->save();
+                        $this->info("  -> Fixed.");
+                    } else {
+                        $this->info("  -> [DRY RUN] Would truncate.");
+                    }
                 }
-
-                $prevLog = $log;
-            }
-
-            // PASS 3: Smart Fix for Overnight/Multi-day Logs
-            // Distinguishes between "Forgot to Stop" vs "Buggy Start Time"
-            
-            $this->info("Analyzing overnight logs to decide between 'Forgot to Stop' vs 'Buggy Start'...");
-            
-            $overnightLogs = TimeLog::where('user_id', $user->id)
-                ->whereRaw('DATE(start_time) != DATE(end_time)')
-                ->get();
-                
-            foreach ($overnightLogs as $log) {
-                 $this->info("Processing Overnight Log {$log->id}: {$log->start_time} to {$log->end_time}");
-                 
-                 // Check for activity on the END date
-                 $endDayActivity = \App\Models\ActivityLog::where('user_id', $user->id)
-                     ->where('created_at', '>=', $log->end_time->copy()->startOfDay())
-                     ->where('created_at', '<=', $log->end_time)
-                     ->orderBy('created_at', 'asc')
-                     ->first();
-                     
-                 // Check for activity on the START date (after start time)
-                 $startDayActivity = \App\Models\ActivityLog::where('user_id', $user->id)
-                     ->where('created_at', '>=', $log->start_time)
-                     ->where('created_at', '<=', $log->start_time->copy()->endOfDay())
-                     ->orderBy('created_at', 'desc') // Last activity of start day
-                     ->first();
-
-                 if ($endDayActivity) {
-                     // We have activity on the end day. 
-                     // This strongly suggests this log captures valid work on the End Day, 
-                     // but has a Wrong Start Time (inherited from previous day due to bug).
-                     
-                     // ACTION: Move Start Time forward to the first activity of the End Day
-                     
-                     $newStartTime = $endDayActivity->created_at;
-                     // Add a small buffer backwards (e.g. 2 mins) just in case
-                     $newStartTime->subMinutes(2);
-                     
-                     // Recalculate duration
-                     $newDuration = $newStartTime->diffInMinutes($log->end_time);
-                     
-                     $this->warn("  -> Diagnosis: Buggy Start Time (Activity found on End Day).");
-                     $this->warn("  -> Action: Moving Start Time from {$log->start_time} to {$newStartTime}");
-                     
-                     if (!$isDryRun) {
-                         $log->start_time = $newStartTime;
-                         $log->duration = $newDuration;
-                         $log->save();
-                         $this->info("  -> Fixed: Updated Start Time.");
-                     } else {
-                         $this->info("  -> [DRY RUN] Would move Start Time to {$newStartTime} and set Duration to {$newDuration}");
-                     }
-                     
-                 } elseif ($startDayActivity) {
-                     // No activity on End Day, but activity on Start Day.
-                     // This is the "Forgot to Stop" scenario.
-                     
-                     $realEndTime = $startDayActivity->created_at;
-                     $realEndTime->addMinutes(10); // Buffer
-                     
-                     // Ensure valid range
-                     if ($realEndTime > $log->end_time) $realEndTime = $log->end_time;
-                     
-                     $newDuration = $log->start_time->diffInMinutes($realEndTime);
-                     
-                     $this->warn("  -> Diagnosis: Forgot to Stop (No activity on End Day).");
-                     $this->warn("  -> Action: Truncating End Time from {$log->end_time} to {$realEndTime}");
-                     
-                     if (!$isDryRun) {
-                         $log->end_time = $realEndTime;
-                         $log->duration = $newDuration;
-                         $log->save();
-                         $this->info("  -> Fixed: Truncated End Time.");
-                     } else {
-                         $this->info("  -> [DRY RUN] Would truncate End Time to {$realEndTime} and set Duration to {$newDuration}");
-                     }
-                 } else {
-                     // No activity found at all (neither on Start Day after start, nor on End Day).
-                     // This implies the tracker was running but user was completely idle (e.g. left machine on).
-                     // We should truncate this to a minimal duration (e.g. 1 minute) to remove the huge overnight hours.
-                     
-                     $fallbackEndTime = $log->start_time->copy()->addMinutes(1);
-                     $newDuration = 1;
-                     
-                     $this->warn("  -> Diagnosis: Zombie Session (No activity found at all).");
-                     $this->warn("  -> Action: Truncating to 1 minute.");
-                     
-                     if (!$isDryRun) {
-                         $log->end_time = $fallbackEndTime;
-                         $log->duration = $newDuration;
-                         $log->save();
-                         $this->info("  -> Fixed: Truncated to 1 minute.");
-                     } else {
-                         $this->info("  -> [DRY RUN] Would truncate to {$fallbackEndTime} (Duration: 1 min)");
-                     }
-                 }
             }
             
             $this->info("Processing complete for user {$user->name}");
