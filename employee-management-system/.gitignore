@@ -1,4 +1,4 @@
-*.log
+.log
 .DS_Store
 .env
 .env.backup
@@ -26,3 +26,9 @@ Thumbs.db
 
 /storage/framework/views/*
 !/storage/framework/views/.gitignore
+
+# Ignored Maintenance Scripts
+/app/Console/Commands/FixTimeLogOverlaps.php
+/app/Console/Commands/AuditTimeLogs.php
+
+/check_screens.php

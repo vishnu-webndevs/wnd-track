@@ -105,7 +105,7 @@ class DashboardController extends Controller
 
         $recentTimeLogs = TimeLog::where('user_id', $user->id)
             ->with(['project', 'task'])
-            ->latest()
+            ->orderBy('start_time', 'desc')
             ->take(5)
             ->get();
 

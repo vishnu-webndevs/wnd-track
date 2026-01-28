@@ -51,6 +51,6 @@ class Task extends Model
 
     public function timeLogs()
     {
-        return $this->hasMany(TimeLog::class);
+        return $this->hasMany(TimeLog::class)->orderBy('start_time', 'desc');
     }
 }

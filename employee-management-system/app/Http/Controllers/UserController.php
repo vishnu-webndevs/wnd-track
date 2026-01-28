@@ -184,7 +184,7 @@ class UserController extends Controller
             $query->whereDate('start_time', '<=', $request->end_date);
         }
 
-        $timeLogs = $query->latest()->get();
+        $timeLogs = $query->orderBy('start_time', 'desc')->get();
 
         return response()->json($timeLogs);
     }

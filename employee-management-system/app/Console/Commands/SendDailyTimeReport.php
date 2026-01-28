@@ -59,11 +59,13 @@ class SendDailyTimeReport extends Command
                 ->sum('duration');
 
             // Send Email to Employee
-            try {
-                Mail::to($user->email)->send(new DailyTimeReport($user, $todayLogs, $weeklyTotal));
-                $this->info("Report sent to employee: {$user->email}");
-            } catch (\Exception $e) {
-                $this->error("Failed to send to {$user->email}: " . $e->getMessage());
+            if ($user->status === 'active') {
+                try {
+                    Mail::to($user->email)->send(new DailyTimeReport($user, $todayLogs, $weeklyTotal));
+                    $this->info("Report sent to employee: {$user->email}");
+                } catch (\Exception $e) {
+                    $this->error("Failed to send to {$user->email}: " . $e->getMessage());
+                }
             }
 
             // Prepare Admin Data (All logs)
@@ -104,7 +106,7 @@ class SendDailyTimeReport extends Command
         }
 
         // 2. Send Admin Report
-        $admins = User::where('role', 'admin')->get();
+        $admins = User::where('role', 'admin')->where('status', 'active')->get();
         foreach ($admins as $admin) {
             try {
                 if (!empty($adminReportData)) {
@@ -119,7 +121,13 @@ class SendDailyTimeReport extends Command
         // 3. Send Project Manager Reports
         foreach ($pmReportData as $pmId => $usersData) {
             $pm = User::find($pmId);
-            if ($pm) {
+            if ($pm && $pm->status === 'active') {
+                // Skip if PM is also an Admin (they already received the full report)
+                if ($pm->role === 'admin') {
+                    $this->info("Skipping PM report for {$pm->email} (already sent as Admin).");
+                    continue;
+                }
+
                 // Convert associative array to indexed array for the view
                 $reportData = array_values($usersData);
                 

@@ -71,7 +71,7 @@ class User extends Authenticatable
 
     public function timeLogs()
     {
-        return $this->hasMany(TimeLog::class);
+        return $this->hasMany(TimeLog::class)->orderBy('start_time', 'desc');
     }
 
     public function screenshots()
