@@ -7,6 +7,8 @@ use App\Models\Signal;
 use App\Models\TimeLog;
 use App\Models\Screenshot;
 use App\Models\ActivityLog;
+use App\Models\Project;
+use App\Models\Task;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -189,6 +191,73 @@ class UserController extends Controller
         return response()->json($timeLogs);
     }
 
+    public function storeTimeLog(Request $request, User $user)
+    {
+        // Only admin can add manual time
+        if (auth()->user()->role !== 'admin') {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'project_id' => 'nullable|exists:projects,id',
+            'task_id' => 'nullable|exists:tasks,id',
+            'start_time' => 'required|date',
+            'end_time' => 'required|date|after:start_time',
+            'description' => 'nullable|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $start = \Carbon\Carbon::parse($request->start_time);
+        $end = \Carbon\Carbon::parse($request->end_time);
+        $duration = $start->diffInMinutes($end);
+
+        $timeLog = TimeLog::create([
+            'user_id' => $user->id,
+            'project_id' => $request->project_id,
+            'task_id' => $request->task_id,
+            'start_time' => $start,
+            'end_time' => $end,
+            'duration' => $duration,
+            'description' => $request->description,
+            'is_manual' => true,
+            'desktop_app_id' => 'manual_entry',
+        ]);
+
+        return response()->json([
+            'message' => 'Manual time added successfully',
+            'time_log' => $timeLog
+        ], 201);
+    }
+
+    public function getAssignedProjects(User $user)
+    {
+        if (auth()->user()->role !== 'admin' && auth()->id() !== $user->id) {
+             return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $projectIds = Task::where('assigned_to', $user->id)->pluck('project_id')->unique()->values();
+        $projects = Project::whereIn('id', $projectIds)->orderBy('name')->get(['id', 'name', 'status']);
+        
+        return response()->json($projects);
+    }
+
+    public function getAssignedProjectTasks(User $user, Project $project)
+    {
+        if (auth()->user()->role !== 'admin' && auth()->id() !== $user->id) {
+             return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $tasks = Task::where('project_id', $project->id)
+            ->where('assigned_to', $user->id)
+            ->orderBy('title')
+            ->get(['id', 'title', 'status', 'priority', 'due_date', 'project_id', 'assigned_to']);
+
+        return response()->json($tasks);
+    }
+
     public function getScreenshots(Request $request, User $user)
     {
         $this->authorize('view', $user);
@@ -197,6 +266,7 @@ class UserController extends Controller
             'start_date' => 'nullable|date',
             'end_date' => 'nullable|date',
             'project_id' => 'nullable|exists:projects,id',
+            'time_log_id' => 'nullable|exists:time_logs,id',
         ]);
 
         if ($validator->fails()) {
@@ -206,16 +276,20 @@ class UserController extends Controller
         $query = Screenshot::where('user_id', $user->id)
             ->with(['project']);
 
-        if ($request->has('start_date')) {
-            $query->whereDate('captured_at', '>=', $request->start_date);
-        }
+        if ($request->has('time_log_id')) {
+            $query->where('time_log_id', $request->time_log_id);
+        } else {
+            if ($request->has('start_date')) {
+                $query->whereDate('captured_at', '>=', $request->start_date);
+            }
 
-        if ($request->has('end_date')) {
-            $query->whereDate('captured_at', '<=', $request->end_date);
-        }
+            if ($request->has('end_date')) {
+                $query->whereDate('captured_at', '<=', $request->end_date);
+            }
 
-        if ($request->has('project_id')) {
-            $query->where('project_id', $request->project_id);
+            if ($request->has('project_id')) {
+                $query->where('project_id', $request->project_id);
+            }
         }
 
         $screenshots = $query->latest()->get();
@@ -250,6 +324,40 @@ class UserController extends Controller
             'Content-Type' => $screenshot->mime_type ?: 'application/octet-stream',
             'Cache-Control' => 'public, max-age=31536000',
         ]);
+    }
+
+    public function deleteScreenshot(Request $request, User $user, Screenshot $screenshot)
+    {
+        $this->authorize('update', $user); // Or 'delete' if specific policy exists, but 'update' for self/admin is fine
+
+        if ($screenshot->user_id !== $user->id && auth()->user()->role !== 'admin') {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        // Delete file from storage
+        $disk = Storage::disk('public');
+        if ($disk->exists($screenshot->file_path)) {
+            $disk->delete($screenshot->file_path);
+        }
+
+        // Update TimeLog duration
+        $timeLog = $screenshot->timeLog;
+        if ($timeLog) {
+            $deduction = 10; // Default for legacy screenshots (10 min interval)
+
+            // If minute_breakdown is present (new tracker), use the actual number of minutes covered
+            if (!is_null($screenshot->minute_breakdown) && is_array($screenshot->minute_breakdown)) {
+                $deduction = count($screenshot->minute_breakdown);
+            }
+
+            $newDuration = max(0, $timeLog->duration - $deduction);
+            $timeLog->update(['duration' => $newDuration]);
+        }
+
+        // Delete record
+        $screenshot->delete();
+
+        return response()->json(['message' => 'Screenshot deleted successfully']);
     }
 
     public function getActivitySummary(Request $request, User $user)

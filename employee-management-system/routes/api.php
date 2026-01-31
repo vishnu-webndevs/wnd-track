@@ -47,13 +47,17 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/users/{user}', [UserController::class, 'destroy']);
     Route::post('/users/{user}/reset-password', [UserController::class, 'resetPassword']);
     Route::get('/users/{user}/time-logs', [UserController::class, 'getTimeLogs']);
+    Route::post('/users/{user}/time-logs', [UserController::class, 'storeTimeLog']);
     Route::get('/users/{user}/screenshots', [UserController::class, 'getScreenshots']);
+    Route::delete('/users/{user}/screenshots/{screenshot}', [UserController::class, 'deleteScreenshot']);
     Route::get('/users/{user}/screenshots/{screenshot}/file', [UserController::class, 'getScreenshotFile']);
     Route::post('/users/{user}/trigger-live', [UserController::class, 'triggerLive']);
     Route::post('/users/{user}/stop-live', [UserController::class, 'stopLive']);
     Route::post('/users/{user}/signal', [UserController::class, 'signal']);
     Route::get('/users/{user}/signal', [UserController::class, 'getSignal']);
     Route::get('/users/{user}/activity-summary', [UserController::class, 'getActivitySummary']);
+    Route::get('/users/{user}/assigned-projects', [UserController::class, 'getAssignedProjects']);
+    Route::get('/users/{user}/projects/{project}/assigned-tasks', [UserController::class, 'getAssignedProjectTasks']);
 
     // Clients
     Route::get('/clients', [ClientController::class, 'index']);
@@ -66,10 +70,10 @@ Route::middleware('auth:sanctum')->group(function () {
     // Projects
     Route::get('/projects', [ProjectController::class, 'index']);
     Route::post('/projects', [ProjectController::class, 'store']);
+    Route::get('/projects/active', [ProjectController::class, 'getActiveProjects']);
     Route::get('/projects/{project}', [ProjectController::class, 'show']);
     Route::put('/projects/{project}', [ProjectController::class, 'update']);
     Route::delete('/projects/{project}', [ProjectController::class, 'destroy']);
-    Route::get('/projects/active', [ProjectController::class, 'getActiveProjects']);
     Route::get('/clients/{client}/projects', [ProjectController::class, 'getProjectsByClient']);
     Route::get('/users/{user}/projects', [ProjectController::class, 'getProjectsByManager']);
 

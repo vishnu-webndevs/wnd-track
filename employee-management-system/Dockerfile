@@ -40,7 +40,5 @@ USER www-data
 
 RUN php artisan package:discover --ansi
 
-VOLUME ["/var/www/html/storage"]
-
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
   CMD curl -fsS http://localhost:8080/up || exit 1

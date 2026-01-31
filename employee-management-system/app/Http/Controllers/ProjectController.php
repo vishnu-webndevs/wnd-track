@@ -17,7 +17,16 @@ class ProjectController extends Controller
 
     public function index(Request $request)
     {
+        $user = auth()->user();
         $projects = Project::query()
+            ->when($user->role !== 'admin', function ($query) use ($user) {
+                $query->where(function ($q) use ($user) {
+                    $q->where('manager_id', $user->id)
+                      ->orWhereHas('tasks', function ($tq) use ($user) {
+                          $tq->where('assigned_to', $user->id);
+                      });
+                });
+            })
             ->when($request->search, function ($query, $search) {
                 $query->where('name', 'like', "%{$search}%")
                     ->orWhere('description', 'like', "%{$search}%");
@@ -131,8 +140,19 @@ class ProjectController extends Controller
 
     public function getActiveProjects()
     {
-        $projects = Project::where('status', 'in_progress')
-            ->orWhere('status', 'planning')
+        $user = auth()->user();
+        $projects = Project::where(function($q) {
+                $q->where('status', 'in_progress')
+                  ->orWhere('status', 'planning');
+            })
+            ->when($user->role !== 'admin', function ($query) use ($user) {
+                $query->where(function ($q) use ($user) {
+                    $q->where('manager_id', $user->id)
+                      ->orWhereHas('tasks', function ($tq) use ($user) {
+                          $tq->where('assigned_to', $user->id);
+                      });
+                });
+            })
             ->with(['client', 'manager'])
             ->orderBy('name')
             ->get();
@@ -142,7 +162,16 @@ class ProjectController extends Controller
 
     public function getProjectsByClient(Client $client)
     {
+        $user = auth()->user();
         $projects = $client->projects()
+            ->when($user->role !== 'admin', function ($query) use ($user) {
+                $query->where(function ($q) use ($user) {
+                    $q->where('manager_id', $user->id)
+                      ->orWhereHas('tasks', function ($tq) use ($user) {
+                          $tq->where('assigned_to', $user->id);
+                      });
+                });
+            })
             ->with(['manager'])
             ->withCount('tasks')
             ->orderBy('created_at', 'desc')
@@ -153,7 +182,13 @@ class ProjectController extends Controller
 
     public function getProjectsByManager(User $user)
     {
+        $currentUser = auth()->user();
         $projects = $user->projects()
+            ->when($currentUser->role !== 'admin' && $currentUser->id !== $user->id, function ($query) use ($currentUser) {
+                 $query->whereHas('tasks', function ($tq) use ($currentUser) {
+                      $tq->where('assigned_to', $currentUser->id);
+                 });
+            })
             ->with(['client'])
             ->withCount('tasks')
             ->orderBy('created_at', 'desc')

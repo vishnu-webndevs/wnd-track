@@ -83,7 +83,7 @@ function AppContent() {
                 <Route path="/projects" element={<Projects />} />
                 <Route path="/tasks" element={<Tasks />} />
                 <Route path="/time-tracking" element={<TimeTracking />} />
-                <Route path="/timesheets" element={<ProtectedRoute requiredRole="admin"><Timesheets /></ProtectedRoute>} />
+                <Route path="/timesheets" element={<Timesheets />} />
                 <Route path="/" element={<Dashboard />} />
               </Routes>
             </Layout>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { timeTrackingAPI, ActivityMinute } from '../api/timeTracking';
+import { dashboardAPI } from '../api/dashboard';
 import { tasksAPI } from '../api/tasks';
 import { projectsAPI } from '../api/projects';
 import { usersAPI } from '../api/users';
@@ -14,6 +15,14 @@ type SimplePeerConstructor = typeof import('simple-peer')['default'];
 
 export default function TimeTracking() {
   const { user } = useAuthStore();
+  
+  const { data: dashboardStats } = useQuery({
+    queryKey: ['dashboardStats'],
+    queryFn: dashboardAPI.getStats,
+    refetchInterval: 60000, // Refresh every minute to keep total time updated
+    enabled: !!user,
+  });
+
   const [selectedTaskId, setSelectedTaskId] = useState<number | undefined>(undefined);
   const selectedTaskIdRef = useRef(selectedTaskId);
   useEffect(() => { selectedTaskIdRef.current = selectedTaskId; }, [selectedTaskId]);
@@ -63,6 +72,7 @@ export default function TimeTracking() {
   const livePromptAckRef = useRef<boolean>(false);
   const screenshotMissingWarnedRef = useRef<boolean>(false);
   const lastCapturedMinuteRef = useRef<string | null>(localStorage.getItem('tt-last-captured-minute'));
+  const isCapturingRef = useRef(false);
   const trackerKey = 'tt-tracker';
   const captureScreenshotRef = useRef<() => Promise<void>>(async () => {});
   const mountedRef = useRef<boolean>(true);
@@ -173,6 +183,7 @@ export default function TimeTracking() {
     }
 
     // Fallback: Web browser listeners
+    let lastMousePos = { x: 0, y: 0 };
     const handleActivity = (e: MouseEvent | KeyboardEvent | Event) => {
       const now = new Date();
       lastActivityRef.current = now;
@@ -210,9 +221,14 @@ export default function TimeTracking() {
         entry.mouse_scrolls++;
         entry.total_activity++;
       } else if (e.type === 'mousemove') {
-        entry.mouse_movements++;
-        // We might want to limit mouse movement counting to avoid flooding, but for now counting every event
-        entry.total_activity++;
+        const m = e as MouseEvent;
+        // Ignore tiny movements (jitter/drift) to prevent fake activity
+        const dist = Math.abs(m.clientX - lastMousePos.x) + Math.abs(m.clientY - lastMousePos.y);
+        if (dist > 5) {
+            lastMousePos = { x: m.clientX, y: m.clientY };
+            entry.mouse_movements++;
+            entry.total_activity++;
+        }
       }
     };
     
@@ -237,7 +253,7 @@ export default function TimeTracking() {
 
   const { data: tasks } = useQuery({
     queryKey: ['tasks', 'for-time-tracking', user?.id],
-    queryFn: () => user?.id ? tasksAPI.getTasks({ assigned_to: user.id, page: 1 }) : Promise.resolve({ data: [], current_page: 1, last_page: 1 }),
+    queryFn: () => user?.id ? tasksAPI.getTasks({ assigned_to: user.id, page: 1, exclude_status: 'completed' }) : Promise.resolve({ data: [], current_page: 1, last_page: 1 }),
   });
 
   const { data: projects } = useQuery({
@@ -275,26 +291,9 @@ export default function TimeTracking() {
   });
 
   const startShotSchedule = () => {
-    if (screenshotIntervalRef.current) window.clearInterval(screenshotIntervalRef.current);
+    if (screenshotIntervalRef.current) window.clearTimeout(screenshotIntervalRef.current);
     if (fixedScreenshotIntervalRef.current) window.clearInterval(fixedScreenshotIntervalRef.current);
     scheduleRandomScreenshots();
-    {
-      const now2 = new Date();
-      const m = now2.getMinutes();
-      const endMin = Math.floor(m / 10) * 10 + 9;
-      const target = new Date(now2);
-      if (m > endMin || (m === endMin && now2.getSeconds() >= 59)) {
-        target.setMinutes(endMin + 10);
-      } else {
-        target.setMinutes(endMin);
-      }
-      target.setSeconds(59);
-      target.setMilliseconds(0);
-      fixedShotNextTimeRef.current = target;
-    }
-    screenshotIntervalRef.current = window.setInterval(() => {
-      scheduleRandomScreenshots();
-    }, 10 * 60 * 1000);
   };
 
   const startVisualActivityCheck = async () => {
@@ -425,12 +424,20 @@ export default function TimeTracking() {
        return;
     }
 
-    const projectId = getProjectId(selectedTaskIdRef.current);
-    if (!projectId) {
-      return;
+    // Prevent concurrent captures (Burst/Race Condition Fix)
+    if (isCapturingRef.current) {
+        // console.log('Skipping screenshot: Already capturing');
+        return;
     }
-    
-    let stream = screenStreamRef.current;
+    isCapturingRef.current = true;
+
+    try {
+      const projectId = getProjectId(selectedTaskIdRef.current);
+      if (!projectId) {
+        return;
+      }
+      
+      let stream = screenStreamRef.current;
     if (!stream) {
       const g = (window as unknown as { __ttStream?: MediaStream | null }).__ttStream || null;
       const gTrack = g ? g.getVideoTracks()[0] : undefined;
@@ -469,8 +476,7 @@ export default function TimeTracking() {
     const imageCapture = ImageCaptureCtor ? new ImageCaptureCtor(track) : null;
     
     let blob: Blob | null = null;
-    try {
-      // console.log('Attempting to capture screenshot...');
+    // console.log('Attempting to capture screenshot...');
       if (imageCapture && imageCapture.grabFrame) {
         const frame: ImageBitmap = await imageCapture.grabFrame();
         const canvas = document.createElement('canvas');
@@ -542,13 +548,20 @@ export default function TimeTracking() {
         captureTargetTime.setSeconds(59);
         captureTargetTime.setMilliseconds(0);
 
-        // Fill gaps between last capture and target time
+        // Fill gaps between last capture and target time with zero-activity minutes
         const start = lastCaptureTimeRef.current;
         let loopTime = new Date(start);
+        
+        // If the last capture was at the end of a minute (:59), start filling from the NEXT minute
+        // to avoid duplicating the previously captured minute as an empty "0 0 0 0" row.
+        if (start.getSeconds() >= 59) {
+           loopTime.setMinutes(loopTime.getMinutes() + 1);
+        }
+
         loopTime.setSeconds(0);
         loopTime.setMilliseconds(0);
         
-        // Cap at 24 hours
+        // Cap at 24 hours to avoid runaway fill
         if (captureTargetTime.getTime() - loopTime.getTime() > 24 * 60 * 60 * 1000) {
              loopTime = new Date(captureTargetTime.getTime() - 24 * 60 * 60 * 1000);
         }
@@ -557,6 +570,16 @@ export default function TimeTracking() {
         
         while (loopTime <= endTime) {
            const key = getMinuteKey(loopTime);
+           
+           // Prevent re-filling the minute we just captured/uploaded
+           // Normalize lastCapturedMinuteRef (YYYY-MM-DD HH:mm) to key format (YYYY-MM-DDTHH:mm)
+           const lastCapturedKey = lastCapturedMinuteRef.current ? lastCapturedMinuteRef.current.replace(' ', 'T') : null;
+           
+           if (key === lastCapturedKey) {
+               loopTime.setMinutes(loopTime.getMinutes() + 1);
+               continue;
+           }
+
            if (!activityDataRef.current[key]) {
              activityDataRef.current[key] = {
                 time: loopTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false }),
@@ -599,7 +622,10 @@ export default function TimeTracking() {
             targetMinuteTime.setMilliseconds(0);
             
             if (keyTime <= targetMinuteTime.getTime()) {
-                breakdown.push(activityDataRef.current[key]);
+                const entry = activityDataRef.current[key];
+                if (entry) {
+                  breakdown.push(entry);
+                }
             } else {
                 remainingActivity[key] = activityDataRef.current[key];
             }
@@ -640,6 +666,8 @@ export default function TimeTracking() {
       }
     } catch (e) {
       void e;
+    } finally {
+      isCapturingRef.current = false;
     }
   };
   
@@ -651,52 +679,194 @@ export default function TimeTracking() {
     if (mountedRef.current) setElapsed((e) => e + 1);
     
     const now = new Date();
+    try {
+      if (isTrackingRef.current) {
+        const raw = localStorage.getItem(trackerKey);
+        if (raw) {
+          const parsed = JSON.parse(raw) as { isTracking: boolean; startAt?: string; note?: string; timeLogId?: number; lastHeartbeat?: string };
+          if (parsed.isTracking && parsed.startAt) {
+            const lastHeartbeat = parsed.lastHeartbeat ? new Date(parsed.lastHeartbeat) : new Date(parsed.startAt);
+            const gap = now.getTime() - lastHeartbeat.getTime();
+            // Allow 10 minutes gap to account for timer drift or temporary lag before assuming sleep
+            if (gap > 10 * 60 * 1000) {
+              const start = new Date(parsed.startAt);
+              const durationMinutes = Math.round((lastHeartbeat.getTime() - start.getTime()) / 1000 / 60);
+              if (parsed.timeLogId) {
+                updateTimeLog.mutate({
+                  id: parsed.timeLogId,
+                  payload: {
+                    duration: durationMinutes,
+                    end_time: toLocalISOString(lastHeartbeat),
+                    description: parsed.note
+                  }
+                });
+              }
+              try { localStorage.removeItem(trackerKey); } catch { void 0; }
+              setIsTracking(false);
+              isTrackingRef.current = false;
+              setStartAt(null);
+              setActiveTimeLogId(undefined);
+              setElapsed(0);
+              if (tickIntervalRef.current) window.clearInterval(tickIntervalRef.current);
+              if (screenshotIntervalRef.current) window.clearTimeout(screenshotIntervalRef.current);
+              if (fixedScreenshotIntervalRef.current) window.clearInterval(fixedScreenshotIntervalRef.current);
+              if (heartbeatIntervalRef.current) window.clearInterval(heartbeatIntervalRef.current);
+              if (visualCheckIntervalRef.current) window.clearInterval(visualCheckIntervalRef.current);
+              randomShotTimesRef.current = [];
+              fixedShotNextTimeRef.current = null;
+              try { stopMediaTracks(); } catch { void 0; }
+              toast.error('Tracking stopped due to sleep/hibernate.');
+              return;
+            }
+          }
+        }
+      }
+    } catch { void 0; }
     const remainingTimes: Date[] = [];
+    let executed = false;
+    let shotTaken = false;
     
     randomShotTimesRef.current.forEach(time => {
       if (now.getTime() >= time.getTime()) {
-        // console.log('Executing scheduled screenshot:', time.toLocaleTimeString());
-        captureScreenshotRef.current();
+        if (!shotTaken && !isCapturingRef.current) {
+             captureScreenshotRef.current();
+             shotTaken = true;
+             executed = true;
+             // Remove from list (processed)
+        } else {
+             // Keep in list (retry next tick)
+             remainingTimes.push(time);
+        }
       } else {
         remainingTimes.push(time);
       }
     });
     randomShotTimesRef.current = remainingTimes;
     
+    if (executed) {
+      try {
+        const raw = localStorage.getItem(trackerKey);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          localStorage.setItem(trackerKey, JSON.stringify({
+            ...parsed,
+            randomShotTimes: remainingTimes.map(d => d.toISOString())
+          }));
+        }
+      } catch { void 0; }
+    }
+    
     if (fixedShotNextTimeRef.current && now.getTime() >= fixedShotNextTimeRef.current.getTime()) {
-      captureScreenshotRef.current();
-      const d = new Date(fixedShotNextTimeRef.current);
-      d.setMinutes(d.getMinutes() + 10);
-      fixedShotNextTimeRef.current = d;
+      if (!isCapturingRef.current) {
+        captureScreenshotRef.current();
+        const d = new Date(fixedShotNextTimeRef.current);
+        d.setMinutes(d.getMinutes() + 10);
+        fixedShotNextTimeRef.current = d;
+        
+        try {
+          const raw = localStorage.getItem(trackerKey);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            localStorage.setItem(trackerKey, JSON.stringify({
+              ...parsed,
+              fixedShotNextTime: d.toISOString()
+            }));
+          }
+        } catch { void 0; }
+      }
     }
   }, []);
 
   const scheduleRandomScreenshots = () => {
-    // Generate 3 random shots for the next 10 minutes, excluding the fixed :59 minute
-    const SHOT_COUNT = 3;
-    const WINDOW_MINUTES = 10;
+    // Determine current 10-minute block boundaries
     const now = new Date();
-    const fixedNext = fixedShotNextTimeRef.current;
+    const m = now.getMinutes();
+    const blockStartMinute = Math.floor(m / 10) * 10;
+    const blockEndMinute = blockStartMinute + 9;
+    
+    const blockStart = new Date(now);
+    blockStart.setMinutes(blockStartMinute);
+    blockStart.setSeconds(0);
+    blockStart.setMilliseconds(0);
+    
+    const blockEnd = new Date(now);
+    blockEnd.setMinutes(blockEndMinute);
+    blockEnd.setSeconds(59);
+    blockEnd.setMilliseconds(0);
+    
+    // Set the fixed shot time for this block
+    fixedShotNextTimeRef.current = blockEnd;
+    
+    // Calculate remaining time in this block
+    const remainingMs = blockEnd.getTime() - now.getTime();
+    if (remainingMs <= 0) return; // Should not happen if called correctly
+    
+    // Scale shot count based on remaining time
+    // Standard: 3 shots in 10 mins.
+    const remainingMinutes = remainingMs / 1000 / 60;
+    const SHOT_COUNT = Math.max(1, Math.round((remainingMinutes / 10) * 3));
+    
     const newTimes: Date[] = [];
-    const usedOffsets = new Set<number>();
-    while (newTimes.length < SHOT_COUNT) {
-      const offset = Math.floor(Math.random() * WINDOW_MINUTES);
-      if (usedOffsets.has(offset)) continue;
-      const target = new Date(now);
-      target.setMinutes(now.getMinutes() + offset);
-      target.setSeconds(59);
-      target.setMilliseconds(0);
-      if (target.getTime() <= now.getTime()) continue;
-      // Exclude the fixed :59 minute of the 10-min block
-      if (fixedNext && getMinuteKey(target) === getMinuteKey(fixedNext)) {
-        usedOffsets.add(offset);
-        continue;
-      }
-      newTimes.push(target);
-      usedOffsets.add(offset);
+    const usedMinutes = new Set<number>();
+    
+    // If very close to end, maybe just 1 shot or none?
+    // Let's try to fit SHOT_COUNT shots in the remaining interval [now, blockEnd]
+    // But avoid the fixed shot minute (blockEndMinute) if possible, unless it's the only option
+    
+    for(let i=0; i<SHOT_COUNT; i++) {
+        // Random time between now and blockEnd (exclusive of blockEnd ideally)
+        const randomOffsetMs = Math.random() * (remainingMs - 10000); // Buffer 10s before fixed shot
+        if (randomOffsetMs < 0) continue; 
+        
+        const target = new Date(now.getTime() + randomOffsetMs);
+        // Round to nearest second to avoid sub-second triggers? Not needed.
+        
+        // Avoid duplicate minutes if possible
+        const tm = target.getMinutes();
+        if (tm === blockEndMinute && SHOT_COUNT > 1) {
+            // Try again to avoid clashing with fixed shot minute
+            i--; 
+            continue; 
+        }
+        
+        if (usedMinutes.has(tm)) {
+            // Try to spread them out
+             // But if we are squeezed for time, we might have to overlap minutes (just different seconds)
+             if (remainingMinutes > 3) {
+                 i--;
+                 continue;
+             }
+        }
+        
+        newTimes.push(target);
+        usedMinutes.add(tm);
     }
+    
+    newTimes.sort((a,b) => a.getTime() - b.getTime());
     randomShotTimesRef.current = newTimes;
-    // console.log('Scheduled screenshots at:', newTimes.map(d => d.toLocaleTimeString()));
+    
+    // Persist schedule
+    try {
+      const raw = localStorage.getItem(trackerKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        localStorage.setItem(trackerKey, JSON.stringify({
+          ...parsed,
+          randomShotTimes: newTimes.map(d => d.toISOString()),
+          fixedShotNextTime: blockEnd.toISOString()
+        }));
+      }
+    } catch { void 0; }
+    
+    // Schedule next block scheduling
+    if (screenshotIntervalRef.current) window.clearTimeout(screenshotIntervalRef.current);
+    const msUntilNextBlock = blockEnd.getTime() - now.getTime() + 2000; // 2s after block end
+    screenshotIntervalRef.current = window.setTimeout(() => {
+        scheduleRandomScreenshots();
+    }, msUntilNextBlock);
+    
+    const win = window as any;
+    if (win.__tt_intervals) win.__tt_intervals.screenshot = screenshotIntervalRef.current;
   };
 
   const stopMediaTracks = () => {
@@ -747,9 +917,23 @@ export default function TimeTracking() {
         },
       });
     }, 60 * 1000);
+    const win = window as any;
+    if (win.__tt_intervals) win.__tt_intervals.heartbeat = heartbeatIntervalRef.current;
   };
 
   useEffect(() => {
+    // Clear any zombie intervals from previous unmounted instances
+    const win = window as any;
+    if (win.__tt_intervals) {
+      if (win.__tt_intervals.screenshot) window.clearTimeout(win.__tt_intervals.screenshot); // changed from clearInterval to clearTimeout
+      if (win.__tt_intervals.fixedScreenshot) window.clearInterval(win.__tt_intervals.fixedScreenshot);
+      if (win.__tt_intervals.heartbeat) window.clearInterval(win.__tt_intervals.heartbeat);
+      if (win.__tt_intervals.visualCheck) window.clearInterval(win.__tt_intervals.visualCheck);
+      win.__tt_intervals = {};
+    } else {
+      win.__tt_intervals = {};
+    }
+
     // Set a flag in sessionStorage to distinguish between a reload and a fresh start (app restart)
     const isReload = sessionStorage.getItem('is_reloaded');
     sessionStorage.setItem('is_reloaded', 'true');
@@ -865,32 +1049,50 @@ export default function TimeTracking() {
           if (tickIntervalRef.current) window.clearInterval(tickIntervalRef.current);
           tickIntervalRef.current = window.setInterval(runTick, 1000);
           
-          if (screenshotIntervalRef.current) window.clearInterval(screenshotIntervalRef.current);
+          if (screenshotIntervalRef.current) window.clearTimeout(screenshotIntervalRef.current);
           if (fixedScreenshotIntervalRef.current) window.clearInterval(fixedScreenshotIntervalRef.current);
 
-          // Initial fixed shot on resume? Maybe not to avoid duplicates if just reloaded.
-          // But to be safe and consistent with startTracking:
-          captureScreenshot();
-          scheduleRandomScreenshots();
-          {
-            const now2 = new Date();
-            const m = now2.getMinutes();
-            const endMin = Math.floor(m / 10) * 10 + 9;
-            const target = new Date(now2);
-            if (m > endMin || (m === endMin && now2.getSeconds() >= 59)) {
-              target.setMinutes(endMin + 10);
-            } else {
-              target.setMinutes(endMin);
-            }
-            target.setSeconds(59);
-            target.setMilliseconds(0);
-            fixedShotNextTimeRef.current = target;
+          // Load persisted schedule
+          const p = parsed as any;
+          if (p.randomShotTimes) {
+             randomShotTimesRef.current = p.randomShotTimes.map((t: string) => new Date(t));
           }
+          if (p.fixedShotNextTime) {
+             fixedShotNextTimeRef.current = new Date(p.fixedShotNextTime);
+          }
+
+          // Check if we need to schedule new shots
+          // Check if we have a valid fixed shot for the CURRENT block
+          const scheduleNow = new Date();
+          const currentBlockEnd = new Date(scheduleNow);
+          const m = scheduleNow.getMinutes();
+          const endMin = Math.floor(m / 10) * 10 + 9;
+          currentBlockEnd.setMinutes(endMin);
+          currentBlockEnd.setSeconds(59);
+          currentBlockEnd.setMilliseconds(0);
           
-          // Interval for both fixed and random schedule
-          screenshotIntervalRef.current = window.setInterval(() => {
-            scheduleRandomScreenshots(); // Schedule next batch of randoms
-          }, 10 * 60 * 1000);
+          let hasValidFixed = false;
+          if (fixedShotNextTimeRef.current) {
+             const fixedTime = fixedShotNextTimeRef.current.getTime();
+             if (Math.abs(fixedTime - currentBlockEnd.getTime()) < 60000) { // Same minute
+                 hasValidFixed = true;
+             }
+          }
+
+          if (!hasValidFixed) {
+             // We need to schedule for this block (or remainder of it)
+             scheduleRandomScreenshots();
+          } else {
+             // We have a schedule for this block.
+             // Just set up the next block trigger
+             const msUntilNextBlock = currentBlockEnd.getTime() - scheduleNow.getTime() + 2000;
+             if (screenshotIntervalRef.current) window.clearTimeout(screenshotIntervalRef.current);
+             screenshotIntervalRef.current = window.setTimeout(() => {
+                scheduleRandomScreenshots();
+             }, msUntilNextBlock);
+             const win = window as any;
+             if (win.__tt_intervals) win.__tt_intervals.screenshot = screenshotIntervalRef.current;
+          }
 
         }
       }
@@ -908,7 +1110,7 @@ export default function TimeTracking() {
       mountedRef.current = false;
       if (!isTrackingRef.current) {
         if (tickIntervalRef.current) window.clearInterval(tickIntervalRef.current);
-        if (screenshotIntervalRef.current) window.clearInterval(screenshotIntervalRef.current);
+        if (screenshotIntervalRef.current) window.clearTimeout(screenshotIntervalRef.current);
         if (fixedScreenshotIntervalRef.current) window.clearInterval(fixedScreenshotIntervalRef.current);
         if (heartbeatIntervalRef.current) window.clearInterval(heartbeatIntervalRef.current);
         randomShotTimesRef.current = [];
@@ -963,9 +1165,25 @@ export default function TimeTracking() {
                     const turnUrl = env?.VITE_TURN_URL;
                     const turnUser = env?.VITE_TURN_USERNAME;
                     const turnPass = env?.VITE_TURN_PASSWORD;
-                    const servers: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }];
+                    const turnUrlsRaw = env?.VITE_TURN_URLS;
+                    const servers: RTCIceServer[] = [
+                      { urls: 'stun:stun.l.google.com:19302' },
+                      { urls: 'stun:stun1.l.google.com:19302' },
+                      { urls: 'stun:stun2.l.google.com:19302' },
+                      { urls: 'stun:stun3.l.google.com:19302' },
+                      { urls: 'stun:stun4.l.google.com:19302' },
+                      { urls: 'stun:stun.cloudflare.com:3478' },
+                      { urls: 'stun:global.stun.twilio.com:3478' },
+                    ];
                     if (turnUrl && turnUser && turnPass) {
-                      servers.push({ urls: turnUrl, username: turnUser, credential: turnPass });
+                      const urls = turnUrl.includes(',') ? turnUrl.split(',').map(u => u.trim()) : turnUrl;
+                      servers.push({ urls, username: turnUser, credential: turnPass });
+                    }
+                    if (turnUrlsRaw && turnUser && turnPass) {
+                      const urls = turnUrlsRaw.split(',').map(u => u.trim()).filter(Boolean);
+                      for (const u of urls) {
+                        servers.push({ urls: u, username: turnUser, credential: turnPass });
+                      }
                     }
                     return servers;
                 };
@@ -1192,7 +1410,7 @@ export default function TimeTracking() {
 
     // 1. Clear intervals and timeouts FIRST to prevent new screenshots/heartbeats
     if (tickIntervalRef.current) window.clearInterval(tickIntervalRef.current);
-    if (screenshotIntervalRef.current) window.clearInterval(screenshotIntervalRef.current);
+    if (screenshotIntervalRef.current) window.clearTimeout(screenshotIntervalRef.current);
     if (fixedScreenshotIntervalRef.current) window.clearInterval(fixedScreenshotIntervalRef.current);
     if (heartbeatIntervalRef.current) window.clearInterval(heartbeatIntervalRef.current);
     randomShotTimesRef.current = [];
@@ -1220,6 +1438,7 @@ export default function TimeTracking() {
             end_time: toLocalISOString(end),
             duration: durationMinutes,
             description: note,
+            // use_server_time: true, // Disabled to use local time from client
           }
         });
         toast.success('Tracking stopped and saved');
@@ -1277,7 +1496,14 @@ export default function TimeTracking() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Time Tracking</h1>
+        <div className="flex items-center gap-4">
+          <h1 className="text-2xl font-bold text-gray-900">Time Tracking</h1>
+          {dashboardStats?.todayMinutes !== undefined && (
+            <span className="bg-blue-100 text-blue-800 text-sm font-medium px-2.5 py-0.5 rounded">
+              Today: {Math.floor(dashboardStats.todayMinutes / 60)}h {dashboardStats.todayMinutes % 60}m
+            </span>
+          )}
+        </div>
         <div className="flex gap-2">
           {!isTracking ? (
             <button onClick={startTracking} className="px-4 py-2 rounded bg-indigo-600 text-white">Start</button>

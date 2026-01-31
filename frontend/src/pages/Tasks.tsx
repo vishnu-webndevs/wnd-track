@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Search, Edit, Trash2, CheckSquare } from 'lucide-react';
 import { tasksAPI } from '../api/tasks';
@@ -85,17 +85,75 @@ export default function Tasks() {
 
   const projectOptions = useMemo(() => (projects?.data ?? []), [projects]);
   const userOptions = useMemo(() => {
+    let options: User[] = [];
     if (!isAdmin) {
-      return currentUser ? [currentUser as unknown as User] : [];
+      options = currentUser ? [currentUser as unknown as User] : [];
+    } else {
+      options = users?.data ?? [];
     }
-    return users?.data ?? [];
-  }, [currentUser, isAdmin, users]);
+
+      // Ensure the assigned user is in the list (in case of pagination or restricted view)
+      let assignedUser = selectedTask?.assignedTo ?? selectedTask?.assigned_employee;
+      const assignedIdVal = selectedTask?.assigned_to;
+      
+      // Handle case where assigned_to is an object (User) instead of number
+      const assignedId = typeof assignedIdVal === 'object' && assignedIdVal !== null 
+        ? (assignedIdVal as unknown as User).id 
+        : assignedIdVal;
+
+      // Fallback: If relation is missing but ID matches current user, use current user
+      if (!assignedUser && assignedId && currentUser && Number(assignedId) === currentUser.id) {
+        assignedUser = currentUser as unknown as User;
+      }
+
+      if (assignedUser && !options.find(u => u.id === assignedUser.id)) {
+        options = [...options, assignedUser];
+      }
+      
+      return options;
+    }, [currentUser, isAdmin, users, selectedTask]);
 
   const createForm = useForm<CreateTaskForm>({
     resolver: zodResolver(createSchema),
     defaultValues: { status: 'pending', priority: 'medium' },
   });
   const editForm = useForm<EditTaskForm>({ resolver: zodResolver(editSchema) });
+
+  // Reset edit form when selectedTask changes
+  useEffect(() => {
+    if (isEditOpen && selectedTask) {
+      // Handle potential object in assigned_to
+      const rawAssignedId = selectedTask.assigned_to;
+      const safeAssignedId = typeof rawAssignedId === 'object' && rawAssignedId !== null
+        ? (rawAssignedId as unknown as User).id
+        : rawAssignedId;
+
+      const assignedId = safeAssignedId ?? selectedTask.assignedTo?.id ?? selectedTask.assigned_employee?.id;
+      
+      let finalAssignedId: number | undefined;
+      
+      // Check if the assigned ID matches the current user (prioritize exact match)
+      // This handles cases where relation is missing but ID is correct
+      if (currentUser && assignedId && Number(assignedId) === currentUser.id) {
+        finalAssignedId = currentUser.id;
+      } else if (assignedId) {
+        finalAssignedId = Number(assignedId);
+      }
+
+      editForm.reset({
+        title: selectedTask.title,
+        description: selectedTask.description ?? '',
+        project_id: selectedTask.project_id,
+        assigned_to: finalAssignedId,
+        status: selectedTask.status,
+        priority: selectedTask.priority,
+        due_date: selectedTask.due_date ?? '',
+        estimated_hours: selectedTask.estimated_hours ?? undefined,
+        actual_hours: selectedTask.actual_hours ?? undefined,
+        notes: selectedTask.notes ?? '',
+      });
+    }
+  }, [isEditOpen, selectedTask, isAdmin, currentUser, editForm]);
 
   const createMutation = useMutation({
     mutationFn: (payload: CreateTaskForm) => tasksAPI.createTask(payload),
@@ -311,18 +369,6 @@ export default function Tasks() {
                             onClick={() => {
                               setSelectedTask(task);
                               setIsEditOpen(true);
-                              editForm.reset({
-                                title: task.title,
-                                description: task.description ?? '',
-                                project_id: task.project_id,
-                                assigned_to: task.assigned_to ?? undefined,
-                                status: task.status,
-                                priority: task.priority,
-                                due_date: task.due_date ?? '',
-                                estimated_hours: task.estimated_hours ?? undefined,
-                                actual_hours: task.actual_hours ?? undefined,
-                                notes: task.notes ?? '',
-                              });
                             }}
                           >
                             <Edit className="h-4 w-4" />
@@ -408,21 +454,9 @@ export default function Tasks() {
                             <button
                               className="text-indigo-600 hover:text-indigo-900"
                               onClick={() => {
-                                setSelectedTask(task);
-                                setIsEditOpen(true);
-                                editForm.reset({
-                                  title: task.title,
-                                  description: task.description ?? '',
-                                  project_id: task.project_id,
-                                  assigned_to: task.assigned_to ?? undefined,
-                                  status: task.status,
-                                  priority: task.priority,
-                                  due_date: task.due_date ?? '',
-                                  estimated_hours: task.estimated_hours ?? undefined,
-                                  actual_hours: task.actual_hours ?? undefined,
-                                  notes: task.notes ?? '',
-                                });
-                              }}
+                              setSelectedTask(task);
+                              setIsEditOpen(true);
+                            }}
                             >
                               <Edit className="h-4 w-4" />
                             </button>
@@ -570,11 +604,11 @@ export default function Tasks() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Title</label>
-                  <input {...editForm.register('title')} className="mt-1 block w-full border rounded px-3 py-2" />
+                  <input {...editForm.register('title')} disabled={!isAdmin} className="mt-1 block w-full border rounded px-3 py-2 disabled:bg-gray-100 disabled:text-gray-500" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Project</label>
-                  <select {...editForm.register('project_id', { valueAsNumber: true })} className="mt-1 block w-full border rounded px-3 py-2">
+                  <select {...editForm.register('project_id', { valueAsNumber: true })} disabled={!isAdmin} className="mt-1 block w-full border rounded px-3 py-2 disabled:bg-gray-100 disabled:text-gray-500">
                     {projectOptions.map((p) => (
                       <option key={p.id} value={p.id}>{p.name}</option>
                     ))}
@@ -582,12 +616,22 @@ export default function Tasks() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Assigned To</label>
-                  <select {...editForm.register('assigned_to', { valueAsNumber: true })} className="mt-1 block w-full border rounded px-3 py-2">
+                  <select {...editForm.register('assigned_to', { valueAsNumber: true })} disabled={!isAdmin} className="mt-1 block w-full border rounded px-3 py-2 disabled:bg-gray-100 disabled:text-gray-500">
                     <option value="">Optional</option>
                     {userOptions.map((u) => (
                       <option key={u.id} value={u.id}>{u.name}</option>
                     ))}
                   </select>
+                  {selectedTask?.assigned_to && (
+                    <p className="text-xs text-gray-400 mt-1">
+                      Debug: Assigned ID: {
+                        typeof selectedTask.assigned_to === 'object' && selectedTask.assigned_to !== null
+                          ? (selectedTask.assigned_to as unknown as User).id
+                          : selectedTask.assigned_to
+                      } 
+                      {selectedTask.assignedTo ? ` (${selectedTask.assignedTo.name})` : ' (Relation Missing)'}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Status</label>
@@ -599,7 +643,7 @@ export default function Tasks() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Priority</label>
-                  <select {...editForm.register('priority')} className="mt-1 block w-full border rounded px-3 py-2">
+                  <select {...editForm.register('priority')} disabled={!isAdmin} className="mt-1 block w-full border rounded px-3 py-2 disabled:bg-gray-100 disabled:text-gray-500">
                     {priorityOptions.map((p) => (
                       <option key={p} value={p}>{p}</option>
                     ))}
@@ -607,11 +651,11 @@ export default function Tasks() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Due Date</label>
-                  <input {...editForm.register('due_date')} type="date" className="mt-1 block w-full border rounded px-3 py-2" />
+                  <input {...editForm.register('due_date')} disabled={!isAdmin} type="date" className="mt-1 block w-full border rounded px-3 py-2 disabled:bg-gray-100 disabled:text-gray-500" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Estimated Hours</label>
-                  <input {...editForm.register('estimated_hours', { valueAsNumber: true })} type="number" step="1" className="mt-1 block w-full border rounded px-3 py-2" />
+                  <input {...editForm.register('estimated_hours', { valueAsNumber: true })} disabled={!isAdmin} type="number" step="1" className="mt-1 block w-full border rounded px-3 py-2 disabled:bg-gray-100 disabled:text-gray-500" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Actual Hours</label>

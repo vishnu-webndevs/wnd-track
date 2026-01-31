@@ -1,5 +1,5 @@
 import { api } from '../lib/api';
-import { User } from '../types';
+import { User, Project, Task } from '../types';
 
 export interface UserFilters {
   search?: string;
@@ -75,5 +75,15 @@ export const usersAPI = {
   ): Promise<unknown> => {
     const response = await api.get(`/users/${id}/signal?type=${type}`);
     return response.data as unknown;
+  },
+
+  getAssignedProjects: async (id: number): Promise<Project[]> => {
+    const response = await api.get(`/users/${id}/assigned-projects`);
+    return response.data;
+  },
+
+  getAssignedProjectTasks: async (userId: number, projectId: number): Promise<Task[]> => {
+    const response = await api.get(`/users/${userId}/projects/${projectId}/assigned-tasks`);
+    return response.data;
   },
 };

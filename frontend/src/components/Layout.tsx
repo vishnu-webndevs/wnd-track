@@ -178,7 +178,10 @@ export default function Layout({ children }: LayoutProps) {
     { name: 'Projects', href: '/projects', icon: Briefcase },
     { name: 'Tasks', href: '/tasks', icon: CheckSquare },
     { name: 'Clients', href: '/clients', icon: Building2 },
-    ...(user?.role === 'employee' ? [{ name: 'Time Tracking', href: '/time-tracking', icon: Timer }] : []),
+    ...(user?.role === 'employee' ? [
+      { name: 'Time Tracking', href: '/time-tracking', icon: Timer },
+      ...(!trackingOn ? [{ name: 'Timesheets', href: '/timesheets', icon: User }] : [])
+    ] : []),
   ];
 
   const adminNavigation = [

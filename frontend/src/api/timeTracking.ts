@@ -8,6 +8,7 @@ export interface SyncTimeLogPayload {
   duration?: number; // minutes
   description?: string;
   desktop_app_id: string; // 'web'
+  use_server_time?: boolean;
 }
 
 export interface ActivityPayload {
@@ -87,13 +88,21 @@ export const timeTrackingAPI = {
     const res = await api.get(`/users/${userId}/time-logs?${params.toString()}`);
     return res.data;
   },
+  addManualTimeLog: async (userId: number, data: { project_id: number | null; task_id?: number | null; start_time: string; end_time: string; description?: string }) => {
+    const res = await api.post(`/users/${userId}/time-logs`, data);
+    return res.data;
+  },
   getUserScreenshotsAdmin: async (
     userId: number,
-    filters: { start_date?: string; end_date?: string; project_id?: number } = {}
+    filters: { start_date?: string; end_date?: string; project_id?: number; time_log_id?: number } = {}
   ) => {
     const params = new URLSearchParams();
     Object.entries(filters).forEach(([k, v]) => { if (v !== undefined && v !== null) params.append(k, String(v)); });
     const res = await api.get(`/users/${userId}/screenshots?${params.toString()}`);
+    return res.data;
+  },
+  deleteScreenshot: async (userId: number, screenshotId: number) => {
+    const res = await api.delete(`/users/${userId}/screenshots/${screenshotId}`);
     return res.data;
   },
   getUserActivitySummaryAdmin: async (

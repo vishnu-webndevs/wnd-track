@@ -9,4 +9,5 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('report:daily-time')->dailyAt('21:00');
+Schedule::command('timelogs:stop-ghosts')->everyMinute();
 

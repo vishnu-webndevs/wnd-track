@@ -18,13 +18,20 @@ class TaskController extends Controller
 
     public function index(Request $request)
     {
+        $user = auth()->user();
         $tasks = Task::query()
+            ->when($user->role !== 'admin', function ($query) use ($user) {
+                $query->where('assigned_to', $user->id);
+            })
             ->when($request->search, function ($query, $search) {
                 $query->where('title', 'like', "%{$search}%")
                     ->orWhere('description', 'like', "%{$search}%");
             })
             ->when($request->status, function ($query, $status) {
                 $query->where('status', $status);
+            })
+            ->when($request->exclude_status, function ($query, $exclude_status) {
+                $query->where('status', '!=', $exclude_status);
             })
             ->when($request->priority, function ($query, $priority) {
                 $query->where('priority', $priority);
@@ -156,7 +163,11 @@ class TaskController extends Controller
 
     public function getTasksByProject(Project $project)
     {
+        $user = auth()->user();
         $tasks = $project->tasks()
+            ->when($user->role !== 'admin', function ($query) use ($user) {
+                $query->where('assigned_to', $user->id);
+            })
             ->with(['assignedTo', 'createdBy'])
             ->orderBy('created_at', 'desc')
             ->get();
@@ -166,6 +177,10 @@ class TaskController extends Controller
 
     public function getTasksByUser(User $user)
     {
+        if (auth()->user()->role !== 'admin' && auth()->id() !== $user->id) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
         $tasks = $user->assignedTasks()
             ->with(['project', 'createdBy'])
             ->orderBy('created_at', 'desc')

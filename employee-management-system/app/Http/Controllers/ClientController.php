@@ -15,7 +15,16 @@ class ClientController extends Controller
 
     public function index(Request $request)
     {
+        $user = auth()->user();
         $clients = Client::query()
+            ->when($user->role !== 'admin', function ($query) use ($user) {
+                $query->whereHas('projects', function ($pq) use ($user) {
+                    $pq->where('manager_id', $user->id)
+                       ->orWhereHas('tasks', function ($tq) use ($user) {
+                           $tq->where('assigned_to', $user->id);
+                       });
+                });
+            })
             ->when($request->search, function ($query, $search) {
                 $query->where('name', 'like', "%{$search}%")
                     ->orWhere('email', 'like', "%{$search}%")
@@ -114,7 +123,16 @@ class ClientController extends Controller
 
     public function getActiveClients()
     {
+        $user = auth()->user();
         $clients = Client::where('status', 'active')
+            ->when($user->role !== 'admin', function ($query) use ($user) {
+                $query->whereHas('projects', function ($pq) use ($user) {
+                    $pq->where('manager_id', $user->id)
+                       ->orWhereHas('tasks', function ($tq) use ($user) {
+                           $tq->where('assigned_to', $user->id);
+                       });
+                });
+            })
             ->orderBy('name')
             ->get();
 

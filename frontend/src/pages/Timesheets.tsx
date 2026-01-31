@@ -1,9 +1,12 @@
 import { useMemo, useState, useEffect, useRef } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { usersAPI } from '../api/users';
 import { timeTrackingAPI } from '../api/timeTracking';
+import { projectsAPI } from '../api/projects';
+import { tasksAPI } from '../api/tasks';
 import { useAuthStore } from '../stores/authStore';
-import type { TimeLog, User, Screenshot } from '../types';
+import type { TimeLog, User, Screenshot, Project, Task } from '../types';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { toast } from 'sonner';
 
@@ -12,6 +15,7 @@ type SimplePeerSignalData = import('simple-peer').SignalData;
 type SimplePeerConstructor = typeof import('simple-peer')['default'];
 
 export default function Timesheets() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuthStore();
   const [search, setSearch] = useState('');
@@ -23,8 +27,102 @@ export default function Timesheets() {
   const [isLiveWatching, setIsLiveWatching] = useState(false);
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   
+  const [showManualModal, setShowManualModal] = useState(false);
+  const [manualForm, setManualForm] = useState({
+    projectId: '',
+    taskId: '',
+    date: new Date().toISOString().slice(0, 10),
+    startTime: '09:00',
+    endTime: '10:00',
+    description: ''
+  });
+
+  const { data: projects } = useQuery({
+    queryKey: ['projects', 'assigned', employeeId],
+    queryFn: () => employeeId ? usersAPI.getAssignedProjects(employeeId) : Promise.resolve([]),
+    enabled: showManualModal && user?.role === 'admin' && !!employeeId
+  });
+
+  const { data: tasks } = useQuery({
+    queryKey: ['tasks', 'assigned', employeeId, manualForm.projectId],
+    queryFn: () => (manualForm.projectId && employeeId) ? usersAPI.getAssignedProjectTasks(employeeId, Number(manualForm.projectId)) : Promise.resolve([]),
+    enabled: showManualModal && user?.role === 'admin' && !!manualForm.projectId && !!employeeId
+  });
+
+  const addManualTimeMutation = useMutation({
+    mutationFn: (data: typeof manualForm) => {
+      if (!employeeId) throw new Error("No employee selected");
+      
+      // Send as local time string "YYYY-MM-DD HH:mm:ss" to avoid UTC conversion issues
+      const startStr = `${data.date} ${data.startTime}:00`;
+      const endStr = `${data.date} ${data.endTime}:00`;
+      
+      return timeTrackingAPI.addManualTimeLog(employeeId, {
+        project_id: data.projectId ? Number(data.projectId) : null,
+        task_id: data.taskId ? Number(data.taskId) : null,
+        start_time: startStr,
+        end_time: endStr,
+        description: data.description
+      });
+    },
+    onSuccess: () => {
+      toast.success('Manual time added');
+      setShowManualModal(false);
+      queryClient.invalidateQueries({ queryKey: ['timesheets', 'logs'] });
+      // Reset form
+      setManualForm({
+        projectId: '',
+        taskId: '',
+        date: new Date().toISOString().slice(0, 10),
+        startTime: '09:00',
+        endTime: '10:00',
+        description: ''
+      });
+    },
+    onError: (err: any) => {
+      toast.error(err.response?.data?.message || err.message || 'Failed to add time');
+    }
+  });
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const peerRef = useRef<SimplePeerInstance | null>(null);
+
+  // Auto-select current employee if not admin
+  useEffect(() => {
+    if (user && user.role === 'employee') {
+      setEmployeeId(user.id);
+      
+      // Check if tracker is running and redirect to dashboard
+      const stored = localStorage.getItem('tt-tracker');
+      if (stored) {
+        try {
+          const { isTracking } = JSON.parse(stored);
+          if (isTracking) {
+            navigate('/');
+            toast.warning('Please stop the tracker to view timesheets.');
+          }
+        } catch (e) {
+          // ignore parsing error
+        }
+      }
+    }
+  }, [user, navigate]);
+
+  const deleteScreenshotMutation = useMutation({
+    mutationFn: (screenshotId: number) => {
+      if (!employeeId) throw new Error("No employee selected");
+      return timeTrackingAPI.deleteScreenshot(employeeId, screenshotId);
+    },
+    onSuccess: () => {
+      toast.success('Screenshot deleted and time deducted');
+      queryClient.invalidateQueries({ queryKey: ['timesheets', 'shots', selectedLog?.id] });
+      queryClient.invalidateQueries({ queryKey: ['timesheets', 'logs', employeeId, startDate, endDate] });
+      setSelectedShot(null);
+    },
+    onError: () => {
+      toast.error('Failed to delete screenshot');
+    }
+  });
 
   // We need to dynamically import SimplePeer because it requires Node polyfills
   // which might cause issues if imported at the top level in some environments
@@ -185,9 +283,25 @@ export default function Timesheets() {
             const turnUrl = env?.VITE_TURN_URL;
             const turnUser = env?.VITE_TURN_USERNAME;
             const turnPass = env?.VITE_TURN_PASSWORD;
-            const servers: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }];
+            const turnUrlsRaw = env?.VITE_TURN_URLS;
+            const servers: RTCIceServer[] = [
+              { urls: 'stun:stun.l.google.com:19302' },
+              { urls: 'stun:stun1.l.google.com:19302' },
+              { urls: 'stun:stun2.l.google.com:19302' },
+              { urls: 'stun:stun3.l.google.com:19302' },
+              { urls: 'stun:stun4.l.google.com:19302' },
+              { urls: 'stun:stun.cloudflare.com:3478' },
+              { urls: 'stun:global.stun.twilio.com:3478' },
+            ];
             if (turnUrl && turnUser && turnPass) {
-                servers.push({ urls: turnUrl, username: turnUser, credential: turnPass });
+                const urls = turnUrl.includes(',') ? turnUrl.split(',').map(u => u.trim()) : turnUrl;
+                servers.push({ urls, username: turnUser, credential: turnPass });
+            }
+            if (turnUrlsRaw && turnUser && turnPass) {
+              const urls = turnUrlsRaw.split(',').map(u => u.trim()).filter(Boolean);
+              for (const u of urls) {
+                servers.push({ urls: u, username: turnUser, credential: turnPass });
+              }
             }
             return servers;
         };
@@ -292,10 +406,13 @@ export default function Timesheets() {
     enabled: !!employeeId,
   });
 
-  const { data: screenshots, isLoading: loadingShots } = useQuery<Screenshot[]>({
-    queryKey: ['timesheets', 'shots', employeeId, startDate, endDate],
-    queryFn: () => employeeId ? timeTrackingAPI.getUserScreenshotsAdmin(employeeId, { start_date: startDate, end_date: endDate }) : Promise.resolve([]),
-    enabled: !!employeeId,
+  // Fetch screenshots ONLY for the selected log to reduce server load
+  const { data: logScreenshotsData, isLoading: loadingShots } = useQuery<Screenshot[]>({
+    queryKey: ['timesheets', 'shots', selectedLog?.id],
+    queryFn: () => (employeeId && selectedLog) 
+      ? timeTrackingAPI.getUserScreenshotsAdmin(employeeId, { time_log_id: selectedLog.id }) 
+      : Promise.resolve([]),
+    enabled: !!employeeId && !!selectedLog,
   });
 
   const activityRange = useMemo(() => {
@@ -307,7 +424,7 @@ export default function Timesheets() {
       : new Date().toISOString();
       
     return { start, end };
-  }, [selectedLog, screenshots]); // Add screenshots as dep to update "now" effectively when shots refresh
+  }, [selectedLog]);
 
   const fixDate = (dateStr: string) => {
     // Standard parse - the browser will convert UTC (Z) to local time automatically
@@ -315,20 +432,16 @@ export default function Timesheets() {
   };
 
   const logScreenshots = useMemo(() => {
-    if (!selectedLog || !screenshots || !activityRange) return [];
+    if (!selectedLog || !logScreenshotsData) return [];
     
-    const start = fixDate(activityRange.start).getTime();
-    const end = fixDate(activityRange.end).getTime();
-    
-    return screenshots.filter(s => {
-      const t = fixDate(s.captured_at).getTime();
-      return t >= start - 1000 && t <= end + 1000;
-    }).sort((a, b) => {
+    // We trust the backend to return the correct screenshots for this log ID.
+    // We just sort them here.
+    return [...logScreenshotsData].sort((a, b) => {
       const tA = new Date(a.captured_at).getTime();
       const tB = new Date(b.captured_at).getTime();
       return sortOrder === 'asc' ? tA - tB : tB - tA;
     });
-  }, [selectedLog, screenshots, activityRange, sortOrder]);
+  }, [selectedLog, logScreenshotsData, sortOrder]);
 
   const secureUrl = (u?: string) => {
     if (!u) return '';
@@ -362,22 +475,37 @@ export default function Timesheets() {
       map[key].total += log.duration ?? 0;
     });
 
-    (screenshots ?? []).forEach((shot) => {
-      const key = shot.captured_at.slice(0, 10);
-      if (!map[key]) map[key] = { total: 0, logs: [] };
+    // Sort logs within each date group by start_time (Descending) as per user preference
+    Object.values(map).forEach(group => {
+      group.logs.sort((a, b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime());
     });
 
     return Object.entries(map).sort((a, b) => a[0] < b[0] ? 1 : -1);
-  }, [timeLogs, screenshots]);
+  }, [timeLogs]);
 
-  if (!user || user.role !== 'admin') {
-    return <div className="py-8 text-center text-gray-500">Only admins can view timesheets.</div>;
+  if (!user || (user.role !== 'admin' && user.role !== 'employee')) {
+    return <div className="py-8 text-center text-gray-500">Access denied.</div>;
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between relative">
         <h1 className="text-2xl font-bold text-gray-900">Timesheets</h1>
+        {user.role === 'admin' && (
+          <button
+            onClick={() => {
+              if (!employeeId) {
+                toast.error('Please select an employee first');
+                return;
+              }
+              setShowManualModal(true);
+            }}
+            className="absolute right-0 top-0 px-3 py-1 bg-indigo-600 text-white text-xs rounded hover:bg-indigo-700 whitespace-nowrap"
+            style={{ transform: 'translateY(4px)' }} 
+          >
+            Add Time
+          </button>
+        )}
       </div>
 
       <div className="bg-white rounded-lg shadow p-4 space-y-4">
@@ -385,21 +513,30 @@ export default function Timesheets() {
           <div className="md:col-span-2">
             <label className="block text-sm font-medium text-gray-700">Employee</label>
             <div className="flex gap-2">
+              {user.role === 'admin' && (
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search employees"
                 className="mt-1 block w-1/2 border rounded px-3 py-2"
               />
+              )}
               <select
                 value={employeeId ?? ''}
                 onChange={(e) => setEmployeeId(e.target.value ? Number(e.target.value) : undefined)}
                 className="mt-1 block w-full border rounded px-3 py-2"
+                disabled={user.role === 'employee'}
               >
-                <option value="">Select employee</option>
-                {(employees?.data ?? []).map((u) => (
-                  <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
-                ))}
+                {user.role === 'admin' ? (
+                  <>
+                  <option value="">Select employee</option>
+                  {(employees?.data ?? []).map((u) => (
+                    <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
+                  ))}
+                  </>
+                ) : (
+                  <option value={user.id}>{user.name} ({user.email})</option>
+                )}
               </select>
             </div>
           </div>
@@ -413,19 +550,19 @@ export default function Timesheets() {
           </div>
         </div>
 
-        {(loadingEmployees || loadingLogs || loadingShots) && <LoadingSpinner className="h-24" />}
+        {(loadingEmployees || loadingLogs) && <LoadingSpinner className="h-24" />}
 
         {employeeId && (timeLogs?.length ?? 0) === 0 && !loadingLogs && (
           <p className="text-sm text-gray-500">No time logs for selected period.</p>
         )}
 
         {groupedByDate.length > 0 && (
-          <div className="space-y-6">
+          <div className="space-y-6 overflow-y-auto max-h-[calc(100vh-300px)] pr-2 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
             {groupedByDate.map(([date, info]) => (
               <div key={date} className="border rounded-lg">
                 <div className="flex items-center justify-between bg-gray-50 px-4 py-2">
                   <div className="font-medium">{date}</div>
-                  <div className="text-sm text-gray-600">Total: {Math.round((info.total ?? 0) / 60 * 100) / 100} h</div>
+                  <div className="text-sm text-gray-600">Total: {Math.floor((info.total ?? 0) / 60)}h {(info.total ?? 0) % 60}m</div>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="min-w-full divide-y divide-gray-200">
@@ -444,7 +581,14 @@ export default function Timesheets() {
                       {info.logs.map((log) => (
                         <tr key={log.id}>
                           <td className="px-4 py-2 text-sm text-gray-900">{log.project?.name ?? '-'}</td>
-                          <td className="px-4 py-2 text-sm text-gray-900">{log.task?.title ?? '-'}</td>
+                          <td className="px-4 py-2 text-sm text-gray-900">
+                            {log.task?.title ?? '-'}
+                            {log.is_manual && (
+                              <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">
+                                Manual Time Set
+                              </span>
+                            )}
+                          </td>
                           <td className="px-4 py-2 text-sm text-gray-500">{fixDate(log.start_time).toLocaleString()}</td>
                           <td className="px-4 py-2 text-sm text-gray-500">{log.end_time ? fixDate(log.end_time).toLocaleString() : '-'}</td>
                           <td className="px-4 py-2 text-sm text-gray-900">{log.duration ?? '-'}</td>
@@ -508,7 +652,7 @@ export default function Timesheets() {
                     </button>
                   </div>
 
-                  {!selectedLog.end_time && (
+                  {!selectedLog.end_time && user?.role === 'admin' && (
                     <button 
                       onClick={handleLiveToggle}
                       className={`mr-4 px-3 py-1 rounded text-sm font-medium transition-colors ${isLiveWatching ? 'bg-red-100 text-red-700 animate-pulse' : 'bg-green-100 text-green-700 hover:bg-green-200'}`}
@@ -551,7 +695,11 @@ export default function Timesheets() {
                   </div>
               )}
 
-              {logScreenshots.length > 0 ? (
+              {loadingShots ? (
+                <div className="flex items-center justify-center py-12">
+                  <LoadingSpinner className="h-12 w-12 text-indigo-600" />
+                </div>
+              ) : logScreenshots.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {logScreenshots.map(shot => {
                     const stats = shot.minute_breakdown?.reduce((acc, curr) => ({
@@ -590,12 +738,43 @@ export default function Timesheets() {
                          <div className="p-3 bg-white">
                            <div className="flex justify-between items-center mb-3">
                               <span className="font-medium text-sm text-gray-900">{new Date(shot.captured_at).toLocaleTimeString()}</span>
-                              <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
-                                Total: {stats?.total || 0}
-                              </span>
+                              {user?.role === 'admin' && (
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+                                    Total: {stats?.total || 0}
+                                  </span>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (confirm('Are you sure you want to delete this screenshot? It will reduce the tracked time.')) {
+                                        deleteScreenshotMutation.mutate(shot.id);
+                                      }
+                                    }}
+                                    className="text-gray-400 hover:text-red-600 transition-colors p-1 rounded-full hover:bg-red-50"
+                                    title="Delete Screenshot"
+                                  >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                  </button>
+                                </div>
+                              )}
+                              {user?.role === 'employee' && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (confirm('Are you sure you want to delete this screenshot? It will reduce your tracked time.')) {
+                                      deleteScreenshotMutation.mutate(shot.id);
+                                    }
+                                  }}
+                                  className="text-xs text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 px-2 py-1 rounded"
+                                >
+                                  Delete
+                                </button>
+                              )}
                            </div>
 
-                           {stats ? (
+                           {user?.role === 'admin' && stats ? (
                              <>
                              <div className="grid grid-cols-4 gap-2 text-center mb-3">
                                <div className="bg-blue-50 p-1.5 rounded">
@@ -640,9 +819,9 @@ export default function Timesheets() {
                                </div>
                              )}
                              </>
-                           ) : (
+                           ) : user?.role === 'admin' ? (
                              <div className="text-center italic text-gray-400 py-2 text-xs">No activity data</div>
-                           )}
+                           ) : null}
                          </div>
                       </div>
                     );
@@ -697,6 +876,106 @@ export default function Timesheets() {
           </div>
         </div>
       )}
+      {showManualModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
+            <div className="flex items-center justify-between px-6 py-4 border-b">
+              <h3 className="text-lg font-semibold text-gray-900">Add Manual Time</h3>
+              <button onClick={() => setShowManualModal(false)} className="text-gray-400 hover:text-gray-500">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Project (Optional)</label>
+                <select
+                  value={manualForm.projectId}
+                  onChange={(e) => setManualForm({ ...manualForm, projectId: e.target.value, taskId: '' })}
+                  className="mt-1 block w-full border rounded px-3 py-2"
+                >
+                  <option value="">No Project</option>
+                  {projects?.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Task (Optional)</label>
+                <select
+                  value={manualForm.taskId}
+                  onChange={(e) => setManualForm({ ...manualForm, taskId: e.target.value })}
+                  className="mt-1 block w-full border rounded px-3 py-2"
+                  disabled={!manualForm.projectId}
+                >
+                  <option value="">Select Task</option>
+                  {tasks?.map((t) => (
+                    <option key={t.id} value={t.id}>{t.title}</option>
+                  ))}
+                </select>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-gray-700">Date</label>
+                  <input
+                    type="date"
+                    value={manualForm.date}
+                    onChange={(e) => setManualForm({ ...manualForm, date: e.target.value })}
+                    className="mt-1 block w-full border rounded px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Start Time</label>
+                  <input
+                    type="time"
+                    value={manualForm.startTime}
+                    onChange={(e) => setManualForm({ ...manualForm, startTime: e.target.value })}
+                    className="mt-1 block w-full border rounded px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">End Time</label>
+                  <input
+                    type="time"
+                    value={manualForm.endTime}
+                    onChange={(e) => setManualForm({ ...manualForm, endTime: e.target.value })}
+                    className="mt-1 block w-full border rounded px-3 py-2"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Description</label>
+                <textarea
+                  value={manualForm.description}
+                  onChange={(e) => setManualForm({ ...manualForm, description: e.target.value })}
+                  className="mt-1 block w-full border rounded px-3 py-2"
+                  rows={3}
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4">
+                <button
+                  onClick={() => setShowManualModal(false)}
+                  className="px-4 py-2 border rounded text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => addManualTimeMutation.mutate(manualForm)}
+                  disabled={addManualTimeMutation.isPending}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {addManualTimeMutation.isPending ? 'Saving...' : 'Save Time Log'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
-);
+  );
 }

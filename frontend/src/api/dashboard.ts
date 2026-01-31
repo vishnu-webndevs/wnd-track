@@ -19,6 +19,8 @@ export const dashboardAPI = {
       recentProjects: data.recent_projects ?? [],
       recentTasks: data.recent_tasks ?? [],
       overdueTasks: [],
+      todayHours: statsBlock.today_hours ?? 0,
+      todayMinutes: statsBlock.today_minutes ?? 0,
     };
   },
 };

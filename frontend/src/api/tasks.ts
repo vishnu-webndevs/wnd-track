@@ -4,6 +4,7 @@ import type { Task } from '../types';
 export interface TaskFilters {
   search?: string;
   status?: 'pending' | 'in_progress' | 'completed' | 'cancelled';
+  exclude_status?: 'pending' | 'in_progress' | 'completed' | 'cancelled';
   priority?: 'low' | 'medium' | 'high' | 'urgent';
   project_id?: number;
   assigned_to?: number;

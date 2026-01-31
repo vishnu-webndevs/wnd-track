@@ -79,6 +79,7 @@ export interface TimeLog {
   end_time?: string;
   duration?: number;
   description?: string;
+  is_manual?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -130,6 +131,8 @@ export interface DashboardStats {
   recentProjects: Project[];
   recentTasks: Task[];
   overdueTasks: Task[];
+  todayHours?: number;
+  todayMinutes?: number;
 }
 
 export interface ApiResponse<T> {

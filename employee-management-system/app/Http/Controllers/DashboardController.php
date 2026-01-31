@@ -117,6 +117,7 @@ class DashboardController extends Controller
                 'pending_tasks' => $pendingTasks,
                 'total_hours' => round($totalHours / 60, 1), // Convert minutes to hours
                 'today_hours' => round($todayHours / 60, 1),
+                'today_minutes' => (int)$todayHours,
                 'this_week_hours' => round($thisWeekHours / 60, 1),
             ],
             'recent_tasks' => $recentTasks,
