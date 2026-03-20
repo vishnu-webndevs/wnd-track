@@ -90,7 +90,7 @@ function createWindow() {
     win.loadURL('http://localhost:5173');
     // win.webContents.openDevTools();
   } else {
-    win.loadURL('https://tracker.webndevs.com/#/time-tracking');
+    win.loadURL('https://tracker_2026.webndevs.com/#/time-tracking');
   }
 
   const normalizeUrl = (url) => {
@@ -105,11 +105,11 @@ function createWindow() {
 
   const isAllowedInApp = (url) => {
     const u = normalizeUrl(url);
-    return u.startsWith('https://tracker.webndevs.com/#/time-tracking');
+    return u.startsWith('https://tracker_2026.webndevs.com/#/time-tracking');
   };
 
   const forceTimeTracking = () => {
-    const target = 'https://tracker.webndevs.com/#/time-tracking';
+    const target = 'https://tracker_2026.webndevs.com/#/time-tracking';
     if (win && !win.isDestroyed()) {
       const current = normalizeUrl(win.webContents.getURL());
       if (!isAllowedInApp(current)) {
