@@ -32,6 +32,9 @@ old_bkp/
 logs/
 *.log
 
+# Deployment logs
+deployment-*.txt
+
 # System files
 .DS_Store
 Thumbs.db
