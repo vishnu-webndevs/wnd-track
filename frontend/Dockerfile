@@ -18,6 +18,7 @@ RUN apk add --no-cache curl \
 ENV NGINX_LISTEN_PORT=80
 ENV BACKEND_HOST=tracker-backend
 ENV BACKEND_PORT=8080
+ENV BACKEND_URL=http://tracker-backend:8080
 
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/templates/default.conf.template
