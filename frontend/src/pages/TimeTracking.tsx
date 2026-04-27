@@ -65,6 +65,7 @@ export default function TimeTracking() {
   const lastOfferSdpRef = useRef<string | null>(null);
   const lastAnswerSdpRef = useRef<string | null>(null);
   const lastActivityRef = useRef<Date>(new Date());
+  const isElectronEnvRef = useRef(false);
   
   // We need to dynamically import SimplePeer because it requires Node polyfills
   const [SimplePeer, setSimplePeer] = useState<SimplePeerConstructor | null>(null);
@@ -136,6 +137,7 @@ export default function TimeTracking() {
       if (w.require) {
          const { ipcRenderer } = w.require('electron');
          isElectron = true;
+         isElectronEnvRef.current = true;
          
          const handleActivityUpdate = (
            _e: unknown,
@@ -190,6 +192,7 @@ export default function TimeTracking() {
         if (cleanupElectron) cleanupElectron();
       };
     }
+    isElectronEnvRef.current = false;
 
     // Fallback: Web browser listeners
     let lastMousePos = { x: 0, y: 0 };
@@ -550,8 +553,8 @@ export default function TimeTracking() {
         const now = new Date();
         const captureTargetTime = new Date(now);
         
-        // If we are in the first 30 seconds, assume we belong to previous minute
-        if (now.getSeconds() < 30) {
+        const captureSecondCutoff = isElectronEnvRef.current ? 55 : 30;
+        if (now.getSeconds() < captureSecondCutoff) {
            captureTargetTime.setMinutes(now.getMinutes() - 1);
         }
         captureTargetTime.setSeconds(59);
@@ -638,13 +641,9 @@ export default function TimeTracking() {
         const currentMinute = localCapturedAt.substring(0, 16);
 
         if (lastCapturedMinuteRef.current === currentMinute) {
-          //  console.log(`Skipping screenshot: Already captured for minute ${currentMinute}`);
-           // If we skip, we should probably put the data back? 
-           // Or just discard it as "already sent"? 
-           // If we skip, it means we already sent this minute. 
-           // So the data we extracted for this minute is likely duplicate or negligible.
-           // Safe to discard.
-           return;
+          activityDataRef.current = remainingActivity;
+          lastCaptureTimeRef.current = captureTargetTime;
+          return;
         }
 
         await uploadShot.mutateAsync({

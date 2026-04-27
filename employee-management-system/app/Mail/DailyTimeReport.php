@@ -4,11 +4,11 @@ namespace App\Mail;
 
 use App\Models\User;
 use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
+use Carbon\Carbon;
 
 class DailyTimeReport extends Mailable
 {
@@ -17,15 +17,17 @@ class DailyTimeReport extends Mailable
     public $user;
     public $logs;
     public $weeklyTotal;
+    public $date;
 
     /**
      * Create a new message instance.
      */
-    public function __construct(User $user, $logs, $weeklyTotal)
+    public function __construct(User $user, $logs, $weeklyTotal, $date)
     {
         $this->user = $user;
         $this->logs = $logs;
         $this->weeklyTotal = $weeklyTotal;
+        $this->date = $date;
     }
 
     /**
@@ -34,7 +36,7 @@ class DailyTimeReport extends Mailable
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'Daily Time Tracker Report - ' . now()->format('Y-m-d'),
+            subject: 'Daily Time Tracker Report - ' . Carbon::parse($this->date)->format('Y-m-d'),
         );
     }
 
@@ -50,8 +52,6 @@ class DailyTimeReport extends Mailable
 
     /**
      * Get the attachments for the message.
-     *
-     * @return array<int, \Illuminate\Mail\Mailables\Attachment>
      */
     public function attachments(): array
     {

@@ -6,6 +6,10 @@ const { shell } = require('electron');
 let mainWindow;
 let isQuitting = false;
 
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.tracker.webndevs');
+}
+
 // Global activity tracking state
 let activityCounts = {
   keyboard: 0,
@@ -13,6 +17,11 @@ let activityCounts = {
   mouseScrolls: 0,
   mouseMovements: 0
 };
+
+const MOUSE_MOVE_MIN_INTERVAL_MS = 250;
+const MOUSE_MOVE_MIN_DISTANCE = 12;
+let lastMouseMoveCountedAt = 0;
+let lastMousePos = null;
 
 // Initialize global hooks
 uIOhook.on('keyup', () => {
@@ -27,7 +36,26 @@ uIOhook.on('wheel', () => {
   activityCounts.mouseScrolls++;
 });
 
-uIOhook.on('mousemove', () => {
+uIOhook.on('mousemove', (e) => {
+  const now = Date.now();
+  if (now - lastMouseMoveCountedAt < MOUSE_MOVE_MIN_INTERVAL_MS) return;
+
+  const x = e && typeof e.x === 'number' ? e.x : null;
+  const y = e && typeof e.y === 'number' ? e.y : null;
+
+  if (x !== null && y !== null) {
+    if (!lastMousePos) {
+      lastMousePos = { x, y };
+      lastMouseMoveCountedAt = now;
+      return;
+    }
+
+    const dist = Math.abs(x - lastMousePos.x) + Math.abs(y - lastMousePos.y);
+    if (dist < MOUSE_MOVE_MIN_DISTANCE) return;
+    lastMousePos = { x, y };
+  }
+
+  lastMouseMoveCountedAt = now;
   activityCounts.mouseMovements++;
 });
 
@@ -90,48 +118,8 @@ function createWindow() {
     win.loadURL('http://localhost:5173');
     // win.webContents.openDevTools();
   } else {
-    win.loadURL('https://tracker_2026.webndevs.com/#/time-tracking');
+    win.loadURL('https://tracker.webndevs.com/#/');
   }
-
-  const normalizeUrl = (url) => {
-    try {
-      const u = new URL(url);
-      u.hash = u.hash || '';
-      return u.toString();
-    } catch {
-      return url;
-    }
-  };
-
-  const isAllowedInApp = (url) => {
-    const u = normalizeUrl(url);
-    return u.startsWith('https://tracker_2026.webndevs.com/#/time-tracking');
-  };
-
-  const forceTimeTracking = () => {
-    const target = 'https://tracker_2026.webndevs.com/#/time-tracking';
-    if (win && !win.isDestroyed()) {
-      const current = normalizeUrl(win.webContents.getURL());
-      if (!isAllowedInApp(current)) {
-        win.loadURL(target);
-      }
-    }
-  };
-
-  win.webContents.on('will-navigate', (event, url) => {
-    if (!isDev && !isAllowedInApp(url)) {
-      event.preventDefault();
-      forceTimeTracking();
-    }
-  });
-
-  win.webContents.on('did-navigate', () => {
-    if (!isDev) forceTimeTracking();
-  });
-
-  win.webContents.on('did-navigate-in-page', () => {
-    if (!isDev) forceTimeTracking();
-  });
 
   // Handle external links if needed
   win.webContents.setWindowOpenHandler(({ url }) => {

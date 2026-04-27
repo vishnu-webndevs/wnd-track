@@ -431,6 +431,17 @@ export default function Timesheets() {
     });
   }, [selectedLog, logScreenshotsData, sortOrder]);
 
+  const selectedShotIndex = useMemo(() => {
+    if (!selectedShot) return -1;
+    return logScreenshots.findIndex((s) => s.id === selectedShot.id);
+  }, [logScreenshots, selectedShot]);
+
+  const prevShot = selectedShotIndex > 0 ? logScreenshots[selectedShotIndex - 1] : null;
+  const nextShot =
+    selectedShotIndex >= 0 && selectedShotIndex < logScreenshots.length - 1
+      ? logScreenshots[selectedShotIndex + 1]
+      : null;
+
   const secureUrl = (u?: string) => {
     if (!u) return '';
     const proto = window.location.protocol;
@@ -843,9 +854,38 @@ export default function Timesheets() {
             <div className="flex items-center justify-between px-4 py-3 border-b">
               <div>
                 <div className="font-semibold">Screenshot</div>
-                <div className="text-xs text-gray-500">{new Date(selectedShot.captured_at).toLocaleString()}</div>
+                <div className="text-xs text-gray-500">
+                  {new Date(selectedShot.captured_at).toLocaleString()}
+                  {selectedShotIndex >= 0 && (
+                    <span>{` • ${selectedShotIndex + 1} / ${logScreenshots.length}`}</span>
+                  )}
+                </div>
               </div>
-              <button onClick={() => setSelectedShot(null)} className="px-2 py-1 text-sm rounded bg-gray-100 text-gray-700">Close</button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (prevShot) setSelectedShot(prevShot);
+                  }}
+                  disabled={!prevShot}
+                  className="px-3 py-1 text-sm rounded bg-gray-100 text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Prev
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (nextShot) setSelectedShot(nextShot);
+                  }}
+                  disabled={!nextShot}
+                  className="px-3 py-1 text-sm rounded bg-gray-100 text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Next
+                </button>
+                <button onClick={() => setSelectedShot(null)} className="px-3 py-1 text-sm rounded bg-gray-100 text-gray-700">
+                  Close
+                </button>
+              </div>
             </div>
             <div className="p-4">
               <img 

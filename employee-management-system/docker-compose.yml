@@ -7,9 +7,9 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     ports:
-      - "8081:8081"
+      - "8080:8080"
     volumes:
-      - tracker_2026_storage:/var/www/html/storage
+      - tracker_storage:/var/www/html/storage
 
 volumes:
-  tracker_2026_storage:
+  tracker_storage:

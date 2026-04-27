@@ -3,7 +3,7 @@ import axios, { AxiosHeaders } from 'axios';
 const getDefaultApiBaseUrl = () => {
   const { hostname, protocol } = window.location;
   if (protocol === 'file:') {
-    return 'https://tracker_2026.webndevs.com/api';
+    return 'https://tracker.webndevs.com/api';
   }
 
   // If running on localhost/127.0.0.1, assume dev mode with port 8000

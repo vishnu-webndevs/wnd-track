@@ -12,6 +12,7 @@ import Projects from './pages/Projects';
 import Tasks from './pages/Tasks';
 import TimeTracking from './pages/TimeTracking';
 import Timesheets from './pages/Timesheets';
+import Settings from './pages/Settings';
 import { authAPI } from './api/auth';
 import { useAuthStore } from './stores/authStore';
 
@@ -75,6 +76,7 @@ function AppContent() {
                 <Route path="/tasks" element={<Tasks />} />
                 <Route path="/time-tracking" element={<TimeTracking />} />
                 <Route path="/timesheets" element={<Timesheets />} />
+                <Route path="/settings" element={<ProtectedRoute requiredRole="admin"><Settings /></ProtectedRoute>} />
                 <Route path="/" element={<Dashboard />} />
               </Routes>
             </Layout>

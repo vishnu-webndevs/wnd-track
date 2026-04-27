@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import type { AxiosError } from 'axios';
 import { toast } from 'sonner';
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
@@ -36,7 +36,7 @@ export default function Login() {
       const result = await authAPI.login(data);
       login(result.user);
       toast.success('Login successful!');
-      navigate('/dashboard');
+      navigate('/time-tracking');
     } catch (error: unknown) {
       const err = error as AxiosError<{ message?: string }>;
       const message = err.response?.data?.message ?? 'Login failed';
@@ -53,15 +53,6 @@ export default function Login() {
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
             Sign in to your account
           </h2>
-          <p className="mt-2 text-center text-sm text-gray-600">
-            Or{' '}
-            <Link
-              to="/register"
-              className="font-medium text-indigo-600 hover:text-indigo-500"
-            >
-              create a new account
-            </Link>
-          </p>
         </div>
         <form className="mt-8 space-y-6" onSubmit={handleSubmit(onSubmit)}>
           <div className="rounded-md shadow-sm -space-y-px">

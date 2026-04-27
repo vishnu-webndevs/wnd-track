@@ -26,7 +26,7 @@
                     <tr>
                         <td style="padding: 30px 40px; text-align: center; background-color: #ffffff; border-bottom: 1px solid #eeeeee;" class="content-padding">
                             <h2 style="margin: 0; color: #333333; font-size: 24px;" class="header-font">Daily Time Report</h2>
-                            <p style="margin: 10px 0 0; color: #666666; font-size: 16px;" class="text-font">{{ now()->format('Y-m-d') }}</p>
+                            <p style="margin: 10px 0 0; color: #666666; font-size: 16px;" class="text-font">{{ optional($date)->format('Y-m-d') ?? now()->format('Y-m-d') }}</p>
                         </td>
                     </tr>
 

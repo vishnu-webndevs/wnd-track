@@ -18,7 +18,7 @@ class SendDailyTimeReport extends Command
      *
      * @var string
      */
-    protected $signature = 'report:daily-time';
+    protected $signature = 'report:daily-time {date?}';
 
     /**
      * The console command description.
@@ -32,17 +32,28 @@ class SendDailyTimeReport extends Command
      */
     public function handle()
     {
-        $today = Carbon::today();
-        $startOfWeek = Carbon::now()->startOfWeek();
+        $dateInput = $this->argument('date');
+
+        try {
+            $today = $dateInput 
+                ? Carbon::parse($dateInput)->startOfDay()
+                : Carbon::today();
+        } catch (\Exception $e) {
+            $this->error('Invalid date format. Use YYYY-MM-DD');
+            return;
+        }
+
+        $startOfWeek = $today->copy()->startOfWeek();
 
         // 1. Get all users
         $users = User::all();
         
         $adminReportData = [];
-        $pmReportData = []; // Key: PM User ID, Value: Array of report data
+        $pmReportData = [];
 
         foreach ($users as $user) {
-            // Get today's logs for this user
+
+            // Get selected day's logs
             $todayLogs = TimeLog::where('user_id', $user->id)
                 ->whereDate('start_time', $today)
                 ->with(['project', 'task'])
@@ -52,65 +63,66 @@ class SendDailyTimeReport extends Command
                 continue;
             }
 
-            // Calculate weekly total duration (minutes)
+            // Weekly total (based on selected date)
             $weeklyTotal = TimeLog::where('user_id', $user->id)
                 ->where('start_time', '>=', $startOfWeek)
-                ->where('start_time', '<=', Carbon::now())
+                ->where('start_time', '<=', $today->copy()->endOfDay())
                 ->sum('duration');
 
             // Send Email to Employee
             if ($user->status === 'active') {
                 try {
-                    Mail::to($user->email)->send(new DailyTimeReport($user, $todayLogs, $weeklyTotal));
+                    Mail::to($user->email)->send(
+                        new DailyTimeReport($user, $todayLogs, $weeklyTotal, $today)
+                    );
                     $this->info("Report sent to employee: {$user->email}");
                 } catch (\Exception $e) {
                     $this->error("Failed to send to {$user->email}: " . $e->getMessage());
                 }
             }
 
-            // Prepare Admin Data (All logs)
+            // Admin data
             $adminReportData[] = [
                 'user' => $user,
                 'logs' => $todayLogs,
                 'weekly_total' => $weeklyTotal
             ];
 
-            // Prepare Project Manager Data
-            // Group logs by project manager
+            // PM data
             foreach ($todayLogs as $log) {
                 $project = $log->project;
+
                 if ($project && $project->manager_id) {
                     $pmId = $project->manager_id;
-                    
-                    // Initialize PM bucket if not exists
+
                     if (!isset($pmReportData[$pmId])) {
                         $pmReportData[$pmId] = [];
                     }
-                    
-                    // We need to structure this so PM sees User -> Logs
-                    // Check if we already have an entry for this user for this PM
+
                     if (!isset($pmReportData[$pmId][$user->id])) {
                         $pmReportData[$pmId][$user->id] = [
                             'user' => $user,
-                            'logs' => collect([]), // Start with empty collection
-                            'weekly_total' => $weeklyTotal // Note: This is user's TOTAL weekly time, not just for this PM. 
-                                                          // User asked for "weekly total time jo daily change hoga". 
-                                                          // Usually implies total work. I will keep it as total work.
+                            'logs' => collect([]),
+                            'weekly_total' => $weeklyTotal
                         ];
                     }
-                    
-                    // Add this specific log to the PM's view for this user
+
                     $pmReportData[$pmId][$user->id]['logs']->push($log);
                 }
             }
         }
 
         // 2. Send Admin Report
-        $admins = User::where('role', 'admin')->where('status', 'active')->get();
+        $admins = User::where('role', 'admin')
+            ->where('status', 'active')
+            ->get();
+
         foreach ($admins as $admin) {
             try {
                 if (!empty($adminReportData)) {
-                    Mail::to($admin->email)->send(new AdminDailyTimeReport($adminReportData, $today));
+                    Mail::to($admin->email)->send(
+                        new AdminDailyTimeReport($adminReportData, $today)
+                    );
                     $this->info("Report sent to admin: {$admin->email}");
                 }
             } catch (\Exception $e) {
@@ -118,21 +130,23 @@ class SendDailyTimeReport extends Command
             }
         }
 
-        // 3. Send Project Manager Reports
+        // 3. Send PM Reports
         foreach ($pmReportData as $pmId => $usersData) {
             $pm = User::find($pmId);
+
             if ($pm && $pm->status === 'active') {
-                // Skip if PM is also an Admin (they already received the full report)
+
                 if ($pm->role === 'admin') {
-                    $this->info("Skipping PM report for {$pm->email} (already sent as Admin).");
+                    $this->info("Skipping PM report for {$pm->email} (already admin).");
                     continue;
                 }
 
-                // Convert associative array to indexed array for the view
                 $reportData = array_values($usersData);
-                
+
                 try {
-                    Mail::to($pm->email)->send(new AdminDailyTimeReport($reportData, $today));
+                    Mail::to($pm->email)->send(
+                        new AdminDailyTimeReport($reportData, $today)
+                    );
                     $this->info("Report sent to PM: {$pm->email}");
                 } catch (\Exception $e) {
                     $this->error("Failed to send to PM {$pm->email}: " . $e->getMessage());
