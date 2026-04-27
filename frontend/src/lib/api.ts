@@ -11,29 +11,23 @@ const getDefaultApiBaseUrl = () => {
     return `${protocol}//${hostname}:8000/api`;
   }
 
-  // In production (served via Nginx on same domain), use relative path
-  return '/api';
+  // If served from the official domain, use relative /api (Nginx handles proxy)
+  if (hostname === 'tracker.webndevs.com') {
+    return '/api';
+  }
+
+  // If the frontend is served from another domain (e.g., shared preview), default to the live API.
+  return 'https://tracker.webndevs.com/api';
 };
 
 const getApiBaseUrl = () => {
   const envUrl = import.meta.env.VITE_API_URL as string | undefined;
-  if (!envUrl) return getDefaultApiBaseUrl();
-
-  try {
-    if (window.location.protocol !== 'file:') {
-      const parsed = new URL(envUrl);
-      if (parsed.hostname !== window.location.hostname) {
-        return getDefaultApiBaseUrl();
-      }
-    }
-  } catch {
-    return getDefaultApiBaseUrl();
-  }
-
-  return envUrl;
+  if (envUrl) return envUrl;
+  return getDefaultApiBaseUrl();
 };
 
 const API_BASE_URL = getApiBaseUrl();
+const IS_ABSOLUTE_API_URL = /^https?:\/\//i.test(API_BASE_URL);
 
 const AUTH_STORAGE_KEY = 'auth-storage';
 const AUTH_LAST_USED_KEY = 'auth-last-used-at';
@@ -52,7 +46,7 @@ const clearAuth = () => {
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
-  withCredentials: window.location.protocol !== 'file:',
+  withCredentials: !IS_ABSOLUTE_API_URL && window.location.protocol !== 'file:',
   headers: {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
@@ -64,7 +58,7 @@ api.interceptors.request.use((config) => {
   const now = Date.now();
 
   const token = localStorage.getItem('token');
-  if (token && window.location.protocol === 'file:') {
+  if (token) {
     if (config.headers instanceof AxiosHeaders) {
       config.headers.set('Authorization', `Bearer ${token}`);
     } else if (config.headers) {
