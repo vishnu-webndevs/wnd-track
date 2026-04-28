@@ -1,4 +1,5 @@
 import { api } from '../lib/api';
+import type { Project, Task } from '../types';
 
 export interface SyncTimeLogPayload {
   project_id: number;
@@ -68,6 +69,14 @@ export const timeTrackingAPI = {
   },
   getActiveProjects: async (): Promise<{ id: number; name: string; status: string }[]> => {
     const res = await api.get('/desktop/active-projects');
+    return res.data;
+  },
+  getAssignedProjects: async (): Promise<Array<Pick<Project, 'id' | 'name' | 'status'>>> => {
+    const res = await api.get('/desktop/assigned-projects');
+    return res.data;
+  },
+  getProjectTasksForUser: async (projectId: number): Promise<Array<Pick<Task, 'id' | 'title' | 'status' | 'priority' | 'due_date' | 'project_id' | 'assigned_to'>>> => {
+    const res = await api.get(`/desktop/projects/${projectId}/tasks`);
     return res.data;
   },
   getUserTimeLogs: async (filters: { start_date?: string; end_date?: string } = {}) => {

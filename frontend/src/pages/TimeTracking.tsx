@@ -2,8 +2,6 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { timeTrackingAPI, ActivityMinute } from '../api/timeTracking';
 import { dashboardAPI } from '../api/dashboard';
-import { tasksAPI } from '../api/tasks';
-import { projectsAPI } from '../api/projects';
 import { usersAPI } from '../api/users';
 import { useAuthStore } from '../stores/authStore';
 import { toast } from 'sonner';
@@ -25,6 +23,11 @@ type TTWindow = Window & { __tt_intervals?: TTIntervals };
 export default function TimeTracking() {
   const { user } = useAuthStore();
   
+  const normalizeMinuteKey = (value: string | null) => {
+    if (!value) return null;
+    return value.includes('T') ? value : value.replace(' ', 'T');
+  };
+
   const { data: dashboardStats } = useQuery({
     queryKey: ['dashboardStats'],
     queryFn: dashboardAPI.getStats,
@@ -35,6 +38,10 @@ export default function TimeTracking() {
   const [selectedTaskId, setSelectedTaskId] = useState<number | undefined>(undefined);
   const selectedTaskIdRef = useRef(selectedTaskId);
   useEffect(() => { selectedTaskIdRef.current = selectedTaskId; }, [selectedTaskId]);
+
+  const [selectedProjectId, setSelectedProjectId] = useState<number | undefined>(undefined);
+  const selectedProjectIdRef = useRef(selectedProjectId);
+  useEffect(() => { selectedProjectIdRef.current = selectedProjectId; }, [selectedProjectId]);
 
   const [note, setNote] = useState('');
   const noteRef = useRef(note);
@@ -81,7 +88,7 @@ export default function TimeTracking() {
   const liveRequestActiveRef = useRef<boolean>(false);
   const livePromptAckRef = useRef<boolean>(false);
   const screenshotMissingWarnedRef = useRef<boolean>(false);
-  const lastCapturedMinuteRef = useRef<string | null>(localStorage.getItem('tt-last-captured-minute'));
+  const lastCapturedMinuteRef = useRef<string | null>(normalizeMinuteKey(localStorage.getItem('tt-last-captured-minute')));
   const isCapturingRef = useRef(false);
   const trackerKey = 'tt-tracker';
   const captureScreenshotRef = useRef<() => Promise<void>>(async () => {});
@@ -263,18 +270,20 @@ export default function TimeTracking() {
     };
   }, []); // Remove isTracking dependency, use ref instead
 
-  const { data: tasks } = useQuery({
-    queryKey: ['tasks', 'for-time-tracking', user?.id],
-    queryFn: () => user?.id ? tasksAPI.getTasks({ assigned_to: user.id, page: 1, exclude_status: 'completed' }) : Promise.resolve({ data: [], current_page: 1, last_page: 1 }),
+  const { data: assignedProjects } = useQuery({
+    queryKey: ['desktop-assigned-projects', user?.id],
+    queryFn: () => timeTrackingAPI.getAssignedProjects(),
+    enabled: !!user,
   });
 
-  const { data: projects } = useQuery({
-    queryKey: ['projects', 'for-time-tracking'],
-    queryFn: () => projectsAPI.getProjects({ page: 1 }),
+  const { data: projectTasks } = useQuery({
+    queryKey: ['desktop-project-tasks', user?.id, selectedProjectId],
+    queryFn: () => (selectedProjectId ? timeTrackingAPI.getProjectTasksForUser(selectedProjectId) : Promise.resolve([])),
+    enabled: !!user && !!selectedProjectId,
   });
 
-  const taskOptions = useMemo(() => (tasks?.data ?? []), [tasks]);
-  const getProjectId = (taskId?: number) => taskOptions.find((t) => t.id === taskId)?.project_id;
+  const taskOptions = useMemo(() => (projectTasks ?? []), [projectTasks]);
+  const getProjectId = (taskId?: number) => selectedProjectIdRef.current ?? taskOptions.find((t) => t.id === taskId)?.project_id;
 
   const toLocalISOString = (date: Date) => {
     const year = date.getFullYear();
@@ -553,7 +562,9 @@ export default function TimeTracking() {
         captureTargetTime.setMilliseconds(0);
 
         const minuteKeyToLocalDate = (key: string) => {
-          const [d, t] = key.split('T');
+          const parts = key.includes('T') ? key.split('T') : key.split(' ');
+          const d = parts[0];
+          const t = parts[1];
           if (!d || !t) return null;
           const [yStr, mStr, dayStr] = d.split('-');
           const [hhStr, mmStr] = t.split(':');
@@ -648,7 +659,7 @@ export default function TimeTracking() {
         
         // Format capturedAt
         const localCapturedAt = toLocalISOString(captureTargetTime);
-        const currentMinute = localCapturedAt.substring(0, 16);
+        const currentMinute = getMinuteKey(captureTargetTime);
 
         if (lastCapturedMinuteRef.current === currentMinute) {
           activityDataRef.current = remainingActivity;
@@ -1000,6 +1011,9 @@ export default function TimeTracking() {
           const startDate = new Date(parsed.startAt);
           setStartAt(startDate);
           setElapsed(Math.max(0, Math.floor((Date.now() - startDate.getTime()) / 1000)));
+          const pId = parsed.projectId ? Number(parsed.projectId) : undefined;
+          setSelectedProjectId(pId);
+          selectedProjectIdRef.current = pId;
           const tId = parsed.taskId ? Number(parsed.taskId) : undefined;
           setSelectedTaskId(tId);
           selectedTaskIdRef.current = tId;
@@ -1503,18 +1517,36 @@ export default function TimeTracking() {
       </div>
 
       <div className="bg-white rounded-lg shadow p-4 space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Project</label>
+            <select
+              value={selectedProjectId ?? ''}
+              onChange={(e) => {
+                const p = e.target.value ? Number(e.target.value) : undefined;
+                setSelectedProjectId(p);
+                setSelectedTaskId(undefined);
+              }}
+              className="mt-1 block w-full border rounded px-3 py-2"
+              disabled={isTracking}
+            >
+              <option value="">Select project</option>
+              {(assignedProjects ?? []).map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
           <div>
             <label className="block text-sm font-medium text-gray-700">Task</label>
             <select
               value={selectedTaskId ?? ''}
               onChange={(e) => setSelectedTaskId(e.target.value ? Number(e.target.value) : undefined)}
               className="mt-1 block w-full border rounded px-3 py-2"
-              disabled={isTracking}
+              disabled={isTracking || !selectedProjectId}
             >
-              <option value="">Select task</option>
+              <option value="">{selectedProjectId ? 'Select task' : 'Select project first'}</option>
               {(taskOptions ?? []).map((t) => (
-                <option key={t.id} value={t.id}>{t.title} {projects?.data?.find((p) => p.id === t.project_id)?.name ? `- ${projects?.data?.find((p) => p.id === t.project_id)?.name}` : ''}</option>
+                <option key={t.id} value={t.id}>{t.title}</option>
               ))}
             </select>
           </div>
