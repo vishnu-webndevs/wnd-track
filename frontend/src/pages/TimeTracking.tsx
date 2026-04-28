@@ -547,31 +547,42 @@ export default function TimeTracking() {
       if (blob) {
         // console.log('Screenshot captured successfully, uploading...');
 
-        // Determine the "Logical Capture Time" (target :59)
-        // If we are executing early in a minute (e.g. 10:01:02), we likely missed the exact 10:00:59 mark
-        // so we attribute this to the previous minute's :59.
         const now = new Date();
         const captureTargetTime = new Date(now);
-        
-        const captureSecondCutoff = isElectronEnvRef.current ? 55 : 30;
-        if (now.getSeconds() < captureSecondCutoff) {
-           captureTargetTime.setMinutes(now.getMinutes() - 1);
-        }
         captureTargetTime.setSeconds(59);
         captureTargetTime.setMilliseconds(0);
 
-        // Fill gaps between last capture and target time with zero-activity minutes
-        const start = lastCaptureTimeRef.current;
-        let loopTime = new Date(start);
-        
-        // If the last capture was at the end of a minute (:59), start filling from the NEXT minute
-        // to avoid duplicating the previously captured minute as an empty "0 0 0 0" row.
-        if (start.getSeconds() >= 59) {
-           loopTime.setMinutes(loopTime.getMinutes() + 1);
-        }
+        const minuteKeyToLocalDate = (key: string) => {
+          const [d, t] = key.split('T');
+          if (!d || !t) return null;
+          const [yStr, mStr, dayStr] = d.split('-');
+          const [hhStr, mmStr] = t.split(':');
+          const y = Number(yStr);
+          const m = Number(mStr);
+          const day = Number(dayStr);
+          const hh = Number(hhStr);
+          const mm = Number(mmStr);
+          if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(day) || !Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+          return new Date(y, m - 1, day, hh, mm, 0, 0);
+        };
 
-        loopTime.setSeconds(0);
-        loopTime.setMilliseconds(0);
+        const lastCapturedMinuteKey = lastCapturedMinuteRef.current;
+        const lastCapturedMinuteTime = lastCapturedMinuteKey ? minuteKeyToLocalDate(lastCapturedMinuteKey) : null;
+
+        const targetMinuteTime = new Date(captureTargetTime);
+        targetMinuteTime.setSeconds(0);
+        targetMinuteTime.setMilliseconds(0);
+
+        // Fill gaps between last capture and target time with zero-activity minutes
+        let loopTime: Date;
+        if (lastCapturedMinuteTime) {
+          loopTime = new Date(lastCapturedMinuteTime);
+          loopTime.setMinutes(loopTime.getMinutes() + 1);
+        } else {
+          loopTime = new Date(lastCaptureTimeRef.current);
+          loopTime.setSeconds(0);
+          loopTime.setMilliseconds(0);
+        }
         
         // Cap at 24 hours to avoid runaway fill
         if (captureTargetTime.getTime() - loopTime.getTime() > 24 * 60 * 60 * 1000) {
@@ -585,7 +596,7 @@ export default function TimeTracking() {
            
            // Prevent re-filling the minute we just captured/uploaded
            // Normalize lastCapturedMinuteRef (YYYY-MM-DD HH:mm) to key format (YYYY-MM-DDTHH:mm)
-           const lastCapturedKey = lastCapturedMinuteRef.current ? lastCapturedMinuteRef.current.replace(' ', 'T') : null;
+           const lastCapturedKey = lastCapturedMinuteRef.current;
            
            if (key === lastCapturedKey) {
                loopTime.setMinutes(loopTime.getMinutes() + 1);
@@ -623,11 +634,10 @@ export default function TimeTracking() {
           entryMinute.setSeconds(0);
           entryMinute.setMilliseconds(0);
 
-          const targetMinuteTime = new Date(captureTargetTime);
-          targetMinuteTime.setSeconds(0);
-          targetMinuteTime.setMilliseconds(0);
-
           if (entryMinute.getTime() <= targetMinuteTime.getTime()) {
+            if (lastCapturedMinuteTime && entryMinute.getTime() <= lastCapturedMinuteTime.getTime()) {
+              return;
+            }
             breakdown.push(entry);
           } else {
             remainingActivity[key] = entry;
@@ -1316,6 +1326,8 @@ export default function TimeTracking() {
     setStartAt(now);
     setIsTracking(true);
     isTrackingRef.current = true;
+    lastCapturedMinuteRef.current = null;
+    try { localStorage.removeItem('tt-last-captured-minute'); } catch { void 0; }
     lastCaptureTimeRef.current = now;
     setElapsed(0);
     
