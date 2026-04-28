@@ -73,6 +73,7 @@ export default function TimeTracking() {
   const lastAnswerSdpRef = useRef<string | null>(null);
   const lastActivityRef = useRef<Date>(new Date());
   const isElectronEnvRef = useRef(false);
+  const permissionGrantedRef = useRef<boolean>(false); // Track if permission was already granted in this session
   
   // We need to dynamically import SimplePeer because it requires Node polyfills
   const [SimplePeer, setSimplePeer] = useState<SimplePeerConstructor | null>(null);
@@ -312,8 +313,17 @@ export default function TimeTracking() {
   });
 
   const startShotSchedule = () => {
+    // Clear all old intervals from global tracking to ensure no duplicates
+    const win = window as TTWindow;
+    if (win.__tt_intervals) {
+      if (win.__tt_intervals.screenshot) window.clearTimeout(win.__tt_intervals.screenshot);
+      if (win.__tt_intervals.fixedScreenshot) window.clearInterval(win.__tt_intervals.fixedScreenshot);
+    }
+    
+    // Clear local refs as well
     if (screenshotIntervalRef.current) window.clearTimeout(screenshotIntervalRef.current);
     if (fixedScreenshotIntervalRef.current) window.clearInterval(fixedScreenshotIntervalRef.current);
+    
     scheduleRandomScreenshots();
   };
 
@@ -402,8 +412,26 @@ export default function TimeTracking() {
 
   const requestScreenCapture = async () => {
     try {
+      // If permission was already granted in this tracking session, just reuse the stream (Electron only)
+      if (isElectronEnvRef.current && permissionGrantedRef.current) {
+        const g = (window as unknown as { __ttStream?: MediaStream | null }).__ttStream || null;
+        const gTrack = g ? g.getVideoTracks()[0] : undefined;
+        if (g && gTrack && gTrack.readyState === 'live') {
+          screenStreamRef.current = g;
+          setHasStream(true);
+          screenshotMissingWarnedRef.current = false;
+          startVisualActivityCheck();
+          return g;
+        }
+      }
+
+      // Request permission only if not already granted in this session
       const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
       screenStreamRef.current = stream;
+      // Mark permission as granted (Electron only)
+      if (isElectronEnvRef.current) {
+        permissionGrantedRef.current = true;
+      }
       setHasStream(true);
       screenshotMissingWarnedRef.current = false;
 
@@ -883,8 +911,10 @@ export default function TimeTracking() {
         scheduleRandomScreenshots();
     }, msUntilNextBlock);
     
+    // Track in global window object for cleanup on remount
     const win = window as TTWindow;
-    if (win.__tt_intervals) win.__tt_intervals.screenshot = screenshotIntervalRef.current;
+    if (!win.__tt_intervals) win.__tt_intervals = {};
+    win.__tt_intervals.screenshot = screenshotIntervalRef.current;
   };
 
   const stopMediaTracks = () => {
@@ -1002,10 +1032,17 @@ export default function TimeTracking() {
              setStartAt(null);
              setActiveTimeLogId(undefined);
              setElapsed(0);
+             // Reset permission flag on forced stop (Electron only)
+             if (isElectronEnvRef.current) {
+               permissionGrantedRef.current = false;
+             }
              return; // Do not resume
           }
 
-          // Resume normally
+          // Resume normally - permission was already granted in this session (Electron only)
+          if (isElectronEnvRef.current) {
+            permissionGrantedRef.current = true;
+          }
           setIsTracking(true);
           isTrackingRef.current = true;
           const startDate = new Date(parsed.startAt);
@@ -1037,10 +1074,24 @@ export default function TimeTracking() {
                 const gTrack = g ? g.getVideoTracks()[0] : undefined;
                 if (g && gTrack && gTrack.readyState === 'live') {
                   screenStreamRef.current = g;
+                  // Mark permission as granted (Electron only)
+                  if (isElectronEnvRef.current) {
+                    permissionGrantedRef.current = true;
+                  }
                   startVisualActivityCheck();
                   setHasStream(true);
+                } else if (isElectronEnvRef.current && permissionGrantedRef.current) {
+                  // Permission was already granted in this session, but stream is gone
+                  // Don't request permission again, just log the issue
+                  // The stream might have been stopped by the user manually
                 } else {
+                  // Only request permission if not already granted in this session
                   await requestScreenCapture();
+                }
+              } else {
+                // Stream is valid, mark permission as granted (Electron only)
+                if (isElectronEnvRef.current) {
+                  permissionGrantedRef.current = true;
                 }
               }
             } catch { void 0; }
@@ -1415,6 +1466,11 @@ export default function TimeTracking() {
     if (heartbeatIntervalRef.current) window.clearInterval(heartbeatIntervalRef.current);
     randomShotTimesRef.current = [];
     fixedShotNextTimeRef.current = null;
+    
+    // Reset permission flag when tracking stops (new session will need fresh permission - Electron only)
+    if (isElectronEnvRef.current) {
+      permissionGrantedRef.current = false;
+    }
     
     // 2. Stop media tracks
     try {
