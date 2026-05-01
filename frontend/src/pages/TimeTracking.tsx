@@ -83,7 +83,8 @@ if (!(window as TTWindow).__tt_core) {
 }
 
 export default function TimeTracking() {
-  const { user } = useAuthStore();
+  const { user: currentUser } = useAuthStore();
+  const user = currentUser;
   
   const normalizeMinuteKey = (value: string | null) => {
     if (!value) return null;
@@ -378,7 +379,7 @@ export default function TimeTracking() {
   const { data: allActiveProjects } = useQuery({
     queryKey: ['desktop-active-projects', user?.id],
     queryFn: () => timeTrackingAPI.getActiveProjects(),
-    enabled: !!user && currentUser?.role === 'admin',
+    enabled: !!user && (currentUser as any)?.role === 'admin',
   });
 
   const { data: projectTasks } = useQuery({
@@ -389,7 +390,7 @@ export default function TimeTracking() {
 
   const taskOptions = useMemo(() => (projectTasks ?? []), [projectTasks]);
   const projectList = useMemo(() => {
-    if (currentUser?.role === 'admin') {
+    if ((currentUser as any)?.role === 'admin') {
       return allActiveProjects ?? assignedProjects ?? [];
     }
     return assignedProjects ?? [];

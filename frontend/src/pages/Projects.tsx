@@ -71,12 +71,12 @@ export default function Projects() {
 
   const { data: clients } = useQuery<{ data: Client[] }>({
     queryKey: ['clients', 'for-projects'],
-    queryFn: () => clientsAPI.getClients({ per_page: 1000 }), // Get all for dropdown
+    queryFn: () => clientsAPI.getClients({ per_page: 1000 } as any), // Get all for dropdown
   });
 
   const { data: users } = useQuery<{ data: User[] }>({
     queryKey: ['users', 'for-projects'],
-    queryFn: () => usersAPI.getUsers({ per_page: 1000 }), // Get all for dropdown
+    queryFn: () => usersAPI.getUsers({ per_page: 1000 } as any), // Get all for dropdown
     enabled: currentUser?.role === 'admin',
   });
 
