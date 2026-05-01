@@ -179,12 +179,18 @@ export default function Layout({ children }: LayoutProps) {
     // Check if tracking is active
     try {
       const raw = localStorage.getItem('tt-tracker');
+      const win = window as any;
+      const coreRunning = win.__tt_core?.isTracking;
+      
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed.isTracking) {
+        if (parsed.isTracking || coreRunning) {
           alert('You cannot logout while the time tracker is running. Please stop the tracker first.');
           return;
         }
+      } else if (coreRunning) {
+        alert('You cannot logout while the time tracker is running. Please stop the tracker first.');
+        return;
       }
     } catch { void 0; }
 
