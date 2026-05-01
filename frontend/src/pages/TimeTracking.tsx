@@ -16,9 +16,71 @@ type TTIntervals = {
   fixedScreenshot?: number | null;
   heartbeat?: number | null;
   visualCheck?: number | null;
+  tick?: number | null;
 };
 
-type TTWindow = Window & { __tt_intervals?: TTIntervals };
+type TTWindow = Window & { 
+  __tt_intervals?: TTIntervals;
+  __tt_permission_granted?: boolean;
+  __tt_stream?: MediaStream | null;
+  __tt_is_running?: boolean;
+  __tt_core?: any;
+};
+
+// Global Singleton to manage tracking state across navigation
+const trackerCore = {
+  isTracking: false,
+  stream: null as MediaStream | null,
+  intervals: {
+    tick: null as any,
+    screenshot: null as any,
+    fixedScreenshot: null as any,
+    heartbeat: null as any,
+    visualCheck: null as any,
+    liveMode: null as any,
+  },
+  elapsed: 0,
+  startAt: null as Date | null,
+  activeTimeLogId: undefined as number | undefined,
+  note: '',
+  projectId: undefined as number | undefined,
+  taskId: undefined as number | undefined,
+  activityData: {} as Record<string, any>,
+  lastActivity: new Date(),
+  randomShotTimes: [] as Date[],
+  fixedShotNextTime: null as Date | null,
+  isCapturing: false,
+  permissionGranted: false,
+  lastCapturedMinute: null as string | null,
+  
+  // Method to stop EVERYTHING
+  cleanup: function() {
+    Object.values(this.intervals).forEach(id => {
+      if (id) {
+        window.clearInterval(id);
+        window.clearTimeout(id);
+      }
+    });
+    this.intervals = { tick: null, screenshot: null, fixedScreenshot: null, heartbeat: null, visualCheck: null, liveMode: null };
+    if (this.stream) {
+      this.stream.getTracks().forEach(t => t.stop());
+      this.stream = null;
+    }
+    this.isTracking = false;
+    this.permissionGranted = false;
+    this.elapsed = 0;
+    this.activityData = {};
+    const win = window as TTWindow;
+    win.__tt_is_running = false;
+    win.__tt_permission_granted = false;
+    win.__tt_stream = null;
+    if (win.__tt_intervals) win.__tt_intervals = {};
+  }
+};
+
+if (!(window as TTWindow).__tt_core) {
+  (window as TTWindow).__tt_core = trackerCore;
+}
 
 export default function TimeTracking() {
   const { user } = useAuthStore();
@@ -47,33 +109,64 @@ export default function TimeTracking() {
   const noteRef = useRef(note);
   useEffect(() => { noteRef.current = note; }, [note]);
 
-  const [isTracking, setIsTracking] = useState(false);
+  const [isTracking, setIsTracking] = useState((window as TTWindow).__tt_core.isTracking);
   const isTrackingRef = useRef(isTracking);
-  useEffect(() => { isTrackingRef.current = isTracking; }, [isTracking]);
+  useEffect(() => { 
+    isTrackingRef.current = isTracking;
+    (window as TTWindow).__tt_core.isTracking = isTracking;
+  }, [isTracking]);
 
-  const [startAt, setStartAt] = useState<Date | null>(null);
-  const [activeTimeLogId, setActiveTimeLogId] = useState<number | undefined>(undefined);
+  const [startAt, setStartAt] = useState<Date | null>((window as TTWindow).__tt_core.startAt);
+  useEffect(() => { (window as TTWindow).__tt_core.startAt = startAt; }, [startAt]);
+
+  const [activeTimeLogId, setActiveTimeLogId] = useState<number | undefined>((window as TTWindow).__tt_core.activeTimeLogId);
   const activeTimeLogIdRef = useRef(activeTimeLogId);
-  useEffect(() => { activeTimeLogIdRef.current = activeTimeLogId; }, [activeTimeLogId]);
+  useEffect(() => { 
+    activeTimeLogIdRef.current = activeTimeLogId;
+    (window as TTWindow).__tt_core.activeTimeLogId = activeTimeLogId;
+  }, [activeTimeLogId]);
 
-  const [elapsed, setElapsed] = useState<number>(0); // seconds
+  const [elapsed, setElapsed] = useState<number>((window as TTWindow).__tt_core.elapsed); // seconds
+  useEffect(() => { (window as TTWindow).__tt_core.elapsed = elapsed; }, [elapsed]);
+
   const tickIntervalRef = useRef<number | null>(null);
   const screenshotIntervalRef = useRef<number | null>(null);
   const fixedScreenshotIntervalRef = useRef<number | null>(null);
   const liveModeIntervalRef = useRef<number | null>(null);
   const heartbeatIntervalRef = useRef<number | null>(null);
   const visualCheckIntervalRef = useRef<number | null>(null);
+  
+  // Sync refs with core intervals for local cleanup if needed
+  useEffect(() => {
+    const core = (window as TTWindow).__tt_core;
+    tickIntervalRef.current = core.intervals.tick;
+    screenshotIntervalRef.current = core.intervals.screenshot;
+    fixedScreenshotIntervalRef.current = core.intervals.fixedScreenshot;
+    heartbeatIntervalRef.current = core.intervals.heartbeat;
+    visualCheckIntervalRef.current = core.intervals.visualCheck;
+    liveModeIntervalRef.current = core.intervals.liveMode;
+  });
+
   const previousFrameDataRef = useRef<Uint8ClampedArray | null>(null);
-  const randomShotTimesRef = useRef<Date[]>([]);
-  const fixedShotNextTimeRef = useRef<Date | null>(null);
-  const screenStreamRef = useRef<MediaStream | null>(null);
-  const [hasStream, setHasStream] = useState<boolean>(!!((window as unknown as { __ttStream?: MediaStream | null }).__ttStream));
+  const randomShotTimesRef = useRef<Date[]>((window as TTWindow).__tt_core.randomShotTimes);
+  useEffect(() => { (window as TTWindow).__tt_core.randomShotTimes = randomShotTimesRef.current; });
+
+  const fixedShotNextTimeRef = useRef<Date | null>((window as TTWindow).__tt_core.fixedShotNextTime);
+  useEffect(() => { (window as TTWindow).__tt_core.fixedShotNextTime = fixedShotNextTimeRef.current; });
+
+  const screenStreamRef = useRef<MediaStream | null>((window as TTWindow).__tt_core.stream);
+  useEffect(() => { (window as TTWindow).__tt_core.stream = screenStreamRef.current; });
+
+  const [hasStream, setHasStream] = useState<boolean>(!!((window as TTWindow).__tt_core.stream));
   const peerRef = useRef<SimplePeerInstance | null>(null);
   const lastOfferSdpRef = useRef<string | null>(null);
   const lastAnswerSdpRef = useRef<string | null>(null);
-  const lastActivityRef = useRef<Date>(new Date());
-  const isElectronEnvRef = useRef(false);
-  const permissionGrantedRef = useRef<boolean>(false); // Track if permission was already granted in this session
+  const lastActivityRef = useRef<Date>((window as TTWindow).__tt_core.lastActivity);
+  useEffect(() => { (window as TTWindow).__tt_core.lastActivity = lastActivityRef.current; });
+
+  const isElectronEnvRef = useRef(!!(window as any).require && !!(window as any).require('electron'));
+  const permissionGrantedRef = useRef<boolean>((window as TTWindow).__tt_core.permissionGranted);
+  useEffect(() => { (window as TTWindow).__tt_core.permissionGranted = permissionGrantedRef.current; });
   
   // We need to dynamically import SimplePeer because it requires Node polyfills
   const [SimplePeer, setSimplePeer] = useState<SimplePeerConstructor | null>(null);
@@ -89,23 +182,27 @@ export default function TimeTracking() {
   const liveRequestActiveRef = useRef<boolean>(false);
   const livePromptAckRef = useRef<boolean>(false);
   const screenshotMissingWarnedRef = useRef<boolean>(false);
-  const lastCapturedMinuteRef = useRef<string | null>(normalizeMinuteKey(localStorage.getItem('tt-last-captured-minute')));
-  const isCapturingRef = useRef(false);
+  const lastCapturedMinuteRef = useRef<string | null>((window as TTWindow).__tt_core.lastCapturedMinute);
+  useEffect(() => { (window as TTWindow).__tt_core.lastCapturedMinute = lastCapturedMinuteRef.current; });
+  const isCapturingRef = useRef((window as TTWindow).__tt_core.isCapturing);
+  useEffect(() => { (window as TTWindow).__tt_core.isCapturing = isCapturingRef.current; });
   const trackerKey = 'tt-tracker';
   const captureScreenshotRef = useRef<() => Promise<void>>(async () => {});
   const mountedRef = useRef<boolean>(true);
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; };
+    return () => { 
+      mountedRef.current = false; 
+    };
   }, []);
   useEffect(() => {
     try {
-      const g = (window as unknown as { __ttStream?: MediaStream | null }).__ttStream || null;
+      const g = (window as TTWindow).__tt_core.stream || null;
       const t = g ? g.getVideoTracks()[0] : undefined;
       const isLive = !!(g && t && t.readyState === 'live');
       setHasStream(isLive);
       if (!isLive) {
-        try { (window as unknown as { __ttStream?: MediaStream | null }).__ttStream = null; } catch { void 0; }
+        (window as TTWindow).__tt_core.stream = null;
       }
     } catch { void 0; }
   }, []);
@@ -125,7 +222,8 @@ export default function TimeTracking() {
       total_activity: number;
       timestamp: string;
     }
-  }>({});
+  }>((window as TTWindow).__tt_core.activityData);
+  useEffect(() => { (window as TTWindow).__tt_core.activityData = activityDataRef.current; });
 
   useEffect(() => {
     let isElectron = false;
@@ -313,22 +411,17 @@ export default function TimeTracking() {
   });
 
   const startShotSchedule = () => {
-    // Clear all old intervals from global tracking to ensure no duplicates
-    const win = window as TTWindow;
-    if (win.__tt_intervals) {
-      if (win.__tt_intervals.screenshot) window.clearTimeout(win.__tt_intervals.screenshot);
-      if (win.__tt_intervals.fixedScreenshot) window.clearInterval(win.__tt_intervals.fixedScreenshot);
-    }
-    
-    // Clear local refs as well
-    if (screenshotIntervalRef.current) window.clearTimeout(screenshotIntervalRef.current);
-    if (fixedScreenshotIntervalRef.current) window.clearInterval(fixedScreenshotIntervalRef.current);
+    const core = (window as TTWindow).__tt_core;
+    // Clear all old intervals from core to ensure no duplicates
+    if (core.intervals.screenshot) window.clearTimeout(core.intervals.screenshot);
+    if (core.intervals.fixedScreenshot) window.clearInterval(core.intervals.fixedScreenshot);
     
     scheduleRandomScreenshots();
   };
 
   const startVisualActivityCheck = async () => {
-    if (visualCheckIntervalRef.current) window.clearInterval(visualCheckIntervalRef.current);
+    const core = (window as TTWindow).__tt_core;
+    if (core.intervals.visualCheck) window.clearInterval(core.intervals.visualCheck);
     
     const stream = screenStreamRef.current;
     if (!stream) return;
@@ -345,7 +438,7 @@ export default function TimeTracking() {
     canvas.height = 36;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
-    visualCheckIntervalRef.current = window.setInterval(() => {
+    core.intervals.visualCheck = window.setInterval(() => {
       if (!isTrackingRef.current || !ctx) return;
       
       try {
@@ -411,10 +504,11 @@ export default function TimeTracking() {
   };
 
   const requestScreenCapture = async () => {
+    const core = (window as TTWindow).__tt_core;
     try {
-      // If permission was already granted in this tracking session, just reuse the stream (Electron only)
-      if (isElectronEnvRef.current && permissionGrantedRef.current) {
-        const g = (window as unknown as { __ttStream?: MediaStream | null }).__ttStream || null;
+      // If permission was already granted in this tracking session, just reuse the stream
+      if (core.permissionGranted) {
+        const g = core.stream || null;
         const gTrack = g ? g.getVideoTracks()[0] : undefined;
         if (g && gTrack && gTrack.readyState === 'live') {
           screenStreamRef.current = g;
@@ -428,10 +522,10 @@ export default function TimeTracking() {
       // Request permission only if not already granted in this session
       const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
       screenStreamRef.current = stream;
-      // Mark permission as granted (Electron only)
-      if (isElectronEnvRef.current) {
-        permissionGrantedRef.current = true;
-      }
+      core.stream = stream;
+      core.permissionGranted = true;
+      (window as TTWindow).__tt_permission_granted = true;
+      
       setHasStream(true);
       screenshotMissingWarnedRef.current = false;
 
@@ -439,18 +533,16 @@ export default function TimeTracking() {
       if (peerRef.current) {
         try { peerRef.current.destroy(); } catch { void 0; }
         peerRef.current = null;
-        // The next pollLiveStatus tick will recreate the peer with the new stream
       }
-      // Persist stream globally to survive route changes
-      (window as unknown as { __ttStream?: MediaStream | null }).__ttStream = stream;
+      
       // If user stops sharing manually, clear global reference
       stream.getVideoTracks().forEach((t) => {
         t.addEventListener('ended', () => {
-          try { (window as unknown as { __ttStream?: MediaStream | null }).__ttStream = null; } catch { void 0; }
+          core.stream = null;
           try { peerRef.current?.destroy(); peerRef.current = null; } catch { void 0; }
           setHasStream(false);
-          if (screenshotIntervalRef.current) window.clearInterval(screenshotIntervalRef.current);
-          if (fixedScreenshotIntervalRef.current) window.clearInterval(fixedScreenshotIntervalRef.current);
+          if (core.intervals.screenshot) window.clearTimeout(core.intervals.screenshot);
+          if (core.intervals.fixedScreenshot) window.clearInterval(core.intervals.fixedScreenshot);
           randomShotTimesRef.current = [];
           fixedShotNextTimeRef.current = null;
         });
@@ -488,7 +580,7 @@ export default function TimeTracking() {
       
       let stream = screenStreamRef.current;
     if (!stream) {
-      const g = (window as unknown as { __ttStream?: MediaStream | null }).__ttStream || null;
+      const g = (window as TTWindow).__tt_stream || null;
       const gTrack = g ? g.getVideoTracks()[0] : undefined;
       if (g && gTrack && gTrack.readyState === 'live') {
         screenStreamRef.current = g;
@@ -512,7 +604,7 @@ export default function TimeTracking() {
     if (track.readyState === 'ended') {
       screenStreamRef.current = null;
       setHasStream(false);
-      try { (window as unknown as { __ttStream?: MediaStream | null }).__ttStream = null; } catch { void 0; }
+      try { (window as TTWindow).__tt_stream = null; } catch { void 0; }
       if (!screenshotMissingWarnedRef.current) {
         screenshotMissingWarnedRef.current = true;
         // toast.info('Screen sharing stopped. Click “Resume Screenshots” to continue.');
@@ -721,8 +813,88 @@ export default function TimeTracking() {
     captureScreenshotRef.current = captureScreenshot;
   }, [captureScreenshot]);
 
+  const scheduleRandomScreenshots = useCallback(() => {
+    const core = (window as TTWindow).__tt_core;
+    // Determine current 10-minute block boundaries
+    const now = new Date();
+    const m = now.getMinutes();
+    const blockStartMinute = Math.floor(m / 10) * 10;
+    const blockEndMinute = blockStartMinute + 9;
+    
+    const blockEnd = new Date(now);
+    blockEnd.setMinutes(blockEndMinute);
+    blockEnd.setSeconds(59);
+    blockEnd.setMilliseconds(0);
+    
+    // Set the fixed shot time for this block
+    fixedShotNextTimeRef.current = blockEnd;
+    
+    // Calculate remaining time in this block
+    const remainingMs = blockEnd.getTime() - now.getTime();
+    if (remainingMs <= 0) return; 
+    
+    const remainingMinutes = remainingMs / 1000 / 60;
+    const SHOT_COUNT = Math.max(1, Math.round((remainingMinutes / 10) * 3));
+    
+    const newTimes: Date[] = [];
+    const usedMinutes = new Set<number>();
+    
+    for(let i=0; i<SHOT_COUNT; i++) {
+        const randomOffsetMs = Math.random() * (remainingMs - 10000); 
+        if (randomOffsetMs < 0) continue; 
+        
+        const target = new Date(now.getTime() + randomOffsetMs);
+        const tm = target.getMinutes();
+        if (tm === blockEndMinute && SHOT_COUNT > 1) {
+            i--; 
+            continue; 
+        }
+        
+        if (usedMinutes.has(tm)) {
+             if (remainingMinutes > 3) {
+                 i--;
+                 continue;
+             }
+        }
+        
+        newTimes.push(target);
+        usedMinutes.add(tm);
+    }
+    
+    newTimes.sort((a,b) => a.getTime() - b.getTime());
+    randomShotTimesRef.current = newTimes;
+    
+    // Persist schedule
+    try {
+      const raw = localStorage.getItem(trackerKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        localStorage.setItem(trackerKey, JSON.stringify({
+          ...parsed,
+          randomShotTimes: newTimes.map(d => d.toISOString()),
+          fixedShotNextTime: blockEnd.toISOString()
+        }));
+      }
+    } catch { void 0; }
+    
+    // Schedule next block scheduling
+    if (core.intervals.screenshot) window.clearTimeout(core.intervals.screenshot);
+    const msUntilNextBlock = blockEnd.getTime() - now.getTime() + 2000; 
+    core.intervals.screenshot = window.setTimeout(() => {
+        scheduleRandomScreenshots();
+    }, msUntilNextBlock);
+  }, []);
+
   const runTick = useCallback(() => {
-    if (mountedRef.current) setElapsed((e) => e + 1);
+    const core = (window as TTWindow).__tt_core;
+    
+    // Always increment core.elapsed since this interval is global
+    core.elapsed += 1;
+    
+    if (mountedRef.current) {
+      // Sync local state with core for UI update
+      setElapsed(core.elapsed);
+    }
     
     const now = new Date();
     try {
@@ -748,19 +920,14 @@ export default function TimeTracking() {
                 });
               }
               try { localStorage.removeItem(trackerKey); } catch { void 0; }
+              
+              // Use core cleanup
+              core.cleanup();
+              
               setIsTracking(false);
-              isTrackingRef.current = false;
               setStartAt(null);
               setActiveTimeLogId(undefined);
               setElapsed(0);
-              if (tickIntervalRef.current) window.clearInterval(tickIntervalRef.current);
-              if (screenshotIntervalRef.current) window.clearTimeout(screenshotIntervalRef.current);
-              if (fixedScreenshotIntervalRef.current) window.clearInterval(fixedScreenshotIntervalRef.current);
-              if (heartbeatIntervalRef.current) window.clearInterval(heartbeatIntervalRef.current);
-              if (visualCheckIntervalRef.current) window.clearInterval(visualCheckIntervalRef.current);
-              randomShotTimesRef.current = [];
-              fixedShotNextTimeRef.current = null;
-              try { stopMediaTracks(); } catch { void 0; }
               toast.error('Tracking stopped due to sleep/hibernate.');
               return;
             }
@@ -823,129 +990,30 @@ export default function TimeTracking() {
     }
   }, []);
 
-  const scheduleRandomScreenshots = () => {
-    // Determine current 10-minute block boundaries
-    const now = new Date();
-    const m = now.getMinutes();
-    const blockStartMinute = Math.floor(m / 10) * 10;
-    const blockEndMinute = blockStartMinute + 9;
-    
-    const blockStart = new Date(now);
-    blockStart.setMinutes(blockStartMinute);
-    blockStart.setSeconds(0);
-    blockStart.setMilliseconds(0);
-    
-    const blockEnd = new Date(now);
-    blockEnd.setMinutes(blockEndMinute);
-    blockEnd.setSeconds(59);
-    blockEnd.setMilliseconds(0);
-    
-    // Set the fixed shot time for this block
-    fixedShotNextTimeRef.current = blockEnd;
-    
-    // Calculate remaining time in this block
-    const remainingMs = blockEnd.getTime() - now.getTime();
-    if (remainingMs <= 0) return; // Should not happen if called correctly
-    
-    // Scale shot count based on remaining time
-    // Standard: 3 shots in 10 mins.
-    const remainingMinutes = remainingMs / 1000 / 60;
-    const SHOT_COUNT = Math.max(1, Math.round((remainingMinutes / 10) * 3));
-    
-    const newTimes: Date[] = [];
-    const usedMinutes = new Set<number>();
-    
-    // If very close to end, maybe just 1 shot or none?
-    // Let's try to fit SHOT_COUNT shots in the remaining interval [now, blockEnd]
-    // But avoid the fixed shot minute (blockEndMinute) if possible, unless it's the only option
-    
-    for(let i=0; i<SHOT_COUNT; i++) {
-        // Random time between now and blockEnd (exclusive of blockEnd ideally)
-        const randomOffsetMs = Math.random() * (remainingMs - 10000); // Buffer 10s before fixed shot
-        if (randomOffsetMs < 0) continue; 
-        
-        const target = new Date(now.getTime() + randomOffsetMs);
-        // Round to nearest second to avoid sub-second triggers? Not needed.
-        
-        // Avoid duplicate minutes if possible
-        const tm = target.getMinutes();
-        if (tm === blockEndMinute && SHOT_COUNT > 1) {
-            // Try again to avoid clashing with fixed shot minute
-            i--; 
-            continue; 
-        }
-        
-        if (usedMinutes.has(tm)) {
-            // Try to spread them out
-             // But if we are squeezed for time, we might have to overlap minutes (just different seconds)
-             if (remainingMinutes > 3) {
-                 i--;
-                 continue;
-             }
-        }
-        
-        newTimes.push(target);
-        usedMinutes.add(tm);
-    }
-    
-    newTimes.sort((a,b) => a.getTime() - b.getTime());
-    randomShotTimesRef.current = newTimes;
-    
-    // Persist schedule
-    try {
-      const raw = localStorage.getItem(trackerKey);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        localStorage.setItem(trackerKey, JSON.stringify({
-          ...parsed,
-          randomShotTimes: newTimes.map(d => d.toISOString()),
-          fixedShotNextTime: blockEnd.toISOString()
-        }));
-      }
-    } catch { void 0; }
-    
-    // Schedule next block scheduling
-    if (screenshotIntervalRef.current) window.clearTimeout(screenshotIntervalRef.current);
-    const msUntilNextBlock = blockEnd.getTime() - now.getTime() + 2000; // 2s after block end
-    screenshotIntervalRef.current = window.setTimeout(() => {
-        scheduleRandomScreenshots();
-    }, msUntilNextBlock);
-    
-    // Track in global window object for cleanup on remount
-    const win = window as TTWindow;
-    if (!win.__tt_intervals) win.__tt_intervals = {};
-    win.__tt_intervals.screenshot = screenshotIntervalRef.current;
-  };
-
   const stopMediaTracks = () => {
-    if (visualCheckIntervalRef.current) window.clearInterval(visualCheckIntervalRef.current);
+    const core = (window as TTWindow).__tt_core;
+    if (core.intervals.visualCheck) window.clearInterval(core.intervals.visualCheck);
     
-    // Check both ref and global to ensure we really stop the stream
-    const stream =
-      screenStreamRef.current ||
-      (window as unknown as { __ttStream?: MediaStream | null }).__ttStream ||
-      null;
+    const stream = core.stream;
     if (stream) {
       try {
         stream.getTracks().forEach((t: MediaStreamTrack) => t.stop());
-    } catch {
-      void 0;
-    }
+      } catch { void 0; }
     }
     
     screenStreamRef.current = null;
+    core.stream = null;
     setHasStream(false);
-    try { (window as unknown as { __ttStream?: MediaStream | null }).__ttStream = null; } catch { void 0; }
     previousFrameDataRef.current = null;
   };
 
   const startHeartbeat = (logId: number, startTime: Date) => {
-    if (heartbeatIntervalRef.current) window.clearInterval(heartbeatIntervalRef.current);
-    heartbeatIntervalRef.current = window.setInterval(() => {
+    const core = (window as TTWindow).__tt_core;
+    if (core.intervals.heartbeat) window.clearInterval(core.intervals.heartbeat);
+    core.intervals.heartbeat = window.setInterval(() => {
       const now = new Date();
       const durationMinutes = Math.round((now.getTime() - startTime.getTime()) / 1000 / 60);
       
-      // Update local storage with last heartbeat time
       try {
         const raw = localStorage.getItem(trackerKey);
         if (raw) {
@@ -965,27 +1033,39 @@ export default function TimeTracking() {
         },
       });
     }, 60 * 1000);
-    const win = window as TTWindow;
-    if (win.__tt_intervals) win.__tt_intervals.heartbeat = heartbeatIntervalRef.current;
   };
 
   useEffect(() => {
-    // Clear any zombie intervals from previous unmounted instances
-    const win = window as TTWindow;
-    if (win.__tt_intervals) {
-      if (win.__tt_intervals.screenshot) window.clearTimeout(win.__tt_intervals.screenshot); // changed from clearInterval to clearTimeout
-      if (win.__tt_intervals.fixedScreenshot) window.clearInterval(win.__tt_intervals.fixedScreenshot);
-      if (win.__tt_intervals.heartbeat) window.clearInterval(win.__tt_intervals.heartbeat);
-      if (win.__tt_intervals.visualCheck) window.clearInterval(win.__tt_intervals.visualCheck);
-      win.__tt_intervals = {};
+    const core = (window as TTWindow).__tt_core;
+    
+    // Sync UI with global core on mount
+    if (core.isTracking) {
+        setIsTracking(true);
+        setStartAt(core.startAt);
+        setElapsed(core.elapsed);
+        setActiveTimeLogId(core.activeTimeLogId);
+        setNote(core.note);
+        setSelectedProjectId(core.projectId);
+        setSelectedTaskId(core.taskId);
+        
+        // REFRESH GLOBAL TICK - This ensures the interval uses the latest closure (mountedRef, setElapsed, etc.)
+        if (core.intervals.tick) window.clearInterval(core.intervals.tick);
+        core.intervals.tick = window.setInterval(runTick, 1000);
     } else {
-      win.__tt_intervals = {};
+        // Only clear if NOT tracking (fresh start)
+        // Check localStorage for crashed session
+        const raw = localStorage.getItem(trackerKey);
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed.isTracking && parsed.startAt) {
+                // Resume logic from localStorage (handled by the original logic below)
+            } else {
+                core.cleanup();
+            }
+        }
     }
 
-    // Set a flag in sessionStorage to distinguish between a reload and a fresh start (app restart)
-    const isReload = sessionStorage.getItem('is_reloaded');
-    sessionStorage.setItem('is_reloaded', 'true');
-
+    // Original Resume Logic (Refactored to check core)
     try {
       const raw = localStorage.getItem(trackerKey);
       if (raw) {
@@ -1001,108 +1081,37 @@ export default function TimeTracking() {
           fixedShotNextTime?: string;
         };
         
-        if (parsed.isTracking && parsed.startAt) {
-          if (!isReload) {
-             const lastHeartbeat = parsed.lastHeartbeat ? new Date(parsed.lastHeartbeat) : new Date(parsed.startAt);
-             
-             // Calculate duration until the LAST HEARTBEAT (when app was last alive)
-             const start = new Date(parsed.startAt);
-             const durationMinutes = Math.round((lastHeartbeat.getTime() - start.getTime()) / 1000 / 60);
-             
-            //  toast.info('Previous tracking session was closed unexpectedly. Tracking has been stopped.');
-
-             // Close the log on server
-             if (parsed.timeLogId) {
-                updateTimeLog.mutate({
-                  id: parsed.timeLogId,
-                  payload: {
-                    duration: durationMinutes,
-                    end_time: toLocalISOString(lastHeartbeat),
-                    description: parsed.note
-                  }
-                });
-             }
-             
-             // Clear storage
-             localStorage.removeItem(trackerKey);
-             
-             // Reset state
-             setIsTracking(false);
-             isTrackingRef.current = false;
-             setStartAt(null);
-             setActiveTimeLogId(undefined);
-             setElapsed(0);
-             // Reset permission flag on forced stop (Electron only)
-             if (isElectronEnvRef.current) {
-               permissionGrantedRef.current = false;
-             }
-             return; // Do not resume
-          }
-
-          // Resume normally - permission was already granted in this session (Electron only)
-          if (isElectronEnvRef.current) {
-            permissionGrantedRef.current = true;
-          }
+        if (parsed.isTracking && parsed.startAt && !core.isTracking) {
+          // Resume normally
+          core.isTracking = true;
           setIsTracking(true);
           isTrackingRef.current = true;
           const startDate = new Date(parsed.startAt);
           setStartAt(startDate);
-          setElapsed(Math.max(0, Math.floor((Date.now() - startDate.getTime()) / 1000)));
+          const currentElapsed = Math.max(0, Math.floor((Date.now() - startDate.getTime()) / 1000));
+          setElapsed(currentElapsed);
+          core.elapsed = currentElapsed;
+          
           const pId = parsed.projectId ? Number(parsed.projectId) : undefined;
           setSelectedProjectId(pId);
-          selectedProjectIdRef.current = pId;
+          core.projectId = pId;
+          
           const tId = parsed.taskId ? Number(parsed.taskId) : undefined;
           setSelectedTaskId(tId);
-          selectedTaskIdRef.current = tId;
+          core.taskId = tId;
+          
           setNote(parsed.note ?? '');
-          noteRef.current = parsed.note ?? '';
+          core.note = parsed.note ?? '';
+          
           if (parsed.timeLogId) {
             setActiveTimeLogId(parsed.timeLogId);
+            core.activeTimeLogId = parsed.timeLogId;
             startHeartbeat(parsed.timeLogId, startDate);
           }
-          // Ensure screen stream is active after navigation
-          (async () => {
-            try {
-              const cur =
-                screenStreamRef.current ||
-                (window as unknown as { __ttStream?: MediaStream | null }).__ttStream ||
-                null;
-              const track = cur ? cur.getVideoTracks()[0] : undefined;
-              if (!cur || !track || track.readyState === 'ended') {
-                // If global exists and track live, reattach without prompt
-                const g = (window as unknown as { __ttStream?: MediaStream | null }).__ttStream;
-                const gTrack = g ? g.getVideoTracks()[0] : undefined;
-                if (g && gTrack && gTrack.readyState === 'live') {
-                  screenStreamRef.current = g;
-                  // Mark permission as granted (Electron only)
-                  if (isElectronEnvRef.current) {
-                    permissionGrantedRef.current = true;
-                  }
-                  startVisualActivityCheck();
-                  setHasStream(true);
-                } else if (isElectronEnvRef.current && permissionGrantedRef.current) {
-                  // Permission was already granted in this session, but stream is gone
-                  // Don't request permission again, just log the issue
-                  // The stream might have been stopped by the user manually
-                } else {
-                  // Only request permission if not already granted in this session
-                  await requestScreenCapture();
-                }
-              } else {
-                // Stream is valid, mark permission as granted (Electron only)
-                if (isElectronEnvRef.current) {
-                  permissionGrantedRef.current = true;
-                }
-              }
-            } catch { void 0; }
-          })();
-          if (tickIntervalRef.current) window.clearInterval(tickIntervalRef.current);
-          tickIntervalRef.current = window.setInterval(runTick, 1000);
-          
-          if (screenshotIntervalRef.current) window.clearTimeout(screenshotIntervalRef.current);
-          if (fixedScreenshotIntervalRef.current) window.clearInterval(fixedScreenshotIntervalRef.current);
 
-          // Load persisted schedule
+          if (core.intervals.tick) window.clearInterval(core.intervals.tick);
+          core.intervals.tick = window.setInterval(runTick, 1000);
+          
           if (parsed.randomShotTimes) {
             randomShotTimesRef.current = parsed.randomShotTimes.map((t) => new Date(t));
           }
@@ -1110,44 +1119,12 @@ export default function TimeTracking() {
             fixedShotNextTimeRef.current = new Date(parsed.fixedShotNextTime);
           }
 
-          // Check if we need to schedule new shots
-          // Check if we have a valid fixed shot for the CURRENT block
-          const scheduleNow = new Date();
-          const currentBlockEnd = new Date(scheduleNow);
-          const m = scheduleNow.getMinutes();
-          const endMin = Math.floor(m / 10) * 10 + 9;
-          currentBlockEnd.setMinutes(endMin);
-          currentBlockEnd.setSeconds(59);
-          currentBlockEnd.setMilliseconds(0);
-          
-          let hasValidFixed = false;
-          if (fixedShotNextTimeRef.current) {
-             const fixedTime = fixedShotNextTimeRef.current.getTime();
-             if (Math.abs(fixedTime - currentBlockEnd.getTime()) < 60000) { // Same minute
-                 hasValidFixed = true;
-             }
-          }
-
-          if (!hasValidFixed) {
-             // We need to schedule for this block (or remainder of it)
-             scheduleRandomScreenshots();
-          } else {
-             // We have a schedule for this block.
-             // Just set up the next block trigger
-             const msUntilNextBlock = currentBlockEnd.getTime() - scheduleNow.getTime() + 2000;
-             if (screenshotIntervalRef.current) window.clearTimeout(screenshotIntervalRef.current);
-             screenshotIntervalRef.current = window.setTimeout(() => {
-                scheduleRandomScreenshots();
-             }, msUntilNextBlock);
-             const win = window as TTWindow;
-             if (win.__tt_intervals) win.__tt_intervals.screenshot = screenshotIntervalRef.current;
-          }
-
+          // Request screen capture if not active
+          requestScreenCapture();
         }
       }
     } catch { void 0; }
     
-    // Auto stop when the browser goes offline (power/network cut)
     const handleOffline = () => {
       if (isTrackingRef.current) {
         toast.error('Offline detected. Tracking stopped automatically.');
@@ -1155,17 +1132,11 @@ export default function TimeTracking() {
       }
     };
     window.addEventListener('offline', handleOffline);
+
     return () => {
       mountedRef.current = false;
-      if (!isTrackingRef.current) {
-        if (tickIntervalRef.current) window.clearInterval(tickIntervalRef.current);
-        if (screenshotIntervalRef.current) window.clearTimeout(screenshotIntervalRef.current);
-        if (fixedScreenshotIntervalRef.current) window.clearInterval(fixedScreenshotIntervalRef.current);
-        if (heartbeatIntervalRef.current) window.clearInterval(heartbeatIntervalRef.current);
-        randomShotTimesRef.current = [];
-        stopMediaTracks();
-      }
       window.removeEventListener('offline', handleOffline);
+      // NOTE: We DO NOT clear core intervals here. They keep running globally.
     };
   }, []);
 
@@ -1333,13 +1304,13 @@ export default function TimeTracking() {
                 }
             }
 
-           if (!liveModeIntervalRef.current) {
+           if (!core.intervals.liveMode) {
               if (isTracking) {
-                if (screenshotIntervalRef.current) window.clearInterval(screenshotIntervalRef.current);
-                if (fixedScreenshotIntervalRef.current) window.clearInterval(fixedScreenshotIntervalRef.current);
+                if (core.intervals.screenshot) window.clearInterval(core.intervals.screenshot);
+                if (core.intervals.fixedScreenshot) window.clearInterval(core.intervals.fixedScreenshot);
                 randomShotTimesRef.current = [];
               }
-              liveModeIntervalRef.current = window.setInterval(() => {}, 3000);
+              core.intervals.liveMode = window.setInterval(() => {}, 3000);
             }
          } else {
             if (liveRequestActiveRef.current) {
@@ -1347,9 +1318,9 @@ export default function TimeTracking() {
                livePromptAckRef.current = false;
                setLivePromptOpen(false);
             }
-            if (liveModeIntervalRef.current) {
-               window.clearInterval(liveModeIntervalRef.current);
-               liveModeIntervalRef.current = null;
+            if (core.intervals.liveMode) {
+               window.clearInterval(core.intervals.liveMode);
+               core.intervals.liveMode = null;
                if (peerRef.current) {
                    peerRef.current.destroy();
                    peerRef.current = null;
@@ -1358,10 +1329,6 @@ export default function TimeTracking() {
                if (isTracking) {
                  captureScreenshot();
                  scheduleRandomScreenshots();
-                 screenshotIntervalRef.current = window.setInterval(() => {
-                   captureScreenshot();
-                   scheduleRandomScreenshots();
-                 }, 10 * 60 * 1000);
                }
             }
          }
@@ -1378,6 +1345,12 @@ export default function TimeTracking() {
   }, [isTracking, user, SimplePeer]);
 
   const startTracking = async () => {
+    const core = (window as TTWindow).__tt_core;
+    if (core.isTracking) {
+        toast.info('Tracking is already running');
+        return;
+    }
+
     if (!selectedTaskId || !note) {
       toast.error('Please select a task and enter a note');
       return;
@@ -1388,16 +1361,24 @@ export default function TimeTracking() {
       return;
     }
     const now = new Date();
-    setStartAt(now);
+    
+    // Set global core state FIRST
+    core.isTracking = true;
+    core.startAt = now;
+    core.note = note;
+    core.projectId = project_id;
+    core.taskId = Number(selectedTaskId);
+    core.elapsed = 0;
+    core.lastCapturedMinute = null;
+    core.activityData = {};
+    
     setIsTracking(true);
-    isTrackingRef.current = true;
-    lastCapturedMinuteRef.current = null;
+    setStartAt(now);
+    setElapsed(0);
     try { localStorage.removeItem('tt-last-captured-minute'); } catch { void 0; }
     lastCaptureTimeRef.current = now;
-    setElapsed(0);
     
     try {
-      // Create initial time log
       const res = await createTimeLog.mutateAsync({
         project_id,
         task_id: Number(selectedTaskId),
@@ -1407,12 +1388,12 @@ export default function TimeTracking() {
         description: note,
       });
       const logId = res.id;
-      // Use the start_time from the server response to ensure sync
-      // This handles cases where the server returns an existing running log
       const serverStart = new Date(res.start_time);
 
       setActiveTimeLogId(logId);
+      core.activeTimeLogId = logId;
       setStartAt(serverStart);
+      core.startAt = serverStart;
       
       localStorage.setItem(trackerKey, JSON.stringify({ 
         isTracking: true, 
@@ -1426,94 +1407,80 @@ export default function TimeTracking() {
       startHeartbeat(logId, serverStart);
     } catch { 
       toast.error('Failed to start tracking on server');
+      core.cleanup();
       setIsTracking(false);
       return;
     }
 
     await requestScreenCapture();
-    if (liveRequestActiveRef.current && !screenStreamRef.current) {
+    if (liveRequestActiveRef.current && !core.stream) {
       setLivePromptOpen(true);
     }
-    if (tickIntervalRef.current) window.clearInterval(tickIntervalRef.current);
-    tickIntervalRef.current = window.setInterval(runTick, 1000);
     
-    if (screenStreamRef.current) {
+    if (!core.intervals.tick) {
+        core.intervals.tick = window.setInterval(runTick, 1000);
+    }
+    
+    if (core.stream) {
       startShotSchedule();
-    } else {
-      // toast.info('Screen sharing stopped. Click “Resume Screenshots” to continue.');
     }
     
     toast.success('Tracking started');
   };
 
   const stopTracking = async () => {
-    // Capture final screenshot and activity data before stopping
-    if (isTrackingRef.current) {
-      try {
-        await captureScreenshot();
-      } catch {
-        void 0;
-      }
-    }
+    const core = (window as TTWindow).__tt_core;
+    if (!core.isTracking) return;
 
-    // 0. IMMEDIATE CLEANUP of storage to prevent auto-start on reload
+    // Capture final screenshot and activity data before stopping
+    try {
+      await captureScreenshot();
+    } catch { void 0; }
+
     try { localStorage.removeItem(trackerKey); } catch { void 0; }
 
-    // 1. Clear intervals and timeouts FIRST to prevent new screenshots/heartbeats
-    if (tickIntervalRef.current) window.clearInterval(tickIntervalRef.current);
-    if (screenshotIntervalRef.current) window.clearTimeout(screenshotIntervalRef.current);
-    if (fixedScreenshotIntervalRef.current) window.clearInterval(fixedScreenshotIntervalRef.current);
-    if (heartbeatIntervalRef.current) window.clearInterval(heartbeatIntervalRef.current);
-    randomShotTimesRef.current = [];
-    fixedShotNextTimeRef.current = null;
-    
-    // Reset permission flag when tracking stops (new session will need fresh permission - Electron only)
-    if (isElectronEnvRef.current) {
-      permissionGrantedRef.current = false;
-    }
-    
-    // 2. Stop media tracks
-    try {
-      stopMediaTracks();
-    } catch (e) {
-      void e;
-    }
+    // Use core cleanup to stop all intervals and tracks
+    const activeLogId = core.activeTimeLogId;
+    const startTime = core.startAt;
+    const currentNote = core.note;
+    const currentTaskId = core.taskId;
 
-    // 3. Update state
+    core.cleanup();
+
     setIsTracking(false);
-    isTrackingRef.current = false;
+    setStartAt(null);
+    setActiveTimeLogId(undefined);
+    setElapsed(0);
+    
     const end = new Date();
     
-    // 5. Send final update to server
-    if (startAt && activeTimeLogId) {
-      const durationMinutes = Math.round((end.getTime() - startAt.getTime()) / 1000 / 60);
+    if (startTime && activeLogId) {
+      const durationMinutes = Math.round((end.getTime() - startTime.getTime()) / 1000 / 60);
       try {
         await updateTimeLog.mutateAsync({
-          id: activeTimeLogId,
+          id: activeLogId,
           payload: {
             end_time: toLocalISOString(end),
             duration: durationMinutes,
-            description: note,
-            // use_server_time: true, // Disabled to use local time from client
+            description: currentNote,
           }
         });
         toast.success('Tracking stopped and saved');
       } catch {
         toast.error('Failed to save time log');
       }
-    } else if (startAt && selectedTaskId) {
-      // Fallback for sessions without activeTimeLogId (legacy or error)
-      const project_id = getProjectId(selectedTaskId);
+    } else if (startTime && currentTaskId) {
+      const project_id = getProjectId(currentTaskId);
       if (project_id) {
-        const durationMinutes = Math.round((end.getTime() - startAt.getTime()) / 1000 / 60);
+        const durationMinutes = Math.round((end.getTime() - startTime.getTime()) / 1000 / 60);
         try {
           await createTimeLog.mutateAsync({
             project_id,
-            task_id: selectedTaskId,
-            start_time: toLocalISOString(startAt),
+            task_id: currentTaskId,
+            start_time: toLocalISOString(startTime),
             end_time: toLocalISOString(end),
             duration: durationMinutes,
-            description: note,
+            description: currentNote,
             desktop_app_id: 'web',
           });
           toast.success('Tracking stopped and saved');
@@ -1522,10 +1489,6 @@ export default function TimeTracking() {
         }
       }
     }
-
-    setStartAt(null);
-    setActiveTimeLogId(undefined);
-    setElapsed(0);
   };
 
   const stopTrackingRef = useRef(stopTracking);
@@ -1648,9 +1611,10 @@ export default function TimeTracking() {
                   <button
                     className="px-4 py-2 rounded bg-red-600 text-white"
                     onClick={() => {
+                      const core = (window as TTWindow).__tt_core;
                       try { stopMediaTracks(); } catch { void 0; }
                       setHasStream(false);
-                      try { (window as unknown as { __ttStream?: MediaStream | null }).__ttStream = null; } catch { void 0; }
+                      core.stream = null;
                       livePromptAckRef.current = true;
                       setLivePromptOpen(false);
                     }}

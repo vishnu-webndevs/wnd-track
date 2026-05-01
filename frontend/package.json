@@ -1,23 +1,24 @@
 {
   "name": "frontend",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.2",
   "main": "electron/main.cjs",
   "type": "module",
   "description": "Time Tracking Desktop App",
   "author": "Webndevs",
   "scripts": {
     "dev": "vite",
+    "version:patch": "npm version patch --no-git-tag-version",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "check": "tsc -b --noEmit",
     "electron": "wait-on tcp:5173 && electron .",
     "electron:dev": "concurrently -k \"cross-env BROWSER=none npm run dev\" \"npm run electron\"",
-    "electron:build": "npm run build && electron-builder",
-    "electron:portable": "npm run build && electron-builder --win portable",
-    "electron:nsis": "npm run build && electron-builder --win nsis",
-    "electron:pack": "npm run build && electron-packager . --overwrite --platform=win32 --arch=x64 --prune=true --out=release-builds-live --asar"
+    "electron:build": "npm run version:patch && npm run build && electron-builder",
+    "electron:portable": "npm run version:patch && npm run build && electron-builder --win portable",
+    "electron:nsis": "npm run version:patch && npm run build && electron-builder --win nsis",
+    "electron:pack": "npm run version:patch && npm run build && electron-packager . --overwrite --platform=win32 --arch=x64 --prune=true --out=release-builds-live --asar"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

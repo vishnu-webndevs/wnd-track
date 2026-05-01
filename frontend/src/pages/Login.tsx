@@ -36,7 +36,7 @@ export default function Login() {
       const result = await authAPI.login(data);
       login(result.user);
       toast.success('Login successful!');
-      navigate('/time-tracking');
+      navigate('/dashboard');
     } catch (error: unknown) {
       const err = error as AxiosError<{ message?: string }>;
       const message = err.response?.data?.message ?? 'Login failed';

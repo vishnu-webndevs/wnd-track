@@ -30,10 +30,6 @@ function AppContent() {
   const { login, logout, setAuthChecked } = useAuthStore();
 
   useEffect(() => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    localStorage.removeItem('auth-storage');
-
     const now = Date.now();
     const lastUsedRaw = localStorage.getItem(AUTH_LAST_USED_KEY);
 
@@ -58,7 +54,7 @@ function AppContent() {
       });
 
     return () => { cancelled = true; };
-  }, [location.pathname, login, logout, setAuthChecked]);
+  }, [login, logout, setAuthChecked]);
 
   return (
     <Routes>
