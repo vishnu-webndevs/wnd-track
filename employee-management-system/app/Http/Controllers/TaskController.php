@@ -48,7 +48,7 @@ class TaskController extends Controller
             ->with(['project', 'assignedTo', 'createdBy'])
             ->orderBy('sort_order', 'asc')
             ->orderBy('created_at', 'desc')
-            ->paginate(10);
+            ->paginate($request->per_page ?? 10);
 
         return response()->json($tasks);
     }
