@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Search, Edit, Trash2, CheckSquare } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, CheckSquare, Eye } from 'lucide-react';
 import { tasksAPI } from '../api/tasks';
 import { projectsAPI } from '../api/projects';
 import { usersAPI } from '../api/users';
@@ -54,6 +54,7 @@ export default function Tasks() {
   const [page, setPage] = useState<number>(1);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isViewOpen, setIsViewOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [viewMode, setViewMode] = useState<'board' | 'table'>('board');
   const queryClient = useQueryClient();
@@ -366,7 +367,18 @@ export default function Tasks() {
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex space-x-2">
                           <button
+                            className="text-gray-600 hover:text-gray-900"
+                            title="View"
+                            onClick={() => {
+                              setSelectedTask(task);
+                              setIsViewOpen(true);
+                            }}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </button>
+                          <button
                             className="text-indigo-600 hover:text-indigo-900"
+                            title="Edit"
                             onClick={() => {
                               setSelectedTask(task);
                               setIsEditOpen(true);
@@ -374,16 +386,19 @@ export default function Tasks() {
                           >
                             <Edit className="h-4 w-4" />
                           </button>
-                          <button
-                            className="text-red-600 hover:text-red-900"
-                            onClick={() => {
-                              if (window.confirm('Delete this task?')) {
-                                deleteMutation.mutate(task.id);
-                              }
-                            }}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                          {isAdmin && (
+                            <button
+                              className="text-red-600 hover:text-red-900"
+                              title="Delete"
+                              onClick={() => {
+                                if (window.confirm('Delete this task?')) {
+                                  deleteMutation.mutate(task.id);
+                                }
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -453,7 +468,18 @@ export default function Tasks() {
                           </div>
                           <div className="flex gap-2">
                             <button
+                              className="text-gray-600 hover:text-gray-900"
+                              title="View"
+                              onClick={() => {
+                                setSelectedTask(task);
+                                setIsViewOpen(true);
+                              }}
+                            >
+                              <Eye className="h-4 w-4" />
+                            </button>
+                            <button
                               className="text-indigo-600 hover:text-indigo-900"
+                              title="Edit"
                               onClick={() => {
                               setSelectedTask(task);
                               setIsEditOpen(true);
@@ -461,16 +487,19 @@ export default function Tasks() {
                             >
                               <Edit className="h-4 w-4" />
                             </button>
-                            <button
-                              className="text-red-600 hover:text-red-900"
-                              onClick={() => {
-                                if (window.confirm('Delete this task?')) {
-                                  deleteMutation.mutate(task.id);
-                                }
-                              }}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
+                            {isAdmin && (
+                              <button
+                                className="text-red-600 hover:text-red-900"
+                                title="Delete"
+                                onClick={() => {
+                                  if (window.confirm('Delete this task?')) {
+                                    deleteMutation.mutate(task.id);
+                                  }
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            )}
                           </div>
                         </div>
                         <div className="mt-2 flex items-center justify-between text-xs text-gray-600">
@@ -507,6 +536,66 @@ export default function Tasks() {
           Next
         </button>
       </div>
+
+      {isViewOpen && selectedTask && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] flex flex-col">
+            <div className="px-6 py-4 border-b flex justify-between items-center flex-shrink-0">
+              <h3 className="text-lg font-semibold">Task Details</h3>
+              <button onClick={() => { setIsViewOpen(false); setSelectedTask(null); }} className="text-gray-500 hover:text-gray-700">&times;</button>
+            </div>
+            <div className="px-6 py-4 space-y-4 overflow-y-auto flex-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Title</label>
+                  <p className="mt-1 text-sm text-gray-900 font-medium">{selectedTask.title}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Project</label>
+                  <p className="mt-1 text-sm text-gray-900">{selectedTask.project?.name || '-'}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Assigned To</label>
+                  <p className="mt-1 text-sm text-gray-900">{selectedTask.assignedTo?.name || selectedTask.assigned_employee?.name || '-'}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Status</label>
+                  <span className={`mt-1 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${selectedTask.status === 'completed' ? 'bg-green-100 text-green-800' : selectedTask.status === 'in_progress' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}`}>
+                    {selectedTask.status}
+                  </span>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Priority</label>
+                  <p className="mt-1 text-sm text-gray-900 capitalize">{selectedTask.priority}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Due Date</label>
+                  <p className="mt-1 text-sm text-gray-900">{selectedTask.due_date ? new Date(selectedTask.due_date).toLocaleDateString() : '-'}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Estimated Hours</label>
+                  <p className="mt-1 text-sm text-gray-900">{selectedTask.estimated_hours || '-'}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Actual Hours</label>
+                  <p className="mt-1 text-sm text-gray-900">{selectedTask.actual_hours || '-'}</p>
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Description</label>
+                  <p className="mt-1 text-sm text-gray-900 bg-gray-50 p-2 rounded whitespace-pre-wrap">{selectedTask.description || 'No description'}</p>
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Notes</label>
+                  <p className="mt-1 text-sm text-gray-900 bg-gray-50 p-2 rounded whitespace-pre-wrap">{selectedTask.notes || 'No notes'}</p>
+                </div>
+              </div>
+              <div className="flex items-center justify-end pt-2">
+                <button type="button" className="px-4 py-2 rounded bg-gray-100 text-gray-700 hover:bg-gray-200" onClick={() => { setIsViewOpen(false); setSelectedTask(null); }}>Close</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isCreateOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">

@@ -1,12 +1,43 @@
 import { useQuery } from '@tanstack/react-query';
-import { Users, Briefcase, CheckCircle, Clock, TrendingUp } from 'lucide-react';
+import { Users, Briefcase, CheckCircle, Clock, TrendingUp, Timer } from 'lucide-react';
 import { dashboardAPI } from '../api/dashboard';
 import { useAuthStore } from '../stores/authStore';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { useState, useEffect } from 'react';
 
 export default function Dashboard() {
   const { user } = useAuthStore();
-  
+  const [activeTracking, setActiveTracking] = useState<{
+    isTracking: boolean;
+    projectName?: string;
+    taskTitle?: string;
+    startAt?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    const checkTracking = () => {
+      const raw = localStorage.getItem('tt-tracker');
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (parsed.isTracking) {
+            setActiveTracking(parsed);
+          } else {
+            setActiveTracking(null);
+          }
+        } catch {
+          setActiveTracking(null);
+        }
+      } else {
+        setActiveTracking(null);
+      }
+    };
+
+    checkTracking();
+    const interval = setInterval(checkTracking, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
   const { data: stats, isLoading } = useQuery({
     queryKey: ['dashboard-stats'],
     queryFn: dashboardAPI.getStats,
@@ -21,43 +52,36 @@ export default function Dashboard() {
       name: 'Total Projects',
       value: stats?.totalProjects || 0,
       icon: Briefcase,
-      change: '+12%',
-      changeType: 'increase',
     },
     {
       name: 'Active Projects',
       value: stats?.activeProjects || 0,
       icon: TrendingUp,
-      change: '+8%',
-      changeType: 'increase',
     },
     {
       name: 'Total Tasks',
       value: stats?.totalTasks || 0,
       icon: CheckCircle,
-      change: '+15%',
-      changeType: 'increase',
     },
     {
       name: 'Completed Tasks',
       value: stats?.completedTasks || 0,
       icon: CheckCircle,
-      change: '+20%',
-      changeType: 'increase',
     },
     {
       name: 'Total Clients',
       value: stats?.totalClients || 0,
       icon: Users,
-      change: '+5%',
-      changeType: 'increase',
+    },
+    {
+      name: 'Active Clients',
+      value: stats?.activeClients || 0,
+      icon: Users,
     },
     {
       name: 'Active Employees',
       value: stats?.activeEmployees || 0,
       icon: Users,
-      change: '+3%',
-      changeType: 'increase',
     },
   ];
 
@@ -76,6 +100,26 @@ export default function Dashboard() {
           })}
         </div>
       </div>
+
+      {/* Active Tracking Status */}
+      {activeTracking && (
+        <div className="bg-indigo-600 rounded-lg shadow-md p-4 text-white flex items-center justify-between animate-pulse">
+          <div className="flex items-center gap-4">
+            <div className="bg-indigo-500 p-2 rounded-full">
+              <Timer className="h-6 w-6" />
+            </div>
+            <div>
+              <p className="text-xs text-indigo-100 uppercase font-semibold">Currently Tracking</p>
+              <h2 className="text-lg font-bold">{activeTracking.taskTitle || 'Working...'}</h2>
+              <p className="text-sm text-indigo-100">{activeTracking.projectName || 'Active Project'}</p>
+            </div>
+          </div>
+          <div className="text-right">
+            <p className="text-xs text-indigo-100 uppercase">Started At</p>
+            <p className="text-sm font-medium">{activeTracking.startAt ? new Date(activeTracking.startAt).toLocaleTimeString() : '-'}</p>
+          </div>
+        </div>
+      )}
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
@@ -97,9 +141,6 @@ export default function Dashboard() {
                     <dd className="flex items-baseline">
                       <div className="text-2xl font-semibold text-gray-900">
                         {card.value}
-                      </div>
-                      <div className="ml-2 flex items-baseline text-sm font-semibold text-green-600">
-                        {card.change}
                       </div>
                     </dd>
                   </dl>

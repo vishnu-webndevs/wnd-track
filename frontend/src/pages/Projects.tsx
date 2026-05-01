@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Search, Edit, Trash2, Briefcase } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, Briefcase, Eye } from 'lucide-react';
 import { projectsAPI } from '../api/projects';
 import { clientsAPI } from '../api/clients';
 import { usersAPI } from '../api/users';
@@ -54,8 +54,11 @@ export default function Projects() {
   const [page, setPage] = useState<number>(1);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isViewOpen, setIsViewOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const queryClient = useQueryClient();
+
+  const isAdmin = currentUser?.role === 'admin';
 
   const { data: projects, isLoading } = useQuery<{ data: Project[]; current_page: number; last_page: number }>({
     queryKey: ['projects', searchTerm, statusFilter, clientFilter, managerFilter, page],
@@ -141,13 +144,15 @@ export default function Projects() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Projects</h1>
-        <button
-          onClick={() => setIsCreateOpen(true)}
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          Add Project
-        </button>
+        {isAdmin && (
+          <button
+            onClick={() => setIsCreateOpen(true)}
+            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Add Project
+          </button>
+        )}
       </div>
 
       <div className="bg-white shadow rounded-lg p-4">
@@ -250,36 +255,52 @@ export default function Projects() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex space-x-2">
                         <button
-                          className="text-indigo-600 hover:text-indigo-900"
+                          className="text-gray-600 hover:text-gray-900"
+                          title="View"
                           onClick={() => {
                             setSelectedProject(project);
-                            setIsEditOpen(true);
-                            editForm.reset({
-                              name: project.name,
-                              description: project.description ?? '',
-                              client_id: project.client_id,
-                              manager_id: project.manager_id ?? undefined,
-                              status: project.status,
-                              start_date: project.start_date ?? '',
-                              end_date: project.end_date ?? '',
-                              budget: project.budget ?? undefined,
-                              priority: project.priority,
-                              notes: project.notes ?? '',
-                            });
+                            setIsViewOpen(true);
                           }}
                         >
-                          <Edit className="h-4 w-4" />
+                          <Eye className="h-4 w-4" />
                         </button>
-                        <button
-                          className="text-red-600 hover:text-red-900"
-                          onClick={() => {
-                            if (window.confirm('Delete this project?')) {
-                              deleteMutation.mutate(project.id);
-                            }
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                        {isAdmin && (
+                          <>
+                            <button
+                              className="text-indigo-600 hover:text-indigo-900"
+                              title="Edit"
+                              onClick={() => {
+                                setSelectedProject(project);
+                                setIsEditOpen(true);
+                                editForm.reset({
+                                  name: project.name,
+                                  description: project.description ?? '',
+                                  client_id: project.client_id,
+                                  manager_id: project.manager_id ?? undefined,
+                                  status: project.status,
+                                  start_date: project.start_date ?? '',
+                                  end_date: project.end_date ?? '',
+                                  budget: project.budget ?? undefined,
+                                  priority: project.priority,
+                                  notes: project.notes ?? '',
+                                });
+                              }}
+                            >
+                              <Edit className="h-4 w-4" />
+                            </button>
+                            <button
+                              className="text-red-600 hover:text-red-900"
+                              title="Delete"
+                              onClick={() => {
+                                if (window.confirm('Delete this project?')) {
+                                  deleteMutation.mutate(project.id);
+                                }
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -392,6 +413,66 @@ export default function Projects() {
                 <button type="submit" className="px-4 py-2 rounded bg-indigo-600 text-white">Create</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {isViewOpen && selectedProject && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] flex flex-col">
+            <div className="px-6 py-4 border-b flex justify-between items-center flex-shrink-0">
+              <h3 className="text-lg font-semibold">Project Details</h3>
+              <button onClick={() => { setIsViewOpen(false); setSelectedProject(null); }} className="text-gray-500 hover:text-gray-700">&times;</button>
+            </div>
+            <div className="px-6 py-4 space-y-4 overflow-y-auto flex-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Name</label>
+                  <p className="mt-1 text-sm text-gray-900 font-medium">{selectedProject.name}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Client</label>
+                  <p className="mt-1 text-sm text-gray-900">{selectedProject.client?.name || '-'}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Manager</label>
+                  <p className="mt-1 text-sm text-gray-900">{selectedProject.manager?.name || '-'}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Status</label>
+                  <span className={`mt-1 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${selectedProject.status === 'in_progress' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                    {selectedProject.status}
+                  </span>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Priority</label>
+                  <p className="mt-1 text-sm text-gray-900 capitalize">{selectedProject.priority}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Budget</label>
+                  <p className="mt-1 text-sm text-gray-900">{selectedProject.budget ? `$${selectedProject.budget.toLocaleString()}` : '-'}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Start Date</label>
+                  <p className="mt-1 text-sm text-gray-900">{selectedProject.start_date || '-'}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase">End Date</label>
+                  <p className="mt-1 text-sm text-gray-900">{selectedProject.end_date || '-'}</p>
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Description</label>
+                  <p className="mt-1 text-sm text-gray-900 bg-gray-50 p-2 rounded whitespace-pre-wrap">{selectedProject.description || 'No description'}</p>
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Notes</label>
+                  <p className="mt-1 text-sm text-gray-900 bg-gray-50 p-2 rounded whitespace-pre-wrap">{selectedProject.notes || 'No notes'}</p>
+                </div>
+              </div>
+              <div className="flex items-center justify-end pt-2">
+                <button type="button" className="px-4 py-2 rounded bg-gray-100 text-gray-700 hover:bg-gray-200" onClick={() => { setIsViewOpen(false); setSelectedProject(null); }}>Close</button>
+              </div>
+            </div>
           </div>
         </div>
       )}

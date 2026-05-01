@@ -45,6 +45,8 @@ const trackerCore = {
   note: '',
   projectId: undefined as number | undefined,
   taskId: undefined as number | undefined,
+  projectName: '',
+  taskTitle: '',
   activityData: {} as Record<string, any>,
   lastActivity: new Date(),
   randomShotTimes: [] as Date[],
@@ -880,6 +882,7 @@ export default function TimeTracking() {
     
     newTimes.sort((a,b) => a.getTime() - b.getTime());
     randomShotTimesRef.current = newTimes;
+    core.randomShotTimes = newTimes;
     
     // Persist schedule
     try {
@@ -957,7 +960,7 @@ export default function TimeTracking() {
     let shotTaken = false;
     
     // Use core.randomShotTimes to ensure background persistence
-    const coreRandomTimes = core.randomShotTimes || [];
+    const coreRandomTimes = (core.randomShotTimes || []).map((t: any) => t instanceof Date ? t : new Date(t));
     
     coreRandomTimes.forEach((time: Date) => {
       if (now.getTime() >= time.getTime()) {
@@ -992,24 +995,27 @@ export default function TimeTracking() {
     }
     
     // Check core.fixedShotNextTime for background persistence
-    if (core.fixedShotNextTime && now.getTime() >= core.fixedShotNextTime.getTime()) {
-      if (!isCapturingRef.current) {
-        captureScreenshotRef.current();
-        const d = new Date(core.fixedShotNextTime);
-        d.setMinutes(d.getMinutes() + 10);
-        core.fixedShotNextTime = d;
-        fixedShotNextTimeRef.current = d;
+    if (core.fixedShotNextTime) {
+      const fixedTime = core.fixedShotNextTime instanceof Date ? core.fixedShotNextTime : new Date(core.fixedShotNextTime);
+      if (now.getTime() >= fixedTime.getTime()) {
+        if (!isCapturingRef.current) {
+          captureScreenshotRef.current();
+          const d = new Date(fixedTime);
+          d.setMinutes(d.getMinutes() + 10);
+          core.fixedShotNextTime = d;
+          fixedShotNextTimeRef.current = d;
         
-        try {
-          const raw = localStorage.getItem(trackerKey);
-          if (raw) {
-            const parsed = JSON.parse(raw);
-            localStorage.setItem(trackerKey, JSON.stringify({
-              ...parsed,
-              fixedShotNextTime: d.toISOString()
-            }));
-          }
-        } catch { void 0; }
+          try {
+            const raw = localStorage.getItem(trackerKey);
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              localStorage.setItem(trackerKey, JSON.stringify({
+                ...parsed,
+                fixedShotNextTime: d.toISOString()
+              }));
+            }
+          } catch { void 0; }
+        }
       }
     }
   }, []);
@@ -1103,6 +1109,8 @@ export default function TimeTracking() {
           lastHeartbeat?: string;
           randomShotTimes?: string[];
           fixedShotNextTime?: string;
+          projectName?: string;
+          taskTitle?: string;
         };
         
         if (parsed.isTracking && parsed.startAt && !core.isTracking) {
@@ -1123,6 +1131,13 @@ export default function TimeTracking() {
           const tId = parsed.taskId ? Number(parsed.taskId) : undefined;
           setSelectedTaskId(tId);
           core.taskId = tId;
+
+          // Ensure projectName and taskTitle are in localStorage for dashboard sync
+          if (!parsed.projectName || !parsed.taskTitle) {
+            // We can't easily get names here without projectList/taskOptions being loaded
+            // But they will be loaded by useQuery soon. 
+            // For now, the dashboard will show "Working..." and "Active Project" as fallbacks.
+          }
           
           setNote(parsed.note ?? '');
           core.note = parsed.note ?? '';
@@ -1137,10 +1152,14 @@ export default function TimeTracking() {
           core.intervals.tick = window.setInterval(runTick, 1000);
           
           if (parsed.randomShotTimes) {
-            randomShotTimesRef.current = parsed.randomShotTimes.map((t) => new Date(t));
+            const dTimes = parsed.randomShotTimes.map((t) => new Date(t));
+            randomShotTimesRef.current = dTimes;
+            core.randomShotTimes = dTimes;
           }
           if (parsed.fixedShotNextTime) {
-            fixedShotNextTimeRef.current = new Date(parsed.fixedShotNextTime);
+            const dFixed = new Date(parsed.fixedShotNextTime);
+            fixedShotNextTimeRef.current = dFixed;
+            core.fixedShotNextTime = dFixed;
           }
 
           // Request screen capture if not active
@@ -1385,6 +1404,12 @@ export default function TimeTracking() {
       toast.error('Selected task has no project');
       return;
     }
+    
+    const projectObj = projectList.find(p => p.id === project_id);
+    const taskObj = taskOptions.find(t => t.id === Number(selectedTaskId));
+    const projectName = projectObj?.name || 'Active Project';
+    const taskTitle = taskObj?.title || 'Active Task';
+
     const now = new Date();
     
     // Set global core state FIRST
@@ -1425,6 +1450,8 @@ export default function TimeTracking() {
         startAt: serverStart.toISOString(), 
         projectId: project_id, 
         taskId: Number(selectedTaskId), 
+        projectName,
+        taskTitle,
         note,
         timeLogId: logId 
       }));

@@ -6,6 +6,10 @@ import { nodePolyfills } from 'vite-plugin-node-polyfills'
 // https://vite.dev/config/
 export default defineConfig({
   base: './',
+  server: {
+    port: 5173,
+    strictPort: true,
+  },
   build: {
     sourcemap: 'hidden',
   },

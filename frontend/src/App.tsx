@@ -66,7 +66,7 @@ function AppContent() {
             <Layout>
               <Routes>
                 <Route path="/dashboard" element={<Dashboard />} />
-                <Route path="/employees" element={<ProtectedRoute requiredRole="admin"><Employees /></ProtectedRoute>} />
+                <Route path="/employees" element={<Employees />} />
                 <Route path="/clients" element={<Clients />} />
                 <Route path="/projects" element={<Projects />} />
                 <Route path="/tasks" element={<Tasks />} />

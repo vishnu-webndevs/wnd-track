@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Search, Edit, Trash2, UserPlus } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, UserPlus, Eye } from 'lucide-react';
 import { usersAPI } from '../api/users';
 import { useAuthStore } from '../stores/authStore';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -19,8 +19,11 @@ export default function Employees() {
   const [page, setPage] = useState<number>(1);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isViewOpen, setIsViewOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const queryClient = useQueryClient();
+
+  const isAdmin = currentUser?.role === 'admin';
 
   const { data: users, isLoading } = useQuery<{ data: User[]; current_page: number; last_page: number }>({
     queryKey: ['users', searchTerm, roleFilter, statusFilter, page],
@@ -30,7 +33,6 @@ export default function Employees() {
       status: statusFilter as 'active' | 'inactive' | undefined,
       page,
     }),
-    enabled: currentUser?.role === 'admin',
   });
 
   const createSchema = z.object({
@@ -112,10 +114,10 @@ export default function Employees() {
     }
   });
 
-  if (currentUser?.role !== 'admin') {
+  if (!currentUser) {
     return (
       <div className="text-center py-8">
-        <p className="text-gray-500">You don't have permission to access this page.</p>
+        <p className="text-gray-500">You need to be logged in.</p>
       </div>
     );
   }
@@ -124,10 +126,12 @@ export default function Employees() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Employees</h1>
-        <button onClick={() => setIsCreateOpen(true)} className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
-          <Plus className="h-4 w-4 mr-2" />
-          Add Employee
-        </button>
+        {isAdmin && (
+          <button onClick={() => setIsCreateOpen(true)} className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+            <Plus className="h-4 w-4 mr-2" />
+            Add Employee
+          </button>
+        )}
       </div>
 
       {/* Filters */}
@@ -251,7 +255,18 @@ export default function Employees() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex space-x-2">
                         <button
+                          className="text-gray-600 hover:text-gray-900"
+                          title="View"
+                          onClick={() => {
+                            setSelectedUser(employee);
+                            setIsViewOpen(true);
+                          }}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
+                        <button
                           className="text-indigo-600 hover:text-indigo-900"
+                          title="Edit"
                           onClick={() => {
                             setSelectedUser(employee);
                             setIsEditOpen(true);
@@ -272,16 +287,19 @@ export default function Employees() {
                         >
                           <Edit className="h-4 w-4" />
                         </button>
-                        <button
-                          className="text-red-600 hover:text-red-900"
-                          onClick={() => {
-                            if (window.confirm('Delete this employee?')) {
-                              deleteMutation.mutate(employee.id);
-                            }
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                        {isAdmin && (
+                          <button
+                            className="text-red-600 hover:text-red-900"
+                            title="Delete"
+                            onClick={() => {
+                              if (window.confirm('Delete this employee?')) {
+                                deleteMutation.mutate(employee.id);
+                              }
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -312,6 +330,69 @@ export default function Employees() {
           Next
         </button>
       </div>
+
+      {isViewOpen && selectedUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-lg max-h-[90vh] flex flex-col">
+            <div className="px-6 py-4 border-b flex justify-between items-center flex-shrink-0">
+              <h3 className="text-lg font-semibold">Employee Details</h3>
+              <button onClick={() => { setIsViewOpen(false); setSelectedUser(null); }} className="text-gray-500 hover:text-gray-700">&times;</button>
+            </div>
+            <div className="px-6 py-4 space-y-4 overflow-y-auto flex-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="sm:col-span-2 flex justify-center mb-4">
+                  <div className="h-20 w-20 rounded-full bg-gray-200 flex items-center justify-center">
+                    <UserPlus className="h-10 w-10 text-gray-500" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Name</label>
+                  <p className="mt-1 text-sm text-gray-900 font-medium">{selectedUser.name}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Email</label>
+                  <p className="mt-1 text-sm text-gray-900">{selectedUser.email}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Role</label>
+                  <span className="mt-1 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 capitalize">
+                    {selectedUser.role}
+                  </span>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Status</label>
+                  <span className={`mt-1 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${selectedUser.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                    {selectedUser.status}
+                  </span>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Department</label>
+                  <p className="mt-1 text-sm text-gray-900">{selectedUser.department || '-'}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Position</label>
+                  <p className="mt-1 text-sm text-gray-900">{selectedUser.position || '-'}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Phone</label>
+                  <p className="mt-1 text-sm text-gray-900">{selectedUser.phone || '-'}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Hire Date</label>
+                  <p className="mt-1 text-sm text-gray-900">{selectedUser.hire_date || '-'}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Telegram Chat ID</label>
+                  <p className="mt-1 text-sm text-gray-900">{selectedUser.telegram_chat_id || '-'}</p>
+                </div>
+              </div>
+              <div className="flex items-center justify-end pt-2">
+                <button type="button" className="px-4 py-2 rounded bg-gray-100 text-gray-700 hover:bg-gray-200" onClick={() => { setIsViewOpen(false); setSelectedUser(null); }}>Close</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Create Modal */}
       {isCreateOpen && (

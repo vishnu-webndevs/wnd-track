@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Search, Edit, Trash2, Building2 } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, Building2, Eye } from 'lucide-react';
 import { clientsAPI } from '../api/clients';
 import { useAuthStore } from '../stores/authStore';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -43,8 +43,11 @@ export default function Clients() {
   const [page, setPage] = useState<number>(1);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isViewOpen, setIsViewOpen] = useState(false);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const queryClient = useQueryClient();
+
+  const isAdmin = currentUser?.role === 'admin';
 
   const { data: clients, isLoading } = useQuery<{ data: Client[]; current_page: number; last_page: number }>({
     queryKey: ['clients', searchTerm, statusFilter, page],
@@ -110,10 +113,12 @@ export default function Clients() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Clients</h1>
-        <button onClick={() => setIsCreateOpen(true)} className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
-          <Plus className="h-4 w-4 mr-2" />
-          Add Client
-        </button>
+        {isAdmin && (
+          <button onClick={() => setIsCreateOpen(true)} className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+            <Plus className="h-4 w-4 mr-2" />
+            Add Client
+          </button>
+        )}
       </div>
 
       {/* Filters */}
@@ -197,34 +202,50 @@ export default function Clients() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex space-x-2">
                         <button
-                          className="text-indigo-600 hover:text-indigo-900"
+                          className="text-gray-600 hover:text-gray-900"
+                          title="View"
                           onClick={() => {
                             setSelectedClient(client);
-                            setIsEditOpen(true);
-                            editForm.reset({
-                              name: client.name,
-                              email: client.email,
-                              phone: client.phone ?? '',
-                              address: client.address ?? '',
-                              company: client.company ?? '',
-                              website: client.website ?? '',
-                              status: client.status,
-                              notes: client.notes ?? '',
-                            });
+                            setIsViewOpen(true);
                           }}
                         >
-                          <Edit className="h-4 w-4" />
+                          <Eye className="h-4 w-4" />
                         </button>
-                        <button
-                          className="text-red-600 hover:text-red-900"
-                          onClick={() => {
-                            if (window.confirm('Delete this client?')) {
-                              deleteMutation.mutate(client.id);
-                            }
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                        {isAdmin && (
+                          <>
+                            <button
+                              className="text-indigo-600 hover:text-indigo-900"
+                              title="Edit"
+                              onClick={() => {
+                                setSelectedClient(client);
+                                setIsEditOpen(true);
+                                editForm.reset({
+                                  name: client.name,
+                                  email: client.email,
+                                  phone: client.phone ?? '',
+                                  address: client.address ?? '',
+                                  company: client.company ?? '',
+                                  website: client.website ?? '',
+                                  status: client.status,
+                                  notes: client.notes ?? '',
+                                });
+                              }}
+                            >
+                              <Edit className="h-4 w-4" />
+                            </button>
+                            <button
+                              className="text-red-600 hover:text-red-900"
+                              title="Delete"
+                              onClick={() => {
+                                if (window.confirm('Delete this client?')) {
+                                  deleteMutation.mutate(client.id);
+                                }
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -255,6 +276,58 @@ export default function Clients() {
           Next
         </button>
       </div>
+
+      {isViewOpen && selectedClient && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-lg max-h-[90vh] flex flex-col">
+            <div className="px-6 py-4 border-b flex justify-between items-center flex-shrink-0">
+              <h3 className="text-lg font-semibold">Client Details</h3>
+              <button onClick={() => { setIsViewOpen(false); setSelectedClient(null); }} className="text-gray-500 hover:text-gray-700">&times;</button>
+            </div>
+            <div className="px-6 py-4 space-y-4 overflow-y-auto flex-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Name</label>
+                  <p className="mt-1 text-sm text-gray-900 font-medium">{selectedClient.name}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Email</label>
+                  <p className="mt-1 text-sm text-gray-900">{selectedClient.email}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Company</label>
+                  <p className="mt-1 text-sm text-gray-900">{selectedClient.company || '-'}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Phone</label>
+                  <p className="mt-1 text-sm text-gray-900">{selectedClient.phone || '-'}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Address</label>
+                  <p className="mt-1 text-sm text-gray-900">{selectedClient.address || '-'}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Website</label>
+                  <p className="mt-1 text-sm text-gray-900">{selectedClient.website || '-'}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Status</label>
+                  <span className={`mt-1 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${selectedClient.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                    {selectedClient.status}
+                  </span>
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Notes</label>
+                  <p className="mt-1 text-sm text-gray-900 bg-gray-50 p-2 rounded whitespace-pre-wrap">{selectedClient.notes || 'No notes'}</p>
+                </div>
+              </div>
+              <div className="flex items-center justify-end pt-2">
+                <button type="button" className="px-4 py-2 rounded bg-gray-100 text-gray-700 hover:bg-gray-200" onClick={() => { setIsViewOpen(false); setSelectedClient(null); }}>Close</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Create Modal */}
       {isCreateOpen && (
