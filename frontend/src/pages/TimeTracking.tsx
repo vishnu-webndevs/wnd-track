@@ -305,7 +305,9 @@ export default function TimeTracking() {
     let lastMousePos = { x: 0, y: 0 };
     const handleActivity = (e: MouseEvent | KeyboardEvent | Event) => {
       const now = new Date();
+      const core = (window as TTWindow).__tt_core;
       lastActivityRef.current = now;
+      core.lastActivity = now;
       if (!isTrackingRef.current) return;
       
       const minuteKey = getMinuteKey(now);
@@ -349,6 +351,7 @@ export default function TimeTracking() {
             entry.total_activity++;
         }
       }
+      core.activityData = activityDataRef.current;
     };
     
     window.addEventListener('mousemove', handleActivity);
