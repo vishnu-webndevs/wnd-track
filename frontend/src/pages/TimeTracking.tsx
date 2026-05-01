@@ -939,7 +939,10 @@ export default function TimeTracking() {
     let executed = false;
     let shotTaken = false;
     
-    randomShotTimesRef.current.forEach(time => {
+    // Use core.randomShotTimes to ensure background persistence
+    const coreRandomTimes = core.randomShotTimes || [];
+    
+    coreRandomTimes.forEach((time: Date) => {
       if (now.getTime() >= time.getTime()) {
         if (!shotTaken && !isCapturingRef.current) {
              captureScreenshotRef.current();
@@ -954,6 +957,8 @@ export default function TimeTracking() {
         remainingTimes.push(time);
       }
     });
+    
+    core.randomShotTimes = remainingTimes;
     randomShotTimesRef.current = remainingTimes;
     
     if (executed) {
@@ -969,11 +974,13 @@ export default function TimeTracking() {
       } catch { void 0; }
     }
     
-    if (fixedShotNextTimeRef.current && now.getTime() >= fixedShotNextTimeRef.current.getTime()) {
+    // Check core.fixedShotNextTime for background persistence
+    if (core.fixedShotNextTime && now.getTime() >= core.fixedShotNextTime.getTime()) {
       if (!isCapturingRef.current) {
         captureScreenshotRef.current();
-        const d = new Date(fixedShotNextTimeRef.current);
+        const d = new Date(core.fixedShotNextTime);
         d.setMinutes(d.getMinutes() + 10);
+        core.fixedShotNextTime = d;
         fixedShotNextTimeRef.current = d;
         
         try {
