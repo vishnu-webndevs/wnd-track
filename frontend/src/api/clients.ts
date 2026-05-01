@@ -5,6 +5,7 @@ export interface ClientFilters {
   search?: string;
   status?: 'active' | 'inactive';
   page?: number;
+  per_page?: number;
 }
 
 export const clientsAPI = {
@@ -13,6 +14,12 @@ export const clientsAPI = {
     Object.entries(filters).forEach(([key, value]) => {
       if (value) params.append(key, value.toString());
     });
+
+    // If no per_page is specified and no page, use a large number to get all for dropdowns
+    if (!filters.per_page && !filters.page) {
+      params.append('per_page', '1000');
+    }
+
     const response = await api.get(`/clients?${params}`);
     return response.data;
   },

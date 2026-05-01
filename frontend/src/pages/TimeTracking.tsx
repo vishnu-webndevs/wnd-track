@@ -375,6 +375,12 @@ export default function TimeTracking() {
     enabled: !!user,
   });
 
+  const { data: allActiveProjects } = useQuery({
+    queryKey: ['desktop-active-projects', user?.id],
+    queryFn: () => timeTrackingAPI.getActiveProjects(),
+    enabled: !!user && currentUser?.role === 'admin',
+  });
+
   const { data: projectTasks } = useQuery({
     queryKey: ['desktop-project-tasks', user?.id, selectedProjectId],
     queryFn: () => (selectedProjectId ? timeTrackingAPI.getProjectTasksForUser(selectedProjectId) : Promise.resolve([])),
@@ -382,6 +388,13 @@ export default function TimeTracking() {
   });
 
   const taskOptions = useMemo(() => (projectTasks ?? []), [projectTasks]);
+  const projectList = useMemo(() => {
+    if (currentUser?.role === 'admin') {
+      return allActiveProjects ?? assignedProjects ?? [];
+    }
+    return assignedProjects ?? [];
+  }, [assignedProjects, allActiveProjects, currentUser]);
+
   const getProjectId = (taskId?: number) => selectedProjectIdRef.current ?? taskOptions.find((t) => t.id === taskId)?.project_id;
 
   const toLocalISOString = (date: Date) => {
@@ -1558,7 +1571,7 @@ export default function TimeTracking() {
               disabled={isTracking}
             >
               <option value="">Select project</option>
-              {(assignedProjects ?? []).map((p) => (
+              {(projectList ?? []).map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>

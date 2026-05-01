@@ -7,6 +7,7 @@ export interface ProjectFilters {
   client_id?: number;
   manager_id?: number;
   page?: number;
+  per_page?: number;
 }
 
 export const projectsAPI = {
@@ -19,6 +20,10 @@ export const projectsAPI = {
         params.append(key, String(value));
       }
     });
+    // If no per_page is specified, use a large number to get all for dropdowns
+    if (!filters.per_page && !filters.page) {
+      params.append('per_page', '1000');
+    }
     const response = await api.get(`/projects?${params.toString()}`);
     return response.data;
   },

@@ -19,6 +19,11 @@ export const usersAPI = {
       if (value) params.append(key, value.toString());
     });
     
+    // If no per_page is specified and no page, use a large number to get all for dropdowns
+    if (!filters.per_page && !filters.page) {
+      params.append('per_page', '1000');
+    }
+
     const response = await api.get(`/users?${params}`);
     return response.data;
   },

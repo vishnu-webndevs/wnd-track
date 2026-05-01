@@ -67,19 +67,20 @@ export default function Tasks() {
       project_id: projectFilter,
       assigned_to: assignedFilter,
       page,
+      per_page: 10, // Table view pagination
     }),
   });
 
   const { data: projects } = useQuery<{ data: Project[] }>({
     queryKey: ['projects', 'for-tasks'],
-    queryFn: () => projectsAPI.getProjects({ page: 1 }),
+    queryFn: () => projectsAPI.getProjects({ per_page: 1000 }), // All for dropdown
   });
 
   const isAdmin = currentUser?.role === 'admin';
 
   const { data: users } = useQuery<{ data: User[] }>({
     queryKey: ['users', 'for-tasks'],
-    queryFn: () => usersAPI.getUsers({ page: 1 }),
+    queryFn: () => usersAPI.getUsers({ per_page: 1000 }), // All for dropdown
     enabled: isAdmin,
   });
 

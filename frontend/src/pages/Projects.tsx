@@ -65,17 +65,18 @@ export default function Projects() {
       client_id: clientFilter,
       manager_id: managerFilter,
       page,
+      per_page: 10, // Explicitly set 10 for the table view
     }),
   });
 
   const { data: clients } = useQuery<{ data: Client[] }>({
     queryKey: ['clients', 'for-projects'],
-    queryFn: () => clientsAPI.getClients({ page: 1 }),
+    queryFn: () => clientsAPI.getClients({ per_page: 1000 }), // Get all for dropdown
   });
 
   const { data: users } = useQuery<{ data: User[] }>({
     queryKey: ['users', 'for-projects'],
-    queryFn: () => usersAPI.getUsers({ page: 1 }),
+    queryFn: () => usersAPI.getUsers({ per_page: 1000 }), // Get all for dropdown
     enabled: currentUser?.role === 'admin',
   });
 
