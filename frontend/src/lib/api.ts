@@ -77,6 +77,26 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
+      // Check if tracking is active before clearing auth
+      const raw = localStorage.getItem('tt-tracker');
+      const win = window as any;
+      const coreRunning = win.__tt_core?.isTracking;
+      let isTracking = false;
+
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          isTracking = !!parsed.isTracking;
+        } catch { void 0; }
+      }
+      
+      if (isTracking || coreRunning) {
+        // DO NOT logout/clear auth if tracking is running.
+        // This prevents automatic session timeout from stopping the tracker background work.
+        console.warn('Auth 401 received but tracking is active. Ignoring auto-logout.');
+        return Promise.reject(error);
+      }
+
       clearAuth();
       if (!window.location.hash.startsWith('#/login')) {
         window.location.href = getLoginUrl();
