@@ -55,7 +55,7 @@ const trackerCore = {
   
   // Method to stop EVERYTHING
   cleanup: function() {
-    Object.values(this.intervals).forEach(id => {
+    Object.values(this.intervals).forEach((id: any) => {
       if (id) {
         window.clearInterval(id);
         window.clearTimeout(id);
@@ -1143,6 +1143,7 @@ export default function TimeTracking() {
   useEffect(() => {
     
     const pollLiveStatus = async () => {
+       const core = (window as TTWindow).__tt_core;
        try {
          const { live_mode, offer } = await usersAPI.checkLiveStatus();
          const shouldStart = !!live_mode;
