@@ -931,8 +931,8 @@ export default function TimeTracking() {
           if (parsed.isTracking && parsed.startAt) {
             const lastHeartbeat = parsed.lastHeartbeat ? new Date(parsed.lastHeartbeat) : new Date(parsed.startAt);
             const gap = now.getTime() - lastHeartbeat.getTime();
-            // Allow 10 minutes gap to account for timer drift or temporary lag before assuming sleep
-            if (gap > 10 * 60 * 1000) {
+            // Allow 3 minutes gap to account for timer drift before assuming sleep/power cut
+            if (gap > 3 * 60 * 1000) {
               const start = new Date(parsed.startAt);
               const durationMinutes = Math.round((lastHeartbeat.getTime() - start.getTime()) / 1000 / 60);
               if (parsed.timeLogId) {
