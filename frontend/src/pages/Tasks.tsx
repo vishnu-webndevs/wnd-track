@@ -24,7 +24,7 @@ const createSchema = z.object({
   status: z.enum(statusOptions),
   priority: z.enum(priorityOptions),
   due_date: z.string().optional(),
-  estimated_hours: z.number().optional(),
+  estimated_hours: z.union([z.number(), z.nan()]).transform((val) => (Number.isNaN(val) ? undefined : val)).optional(),
   notes: z.string().optional(),
 });
 
@@ -36,8 +36,8 @@ const editSchema = z.object({
   status: z.enum(statusOptions),
   priority: z.enum(priorityOptions),
   due_date: z.string().optional(),
-  estimated_hours: z.number().optional(),
-  actual_hours: z.number().optional(),
+  estimated_hours: z.union([z.number(), z.nan()]).transform((val) => (Number.isNaN(val) ? undefined : val)).optional(),
+  actual_hours: z.union([z.number(), z.nan()]).transform((val) => (Number.isNaN(val) ? undefined : val)).optional(),
   notes: z.string().optional(),
 });
 
@@ -94,26 +94,26 @@ export default function Tasks() {
       options = users?.data ?? [];
     }
 
-      // Ensure the assigned user is in the list (in case of pagination or restricted view)
-      let assignedUser = selectedTask?.assignedTo ?? selectedTask?.assigned_employee;
-      const assignedIdVal = selectedTask?.assigned_to;
-      
-      // Handle case where assigned_to is an object (User) instead of number
-      const assignedId = typeof assignedIdVal === 'object' && assignedIdVal !== null 
-        ? (assignedIdVal as unknown as User).id 
-        : assignedIdVal;
+    // Ensure the assigned user is in the list (in case of pagination or restricted view)
+    let assignedUser = selectedTask?.assignedTo ?? selectedTask?.assigned_employee;
+    const assignedIdVal = selectedTask?.assigned_to;
 
-      // Fallback: If relation is missing but ID matches current user, use current user
-      if (!assignedUser && assignedId && currentUser && Number(assignedId) === currentUser.id) {
-        assignedUser = currentUser as unknown as User;
-      }
+    // Handle case where assigned_to is an object (User) instead of number
+    const assignedId = typeof assignedIdVal === 'object' && assignedIdVal !== null
+      ? (assignedIdVal as unknown as User).id
+      : assignedIdVal;
 
-      if (assignedUser && !options.find(u => u.id === assignedUser.id)) {
-        options = [...options, assignedUser];
-      }
-      
-      return options;
-    }, [currentUser, isAdmin, users, selectedTask]);
+    // Fallback: If relation is missing but ID matches current user, use current user
+    if (!assignedUser && assignedId && currentUser && Number(assignedId) === currentUser.id) {
+      assignedUser = currentUser as unknown as User;
+    }
+
+    if (assignedUser && !options.find(u => u.id === assignedUser.id)) {
+      options = [...options, assignedUser];
+    }
+
+    return options;
+  }, [currentUser, isAdmin, users, selectedTask]);
 
   const createForm = useForm<CreateTaskForm>({
     resolver: zodResolver(createSchema),
@@ -131,9 +131,9 @@ export default function Tasks() {
         : rawAssignedId;
 
       const assignedId = safeAssignedId ?? selectedTask.assignedTo?.id ?? selectedTask.assigned_employee?.id;
-      
+
       let finalAssignedId: number | undefined;
-      
+
       // Check if the assigned ID matches the current user (prioritize exact match)
       // This handles cases where relation is missing but ID is correct
       if (currentUser && assignedId && Number(assignedId) === currentUser.id) {
@@ -185,7 +185,7 @@ export default function Tasks() {
     },
   });
 
-  
+
 
   const handleReorderDrop = async (
     draggedId: number,
@@ -481,9 +481,9 @@ export default function Tasks() {
                               className="text-indigo-600 hover:text-indigo-900"
                               title="Edit"
                               onClick={() => {
-                              setSelectedTask(task);
-                              setIsEditOpen(true);
-                            }}
+                                setSelectedTask(task);
+                                setIsEditOpen(true);
+                              }}
                             >
                               <Edit className="h-4 w-4" />
                             </button>
@@ -598,13 +598,14 @@ export default function Tasks() {
       )}
 
       {isCreateOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl">
-            <div className="px-6 py-4 border-b">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] flex flex-col">
+            <div className="px-6 py-4 border-b flex justify-between items-center flex-shrink-0">
               <h3 className="text-lg font-semibold">Add Task</h3>
+              <button onClick={() => setIsCreateOpen(false)} className="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
             </div>
             <form
-              className="px-6 py-4 space-y-4"
+              className="px-6 py-4 space-y-4 overflow-y-auto flex-1"
               onSubmit={createForm.handleSubmit((values) => {
                 const payload = {
                   ...values,
@@ -680,13 +681,14 @@ export default function Tasks() {
       )}
 
       {isEditOpen && selectedTask && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl">
-            <div className="px-6 py-4 border-b">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] flex flex-col">
+            <div className="px-6 py-4 border-b flex justify-between items-center flex-shrink-0">
               <h3 className="text-lg font-semibold">Edit Task</h3>
+              <button onClick={() => { setIsEditOpen(false); setSelectedTask(null); }} className="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
             </div>
             <form
-              className="px-6 py-4 space-y-4"
+              className="px-6 py-4 space-y-4 overflow-y-auto flex-1"
               onSubmit={editForm.handleSubmit((values) => {
                 updateMutation.mutate({ id: selectedTask!.id, data: values });
               })}
@@ -718,7 +720,7 @@ export default function Tasks() {
                         typeof selectedTask.assigned_to === 'object' && selectedTask.assigned_to !== null
                           ? (selectedTask.assigned_to as unknown as User).id
                           : selectedTask.assigned_to
-                      } 
+                      }
                       {selectedTask.assignedTo ? ` (${selectedTask.assignedTo.name})` : ' (Relation Missing)'}
                     </p>
                   )}

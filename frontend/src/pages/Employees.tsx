@@ -396,13 +396,14 @@ export default function Employees() {
 
       {/* Create Modal */}
       {isCreateOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-lg">
-            <div className="px-6 py-4 border-b">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-lg max-h-[90vh] flex flex-col">
+            <div className="px-6 py-4 border-b flex justify-between items-center flex-shrink-0">
               <h3 className="text-lg font-semibold">Add Employee</h3>
+              <button onClick={() => setIsCreateOpen(false)} className="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
             </div>
             <form
-              className="px-6 py-4 space-y-4"
+              className="px-6 py-4 space-y-4 overflow-y-auto flex-1"
               onSubmit={createForm.handleSubmit((values) => {
                 createMutation.mutate(values);
               })}
@@ -466,7 +467,7 @@ export default function Employees() {
                   <label className="block text-sm font-medium text-gray-700">Hire Date</label>
                   <input {...createForm.register('hire_date')} type="date" className="mt-1 block w-full border rounded px-3 py-2" />
                 </div>
-                <div>
+                <div className="sm:col-span-2">
                   <label className="block text-sm font-medium text-gray-700">Telegram Chat ID</label>
                   <input {...createForm.register('telegram_chat_id')} className="mt-1 block w-full border rounded px-3 py-2" placeholder="e.g. 123456789" />
                 </div>
@@ -482,13 +483,14 @@ export default function Employees() {
 
       {/* Edit Modal */}
       {isEditOpen && selectedUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-lg">
-            <div className="px-6 py-4 border-b">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-lg max-h-[90vh] flex flex-col">
+            <div className="px-6 py-4 border-b flex justify-between items-center flex-shrink-0">
               <h3 className="text-lg font-semibold">Edit Employee</h3>
+              <button onClick={() => { setIsEditOpen(false); setSelectedUser(null); }} className="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
             </div>
             <form
-              className="px-6 py-4 space-y-4"
+              className="px-6 py-4 space-y-4 overflow-y-auto flex-1"
               onSubmit={editForm.handleSubmit((values) => {
                 const payload = values.password
                   ? values
@@ -559,7 +561,7 @@ export default function Employees() {
                   <label className="block text-sm font-medium text-gray-700">Hire Date</label>
                   <input {...editForm.register('hire_date')} type="date" className="mt-1 block w-full border rounded px-3 py-2" />
                 </div>
-                <div>
+                <div className="sm:col-span-2">
                   <label className="block text-sm font-medium text-gray-700">Telegram Chat ID</label>
                   <input {...editForm.register('telegram_chat_id')} className="mt-1 block w-full border rounded px-3 py-2" placeholder="e.g. 123456789" />
                 </div>

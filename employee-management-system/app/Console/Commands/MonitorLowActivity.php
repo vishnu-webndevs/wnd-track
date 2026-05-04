@@ -38,8 +38,12 @@ class MonitorLowActivity extends Command
         }
 
         // 1. Find users with active time logs updated in the last 15 minutes
+        //    Also include logs that were recently closed (by StopGhostTimeLogs) to avoid race condition
         $activeLogs = TimeLog::with('user')
-            ->whereNull('end_time')
+            ->where(function ($q) {
+                $q->whereNull('end_time') // Still running
+                  ->orWhere('end_time', '>', Carbon::now()->subMinutes(10)); // Recently closed (ghost stopper)
+            })
             ->where('updated_at', '>', Carbon::now()->subMinutes(15))
             ->get();
 
@@ -75,20 +79,20 @@ class MonitorLowActivity extends Command
             $totalActivity = 0;
             $minuteEntries = count($breakdown);
 
-            // Only alert if we have enough data (at least 5 minutes of logs in the breakdown)
-            if ($minuteEntries < 5) {
+            // Only alert if we have at least 1 minute of data in the breakdown
+            if ($minuteEntries < 1) {
                 continue;
             }
 
             foreach ($breakdown as $minute) {
-                $totalActivity += ($minute['keyboard_clicks'] ?? 0);
-                $totalActivity += ($minute['mouse_clicks'] ?? 0);
-                $totalActivity += ($minute['mouse_scrolls'] ?? 0);
-                $totalActivity += ($minute['mouse_movements'] ?? 0);
+                $totalActivity += (int)($minute['keyboard_clicks'] ?? 0);
+                $totalActivity += (int)($minute['mouse_clicks'] ?? 0);
+                $totalActivity += (int)($minute['mouse_scrolls'] ?? 0);
+                $totalActivity += (int)($minute['mouse_movements'] ?? 0);
             }
 
-            // 5. If total activity is exactly 0, send the Telegram message
-            if ($totalActivity === 0) {
+            // 5. If total activity is 0, send the Telegram message
+            if ($totalActivity == 0) {
                 $message = "⚠️ Alert\nPichle 10 minute se aapki koi activity detect nahi hui hai. Kripya ensure karein ki aap kaam kar rahe hain ya tracker page active rakhein.";
                 
                 $this->sendToChat($botToken, $user->telegram_chat_id, $message);

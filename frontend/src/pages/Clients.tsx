@@ -331,13 +331,14 @@ export default function Clients() {
 
       {/* Create Modal */}
       {isCreateOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-lg">
-            <div className="px-6 py-4 border-b">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-lg max-h-[90vh] flex flex-col">
+            <div className="px-6 py-4 border-b flex justify-between items-center flex-shrink-0">
               <h3 className="text-lg font-semibold">Add Client</h3>
+              <button onClick={() => setIsCreateOpen(false)} className="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
             </div>
             <form
-              className="px-6 py-4 space-y-4"
+              className="px-6 py-4 space-y-4 overflow-y-auto flex-1"
               onSubmit={createForm.handleSubmit((values) => {
                 createMutation.mutate(values);
               })}
@@ -390,13 +391,14 @@ export default function Clients() {
 
       {/* Edit Modal */}
       {isEditOpen && selectedClient && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-lg">
-            <div className="px-6 py-4 border-b">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-lg max-h-[90vh] flex flex-col">
+            <div className="px-6 py-4 border-b flex justify-between items-center flex-shrink-0">
               <h3 className="text-lg font-semibold">Edit Client</h3>
+              <button onClick={() => { setIsEditOpen(false); setSelectedClient(null); }} className="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
             </div>
             <form
-              className="px-6 py-4 space-y-4"
+              className="px-6 py-4 space-y-4 overflow-y-auto flex-1"
               onSubmit={editForm.handleSubmit((values) => {
                 updateMutation.mutate({ id: selectedClient!.id, data: values });
               })}

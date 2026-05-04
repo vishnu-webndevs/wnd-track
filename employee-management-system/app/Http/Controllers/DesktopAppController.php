@@ -43,18 +43,18 @@ class DesktopAppController extends Controller
             ->first();
 
         if ($runningLog) {
-    
+
             $reqTaskId = $request->task_id;
             $runTaskId = $runningLog->task_id;
-            
+
             $sameTask = false;
             if (is_null($reqTaskId) && is_null($runTaskId)) {
                 $sameTask = true;
             } elseif (!is_null($reqTaskId) && !is_null($runTaskId)) {
                 // Compare as strings to handle int vs string types
-                $sameTask = (string)$reqTaskId === (string)$runTaskId;
+                $sameTask = (string) $reqTaskId === (string) $runTaskId;
             }
-            
+
             if ($runningLog->project_id == $request->project_id && $sameTask) {
                 // IMPORTANT: We do NOT update start_time here.
                 // We return the existing log as is.
@@ -80,9 +80,9 @@ class DesktopAppController extends Controller
 
         $duration = $request->duration;
         if ($request->has('end_time') && $request->end_time) {
-             $start = \Carbon\Carbon::parse($startTime);
-             $end = \Carbon\Carbon::parse($request->end_time);
-             $duration = $start->diffInMinutes($end);
+            $start = \Carbon\Carbon::parse($startTime);
+            $end = \Carbon\Carbon::parse($request->end_time);
+            $duration = $start->diffInMinutes($end);
         }
 
         $timeLog = TimeLog::create([
@@ -127,18 +127,18 @@ class DesktopAppController extends Controller
             // If request also provides end_time or use_server_time, it's a stop request.
             // We can just return the log as is, effectively saying "done".
             if (($request->has('end_time') && $request->end_time) || ($request->has('use_server_time') && $request->use_server_time)) {
-                 return response()->json([
+                return response()->json([
                     'message' => 'Time log already closed',
                     'time_log' => $timeLog
                 ]);
             }
-            
+
             // If request is a heartbeat (no end_time, just duration), we should reject it.
-             return response()->json(['message' => 'Time log is closed'], 409);
+            return response()->json(['message' => 'Time log is closed'], 409);
         }
 
         $data = $request->only(['end_time', 'duration', 'description']);
-        
+
         // HARD PROTECTION: Ensure start_time is NEVER updated here.
         // Even if it were somehow in $data (it shouldn't be with ->only()), we remove it.
         if (isset($data['start_time'])) {
@@ -155,10 +155,10 @@ class DesktopAppController extends Controller
             $end = \Carbon\Carbon::parse($data['end_time']);
             $data['duration'] = $start->diffInMinutes($end);
         } elseif ($request->has('duration') && !$request->has('end_time')) {
-             // Heartbeat: update duration based on elapsed time from start
-             $start = $timeLog->start_time;
-             $now = now();
-             $data['duration'] = $start->diffInMinutes($now);
+            // Heartbeat: update duration based on elapsed time from start
+            $start = $timeLog->start_time;
+            $now = now();
+            $data['duration'] = $start->diffInMinutes($now);
         }
 
         $timeLog->update($data);
@@ -200,9 +200,10 @@ class DesktopAppController extends Controller
                 $capturedAt = \Carbon\Carbon::parse($request->captured_at);
                 // Allow a buffer (e.g., 12 minutes) to cover the 10-minute interval plus some drift
                 $threshold = $capturedAt->copy()->subMinutes(12);
-                
+
                 $minuteBreakdown = array_values(array_filter($minuteBreakdown, function ($m) use ($threshold, $capturedAt) {
-                    if (!isset($m['timestamp'])) return false;
+                    if (!isset($m['timestamp']))
+                        return false;
                     $mTime = \Carbon\Carbon::parse($m['timestamp']);
                     // Keep if it's newer than threshold AND not in the future relative to capture + buffer
                     return $mTime->gte($threshold) && $mTime->lte($capturedAt->copy()->addMinutes(2));
@@ -303,16 +304,16 @@ class DesktopAppController extends Controller
     public function getActiveProjects()
     {
         $user = auth()->user();
-        $projects = Project::where(function($q) {
-                $q->where('status', 'in_progress')
-                  ->orWhere('status', 'planning');
-            })
+        $projects = Project::where(function ($q) {
+            $q->where('status', 'in_progress')
+                ->orWhere('status', 'planning');
+        })
             ->when($user->role !== 'admin', function ($query) use ($user) {
                 $query->where(function ($q) use ($user) {
                     $q->where('manager_id', $user->id)
-                      ->orWhereHas('tasks', function ($tq) use ($user) {
-                          $tq->where('assigned_to', $user->id);
-                      });
+                        ->orWhereHas('tasks', function ($tq) use ($user) {
+                            $tq->where('assigned_to', $user->id);
+                        });
                 });
             })
             ->orderBy('name')
@@ -437,9 +438,9 @@ class DesktopAppController extends Controller
             'is_manual' => false,
         ]);
         $screens = [];
-        foreach ([1,2,3,4] as $i) {
-            $fileKey = 'shot'.$i;
-            $tsKey = 'shot'.$i.'_captured_at';
+        foreach ([1, 2, 3, 4] as $i) {
+            $fileKey = 'shot' . $i;
+            $tsKey = 'shot' . $i . '_captured_at';
             if ($request->hasFile($fileKey)) {
                 $file = $request->file($fileKey);
                 $path = $file->store('screenshots/' . date('Y/m/d'), 'public');

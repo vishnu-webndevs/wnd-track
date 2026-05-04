@@ -1,7 +1,7 @@
 {
   "name": "frontend",
   "private": true,
-  "version": "1.0.8",
+  "version": "1.0.28",
   "main": "electron/main.cjs",
   "type": "module",
   "description": "Time Tracking Desktop App",
@@ -15,9 +15,9 @@
     "check": "tsc -b --noEmit",
     "electron": "wait-on tcp:5173 && electron .",
     "electron:dev": "concurrently -k \"cross-env BROWSER=none npm run dev\" \"npm run electron\"",
-    "electron:build": "npm run version:patch && npm run build && electron-builder",
-    "electron:portable": "npm run version:patch && npm run build && electron-builder --win portable",
-    "electron:nsis": "npm run version:patch && npm run build && electron-builder --win nsis",
+    "electron:build": "npm run version:patch && npm run build && cross-env BUILD_UNSIGN_WIN=true CSC_IDENTITY_AUTO_DISCOVERY=false CENSUS_CODE_SIGNING=false ELECTRON_BUILDER_ALLOW_UNSIGN=true electron-builder",
+    "electron:portable": "npm run version:patch && npm run build && cross-env BUILD_UNSIGN_WIN=true CSC_IDENTITY_AUTO_DISCOVERY=false CENSUS_CODE_SIGNING=false ELECTRON_BUILDER_ALLOW_UNSIGN=true electron-builder --win portable",
+    "electron:nsis": "npm run version:patch && npm run build && cross-env BUILD_UNSIGN_WIN=true CSC_IDENTITY_AUTO_DISCOVERY=false CENSUS_CODE_SIGNING=false ELECTRON_BUILDER_ALLOW_UNSIGN=true electron-builder --win nsis",
     "electron:pack": "npm run version:patch && npm run build && electron-packager . --overwrite --platform=win32 --arch=x64 --prune=true --out=release-builds-live --asar"
   },
   "dependencies": {
@@ -70,6 +70,7 @@
   "build": {
     "appId": "com.tracker.webndevs",
     "productName": "Tracker Webndevs",
+    "forceCodeSigning": false,
     "files": [
       "dist/**/*",
       "electron/**/*"
@@ -81,13 +82,15 @@
       "target": [
         "nsis",
         "portable"
-      ]
+      ],
+      "signtoolOptions": {}
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "deleteAppDataOnUninstall": true
     },
-    "compression": "maximum"
+    "compression": "maximum",
+    "npmRebuild": false
   }
 }
