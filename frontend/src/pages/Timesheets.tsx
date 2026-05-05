@@ -35,6 +35,15 @@ export default function Timesheets() {
     description: ''
   });
 
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [selectedLogToEdit, setSelectedLogToEdit] = useState<TimeLog | null>(null);
+  const [editForm, setEditForm] = useState({
+    date: '',
+    startTime: '',
+    endTime: '',
+    description: ''
+  });
+
   const { data: projects } = useQuery({
     queryKey: ['projects', 'assigned', employeeId],
     queryFn: () => employeeId ? usersAPI.getAssignedProjects(employeeId) : Promise.resolve([]),
@@ -80,6 +89,31 @@ export default function Timesheets() {
     onError: (err: unknown) => {
       const e = err as { response?: { data?: { message?: string } }; message?: string };
       toast.error(e.response?.data?.message ?? e.message ?? 'Failed to add time');
+    }
+  });
+
+  const editTimeMutation = useMutation({
+    mutationFn: (data: typeof editForm) => {
+      if (!employeeId || !selectedLogToEdit) throw new Error("No employee or log selected");
+      
+      const startStr = `${data.date} ${data.startTime}:00`;
+      const endStr = data.endTime ? `${data.date} ${data.endTime}:00` : null;
+      
+      return timeTrackingAPI.updateTimeLogAdmin(employeeId, selectedLogToEdit.id, {
+        start_time: startStr,
+        end_time: endStr,
+        description: data.description
+      });
+    },
+    onSuccess: () => {
+      toast.success('Time log updated');
+      setShowEditModal(false);
+      setSelectedLogToEdit(null);
+      queryClient.invalidateQueries({ queryKey: ['timesheets', 'logs'] });
+    },
+    onError: (err: unknown) => {
+      const e = err as { response?: { data?: { message?: string } }; message?: string };
+      toast.error(e.response?.data?.message ?? e.message ?? 'Failed to update time');
     }
   });
 
@@ -593,10 +627,31 @@ export default function Timesheets() {
                           <td className="px-4 py-2 text-sm text-gray-900">{log.duration ?? '-'}</td>
                           <td className="px-4 py-2 text-sm text-gray-500">{log.description ?? '-'}</td>
                           <td className="px-4 py-2 text-right">
-                            <button
-                              onClick={() => setSelectedLog(log)}
-                              className="px-2 py-1 text-xs rounded bg-indigo-50 text-indigo-700 border border-indigo-200"
-                            >Activity</button>
+                            <div className="flex justify-end gap-2">
+                              {user?.role === 'admin' && (
+                                <button
+                                  onClick={() => {
+                                    setSelectedLogToEdit(log);
+                                    const startDt = new Date(log.start_time);
+                                    let endDt = log.end_time ? new Date(log.end_time) : null;
+                                    setEditForm({
+                                      date: log.start_time.slice(0, 10),
+                                      startTime: startDt.toTimeString().slice(0, 5),
+                                      endTime: endDt ? endDt.toTimeString().slice(0, 5) : '',
+                                      description: log.description || ''
+                                    });
+                                    setShowEditModal(true);
+                                  }}
+                                  className="px-2 py-1 text-xs rounded bg-blue-50 text-blue-700 border border-blue-200"
+                                >
+                                  Edit
+                                </button>
+                              )}
+                              <button
+                                onClick={() => setSelectedLog(log)}
+                                className="px-2 py-1 text-xs rounded bg-indigo-50 text-indigo-700 border border-indigo-200"
+                              >Activity</button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -998,6 +1053,78 @@ export default function Timesheets() {
                   className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
                 >
                   {addManualTimeMutation.isPending ? 'Saving...' : 'Save Time Log'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showEditModal && selectedLogToEdit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
+            <div className="flex items-center justify-between px-6 py-4 border-b">
+              <h3 className="text-lg font-semibold text-gray-900">Edit Time Log</h3>
+              <button onClick={() => setShowEditModal(false)} className="text-gray-400 hover:text-gray-500">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-gray-700">Date</label>
+                  <input
+                    type="date"
+                    value={editForm.date}
+                    onChange={(e) => setEditForm({ ...editForm, date: e.target.value })}
+                    className="mt-1 block w-full border rounded px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Start Time</label>
+                  <input
+                    type="time"
+                    value={editForm.startTime}
+                    onChange={(e) => setEditForm({ ...editForm, startTime: e.target.value })}
+                    className="mt-1 block w-full border rounded px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">End Time</label>
+                  <input
+                    type="time"
+                    value={editForm.endTime}
+                    onChange={(e) => setEditForm({ ...editForm, endTime: e.target.value })}
+                    className="mt-1 block w-full border rounded px-3 py-2"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Description</label>
+                <textarea
+                  value={editForm.description}
+                  onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                  className="mt-1 block w-full border rounded px-3 py-2"
+                  rows={3}
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4">
+                <button
+                  onClick={() => setShowEditModal(false)}
+                  className="px-4 py-2 border rounded text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => editTimeMutation.mutate(editForm)}
+                  disabled={editTimeMutation.isPending}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {editTimeMutation.isPending ? 'Saving...' : 'Save Changes'}
                 </button>
               </div>
             </div>

@@ -236,6 +236,49 @@ class UserController extends Controller
         ], 201);
     }
 
+    public function updateTimeLogAdmin(Request $request, User $user, TimeLog $timeLog)
+    {
+        // Only admin can edit time logs
+        if (Auth::user()->role !== 'admin') {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        // Ensure the time log belongs to this user
+        if ($timeLog->user_id !== $user->id) {
+            return response()->json(['message' => 'Time log does not belong to this user'], 403);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'start_time' => 'sometimes|date',
+            'end_time' => 'nullable|date',
+            'description' => 'nullable|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $data = $request->only(['start_time', 'end_time', 'description']);
+
+        // Recalculate duration if start_time or end_time changed
+        $startTime = isset($data['start_time']) ? \Carbon\Carbon::parse($data['start_time']) : $timeLog->start_time;
+        $endTime = isset($data['end_time']) ? ($data['end_time'] ? \Carbon\Carbon::parse($data['end_time']) : null) : $timeLog->end_time;
+
+        if ($startTime && $endTime) {
+            $data['duration'] = $startTime->diffInMinutes($endTime);
+        } elseif ($endTime === null && isset($data['end_time'])) {
+            // end_time explicitly set to null (re-opening the log)
+            $data['duration'] = null;
+        }
+
+        $timeLog->update($data);
+
+        return response()->json([
+            'message' => 'Time log updated successfully',
+            'time_log' => $timeLog->load(['project', 'task'])
+        ]);
+    }
+
     public function getAssignedProjects(User $user)
     {
         if (Auth::user()->role !== 'admin' && Auth::id() !== $user->id) {

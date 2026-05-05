@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 use App\Models\TimeLog;
+use App\Models\Screenshot;
 use Carbon\Carbon;
 
 class StopGhostTimeLogs extends Command
@@ -35,8 +36,25 @@ class StopGhostTimeLogs extends Command
 
         $count = 0;
         foreach ($ghostLogs as $log) {
-            // Set end_time to the last updated_at time (last heartbeat)
-            $log->end_time = $log->updated_at;
+            // Determine the best end_time by checking:
+            // 1. The last heartbeat (updated_at)
+            // 2. The latest screenshot's captured_at for this time log
+            // Use whichever is MORE RECENT to avoid losing tracked work
+            // (e.g., if app reloaded and heartbeats stopped but screenshots were already uploaded)
+            $bestEndTime = $log->updated_at;
+
+            $latestScreenshot = Screenshot::where('time_log_id', $log->id)
+                ->latest('captured_at')
+                ->first();
+
+            if ($latestScreenshot && $latestScreenshot->captured_at) {
+                $screenshotTime = Carbon::parse($latestScreenshot->captured_at);
+                if ($screenshotTime->gt($bestEndTime)) {
+                    $bestEndTime = $screenshotTime;
+                }
+            }
+
+            $log->end_time = $bestEndTime;
             
             // Recalculate duration
             if ($log->start_time) {

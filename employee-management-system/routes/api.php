@@ -48,6 +48,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/users/{user}/reset-password', [UserController::class, 'resetPassword']);
     Route::get('/users/{user}/time-logs', [UserController::class, 'getTimeLogs']);
     Route::post('/users/{user}/time-logs', [UserController::class, 'storeTimeLog']);
+    Route::put('/users/{user}/time-logs/{timeLog}', [UserController::class, 'updateTimeLogAdmin']);
     Route::get('/users/{user}/screenshots', [UserController::class, 'getScreenshots']);
     Route::delete('/users/{user}/screenshots/{screenshot}', [UserController::class, 'deleteScreenshot']);
     Route::get('/users/{user}/screenshots/{screenshot}/file', [UserController::class, 'getScreenshotFile']);

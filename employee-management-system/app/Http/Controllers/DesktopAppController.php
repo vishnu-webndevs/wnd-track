@@ -57,7 +57,9 @@ class DesktopAppController extends Controller
 
             if ($runningLog->project_id == $request->project_id && $sameTask) {
                 // IMPORTANT: We do NOT update start_time here.
-                // We return the existing log as is.
+                // Touch updated_at to prevent the ghost stopper from killing this log
+                // before the new heartbeat starts (handles app reload/redeploy scenarios)
+                $runningLog->touch();
                 return response()->json([
                     'message' => 'Tracking already in progress',
                     'time_log' => $runningLog
