@@ -79,8 +79,9 @@ class MonitorLowActivity extends Command
             $totalActivity = 0;
             $minuteEntries = count($breakdown);
 
-            // Only alert if we have at least 1 minute of data in the breakdown
-            if ($minuteEntries < 1) {
+            // Only alert if the breakdown covers a full 10-minute block
+            // This prevents false alerts when tracking just started or a new block began
+            if ($minuteEntries < 10) {
                 continue;
             }
 

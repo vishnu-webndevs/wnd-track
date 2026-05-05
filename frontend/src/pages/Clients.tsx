@@ -338,6 +338,7 @@ export default function Clients() {
               <button onClick={() => setIsCreateOpen(false)} className="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
             </div>
             <form
+              id="create-client-form"
               className="px-6 py-4 space-y-4 overflow-y-auto flex-1"
               onSubmit={createForm.handleSubmit((values) => {
                 createMutation.mutate(values);
@@ -380,11 +381,11 @@ export default function Clients() {
                   <textarea {...createForm.register('notes')} className="mt-1 block w-full border rounded px-3 py-2" rows={3} />
                 </div>
               </div>
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button type="button" className="px-4 py-2 rounded border" onClick={() => setIsCreateOpen(false)}>Cancel</button>
-                <button type="submit" className="px-4 py-2 rounded bg-indigo-600 text-white">Create</button>
-              </div>
             </form>
+            <div className="px-6 py-3 border-t flex items-center justify-end gap-2 flex-shrink-0">
+              <button type="button" className="px-4 py-2 rounded border" onClick={() => setIsCreateOpen(false)}>Cancel</button>
+              <button type="submit" form="create-client-form" className="px-4 py-2 rounded bg-indigo-600 text-white">Create</button>
+            </div>
           </div>
         </div>
       )}
@@ -398,6 +399,7 @@ export default function Clients() {
               <button onClick={() => { setIsEditOpen(false); setSelectedClient(null); }} className="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
             </div>
             <form
+              id="edit-client-form"
               className="px-6 py-4 space-y-4 overflow-y-auto flex-1"
               onSubmit={editForm.handleSubmit((values) => {
                 updateMutation.mutate({ id: selectedClient!.id, data: values });
@@ -440,11 +442,11 @@ export default function Clients() {
                   <textarea {...editForm.register('notes')} className="mt-1 block w-full border rounded px-3 py-2" rows={3} />
                 </div>
               </div>
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button type="button" className="px-4 py-2 rounded border" onClick={() => { setIsEditOpen(false); setSelectedClient(null); }}>Cancel</button>
-                <button type="submit" className="px-4 py-2 rounded bg-indigo-600 text-white">Save</button>
-              </div>
             </form>
+            <div className="px-6 py-3 border-t flex items-center justify-end gap-2 flex-shrink-0">
+              <button type="button" className="px-4 py-2 rounded border" onClick={() => { setIsEditOpen(false); setSelectedClient(null); }}>Cancel</button>
+              <button type="submit" form="edit-client-form" className="px-4 py-2 rounded bg-indigo-600 text-white">Save</button>
+            </div>
           </div>
         </div>
       )}

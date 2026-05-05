@@ -605,6 +605,7 @@ export default function Tasks() {
               <button onClick={() => setIsCreateOpen(false)} className="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
             </div>
             <form
+              id="create-task-form"
               className="px-6 py-4 space-y-4 overflow-y-auto flex-1"
               onSubmit={createForm.handleSubmit((values) => {
                 const payload = {
@@ -671,11 +672,11 @@ export default function Tasks() {
                   <textarea {...createForm.register('notes')} className="mt-1 block w-full border rounded px-3 py-2" rows={3} />
                 </div>
               </div>
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button type="button" className="px-4 py-2 rounded border" onClick={() => setIsCreateOpen(false)}>Cancel</button>
-                <button type="submit" className="px-4 py-2 rounded bg-indigo-600 text-white">Create</button>
-              </div>
             </form>
+            <div className="px-6 py-3 border-t flex items-center justify-end gap-2 flex-shrink-0">
+              <button type="button" className="px-4 py-2 rounded border" onClick={() => setIsCreateOpen(false)}>Cancel</button>
+              <button type="submit" form="create-task-form" className="px-4 py-2 rounded bg-indigo-600 text-white">Create</button>
+            </div>
           </div>
         </div>
       )}
@@ -688,6 +689,7 @@ export default function Tasks() {
               <button onClick={() => { setIsEditOpen(false); setSelectedTask(null); }} className="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
             </div>
             <form
+              id="edit-task-form"
               className="px-6 py-4 space-y-4 overflow-y-auto flex-1"
               onSubmit={editForm.handleSubmit((values) => {
                 updateMutation.mutate({ id: selectedTask!.id, data: values });
@@ -762,11 +764,11 @@ export default function Tasks() {
                   <textarea {...editForm.register('notes')} className="mt-1 block w-full border rounded px-3 py-2" rows={3} />
                 </div>
               </div>
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button type="button" className="px-4 py-2 rounded border" onClick={() => { setIsEditOpen(false); setSelectedTask(null); }}>Cancel</button>
-                <button type="submit" className="px-4 py-2 rounded bg-indigo-600 text-white">Save</button>
-              </div>
             </form>
+            <div className="px-6 py-3 border-t flex items-center justify-end gap-2 flex-shrink-0">
+              <button type="button" className="px-4 py-2 rounded border" onClick={() => { setIsEditOpen(false); setSelectedTask(null); }}>Cancel</button>
+              <button type="submit" form="edit-task-form" className="px-4 py-2 rounded bg-indigo-600 text-white">Save</button>
+            </div>
           </div>
         </div>
       )}
