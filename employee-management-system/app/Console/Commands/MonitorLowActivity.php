@@ -42,7 +42,7 @@ class MonitorLowActivity extends Command
         $activeLogs = TimeLog::with('user')
             ->where(function ($q) {
                 $q->whereNull('end_time') // Still running
-                  ->orWhere('end_time', '>', Carbon::now()->subMinutes(10)); // Recently closed (ghost stopper)
+                  ->orWhere('end_time', '>', Carbon::now()->subMinutes(2)); // Recently closed (ghost stopper)
             })
             ->where('updated_at', '>', Carbon::now()->subMinutes(15))
             ->get();

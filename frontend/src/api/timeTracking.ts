@@ -8,6 +8,7 @@ export interface SyncTimeLogPayload {
   end_time?: string;
   duration?: number; // minutes
   description?: string;
+  start_work_log?: string;
   desktop_app_id: string; // 'web'
   use_server_time?: boolean;
 }
@@ -42,7 +43,7 @@ export const timeTrackingAPI = {
     const res = await api.post('/desktop/time-log', payload);
     return res.data.time_log;
   },
-  updateTimeLog: async (id: number, payload: Partial<SyncTimeLogPayload>) => {
+  updateTimeLog: async (id: number, payload: Partial<SyncTimeLogPayload> & { end_work_log?: string }) => {
     const res = await api.put(`/desktop/time-log/${id}`, payload);
     return res.data.time_log;
   },

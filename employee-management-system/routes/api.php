@@ -34,6 +34,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/user', [AuthController::class, 'user']);
     Route::get('/user/live-status', [UserController::class, 'checkLiveStatus']);
+    Route::put('/settings/telegram-worklog', [UserController::class, 'updateTelegramWorklogSetting']);
+    Route::get('/settings/telegram-worklog', [UserController::class, 'getTelegramWorklogSetting']);
 
     // Dashboard
     Route::get('/dashboard', [DashboardController::class, 'index']);

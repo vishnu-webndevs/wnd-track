@@ -1,57 +1,21 @@
-# React + TypeScript + Vite
+# 🖥️ WND Tracker Frontend (React + Vite + Electron Desktop Client)
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+This directory contains the beautiful **React + Vite + Electron Desktop Client** for the **WND Tracker & Employee Management System**.
 
-Currently, two official plugins are available:
+## 👨‍💻 Developer
+Developed with ❤️ by **[Vishnu](https://github.com/vishnu-webndevs)**
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+---
 
-## Expanding the ESLint configuration
+### 📖 Documentation & Setup
+For full system architecture details, key features, and installation instructions for the entire project (Frontend + Backend), please refer to the **main repository documentation**:
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+👉 **[Main Project README.md](../README.md)**
 
-```js
-export default tseslint.config({
-  extends: [
-    // Remove ...tseslint.configs.recommended and replace with this
-    ...tseslint.configs.recommendedTypeChecked,
-    // Alternatively, use this for stricter rules
-    ...tseslint.configs.strictTypeChecked,
-    // Optionally, add this for stylistic rules
-    ...tseslint.configs.stylisticTypeChecked,
-  ],
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
-```
+---
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default tseslint.config({
-  extends: [
-    // other configs...
-    // Enable lint rules for React
-    reactX.configs['recommended-typescript'],
-    // Enable lint rules for React DOM
-    reactDom.configs.recommended,
-  ],
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
-```
+### Key Responsibilities of this Directory:
+* **`electron/`**: Electron desktop wrapper handles OS windows, screenshot capture, and native background hooks.
+* **`src/components/TimeTracking.tsx`**: Local desktop widget to start, pause, stop tracker and dynamically switch projects/tasks.
+* **`src/components/Timesheets.tsx`**: Timesheet dashboard showcasing truncated descriptions, live streaming widgets, and absolute hover detail popups.
+* **`src/`**: Fully component-focused UI built with modern React, TailwindCSS, and custom WebRTC integrations.

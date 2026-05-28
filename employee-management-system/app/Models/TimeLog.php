@@ -17,6 +17,8 @@ class TimeLog extends Model
         'end_time',
         'duration',
         'description',
+        'start_work_log',
+        'end_work_log',
         'is_manual',
         'desktop_app_id',
     ];

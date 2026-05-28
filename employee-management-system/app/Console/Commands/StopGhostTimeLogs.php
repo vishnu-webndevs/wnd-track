@@ -28,7 +28,7 @@ class StopGhostTimeLogs extends Command
      */
     public function handle()
     {
-        $threshold = Carbon::now()->subMinutes(10);
+        $threshold = Carbon::now()->subMinutes(2);
 
         $ghostLogs = TimeLog::whereNull('end_time')
             ->where('updated_at', '<', $threshold)

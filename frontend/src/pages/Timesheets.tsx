@@ -12,6 +12,13 @@ type SimplePeerInstance = import('simple-peer').Instance;
 type SimplePeerSignalData = import('simple-peer').SignalData;
 type SimplePeerConstructor = typeof import('simple-peer')['default'];
 
+const truncateWords = (text?: string, count = 3) => {
+  if (!text) return '';
+  const words = text.trim().split(/\s+/);
+  if (words.length <= count) return text;
+  return words.slice(0, count).join(' ') + '...';
+};
+
 export default function Timesheets() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -282,12 +289,13 @@ export default function Timesheets() {
        }, 2000); // Poll faster for responsiveness
     }
     return () => {
+       shouldBeLiveRef.current = false;
        window.clearInterval(interval);
        window.clearInterval(keepAliveInterval);
        window.clearInterval(signalInterval);
        
        if (peerRef.current) {
-           peerRef.current.destroy();
+           try { peerRef.current.destroy(); } catch (e) { void e; }
            peerRef.current = null;
        }
     };
@@ -399,7 +407,7 @@ export default function Timesheets() {
   const stopLiveSession = async () => {
       shouldBeLiveRef.current = false;
       if (employeeId) {
-          try { await usersAPI.stopLive(employeeId); } catch (e) { void e; }
+          usersAPI.stopLive(employeeId).catch(() => {});
       }
       if (peerRef.current) {
           try { peerRef.current.destroy(); } catch (e) { void e; }
@@ -606,7 +614,7 @@ export default function Timesheets() {
                         <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Start</th>
                         <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">End</th>
                         <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Duration (min)</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Note</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Note / Work Log</th>
                         <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                       </tr>
                     </thead>
@@ -625,7 +633,42 @@ export default function Timesheets() {
                           <td className="px-4 py-2 text-sm text-gray-500">{fixDate(log.start_time).toLocaleString()}</td>
                           <td className="px-4 py-2 text-sm text-gray-500">{log.end_time ? fixDate(log.end_time).toLocaleString() : '-'}</td>
                           <td className="px-4 py-2 text-sm text-gray-900">{log.duration ?? '-'}</td>
-                          <td className="px-4 py-2 text-sm text-gray-500">{log.description ?? '-'}</td>
+                          <td className="px-4 py-2 text-sm text-gray-500">
+                            {log.description && (
+                              <div className="relative group inline-block max-w-full">
+                                <div className="text-gray-900 font-semibold cursor-help hover:text-indigo-600 transition-colors">
+                                  {truncateWords(log.description, 3)}
+                                </div>
+                                <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block bg-gray-950 text-white text-xs rounded-md p-3 z-50 shadow-xl whitespace-normal w-64 break-words border border-gray-800">
+                                  <div className="font-semibold mb-1 text-gray-400">Note:</div>
+                                  {log.description}
+                                </div>
+                              </div>
+                            )}
+                            {log.start_work_log && (
+                              <div className="relative group block max-w-full mt-1">
+                                <div className="text-xs text-emerald-600 font-medium cursor-help hover:text-emerald-700 transition-colors">
+                                  <span className="font-semibold">Start:</span> {truncateWords(log.start_work_log, 3)}
+                                </div>
+                                <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block bg-gray-950 text-white text-xs rounded-md p-3 z-50 shadow-xl whitespace-normal w-64 break-words border border-gray-800">
+                                  <div className="font-semibold mb-1 text-emerald-400">🟢 Start Work Log:</div>
+                                  {log.start_work_log}
+                                </div>
+                              </div>
+                            )}
+                            {log.end_work_log && (
+                              <div className="relative group block max-w-full mt-1">
+                                <div className="text-xs text-rose-600 font-medium cursor-help hover:text-rose-700 transition-colors">
+                                  <span className="font-semibold">End:</span> {truncateWords(log.end_work_log, 3)}
+                                </div>
+                                <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block bg-gray-950 text-white text-xs rounded-md p-3 z-50 shadow-xl whitespace-normal w-64 break-words border border-gray-800">
+                                  <div className="font-semibold mb-1 text-rose-400">🔴 End Work Log:</div>
+                                  {log.end_work_log}
+                                </div>
+                              </div>
+                            )}
+                            {!log.description && !log.start_work_log && !log.end_work_log && '-'}
+                          </td>
                           <td className="px-4 py-2 text-right">
                             <div className="flex justify-end gap-2">
                               {user?.role === 'admin' && (
@@ -716,11 +759,8 @@ export default function Timesheets() {
                   )}
                   <button 
                     onClick={async () => { 
-                      if (isLiveWatching && employeeId) {
-                        try { await usersAPI.stopLive(employeeId); } catch { void 0; }
-                      }
+                      await stopLiveSession();
                       setSelectedLog(null); 
-                      setIsLiveWatching(false); 
                     }} 
                     className="p-2 rounded-full hover:bg-gray-100 text-gray-500 transition-colors"
                     aria-label="Close"
@@ -894,7 +934,10 @@ export default function Timesheets() {
             
             <div className="p-4 border-t bg-gray-50 rounded-b-lg flex justify-end sticky bottom-0 z-10">
               <button 
-                onClick={() => setSelectedLog(null)} 
+                onClick={async () => {
+                  await stopLiveSession();
+                  setSelectedLog(null);
+                }} 
                 className="px-4 py-2 rounded-md bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 font-medium shadow-sm transition-colors"
               >
                 Close Details

@@ -30,6 +30,8 @@ type TTWindow = Window & {
 // Global Singleton to manage tracking state across navigation
 const trackerCore = {
   isTracking: false,
+  isPaused: false,
+  pausedTimeLogId: undefined as number | undefined,
   stream: null as MediaStream | null,
   intervals: {
     tick: null as any,
@@ -69,6 +71,8 @@ const trackerCore = {
       this.stream = null;
     }
     this.isTracking = false;
+    this.isPaused = false;
+    this.pausedTimeLogId = undefined;
     this.permissionGranted = false;
     this.elapsed = 0;
     this.activityData = {};
@@ -112,12 +116,26 @@ export default function TimeTracking() {
   const noteRef = useRef(note);
   useEffect(() => { noteRef.current = note; }, [note]);
 
+  const [startWorkLog, setStartWorkLog] = useState('');
+  const startWorkLogRef = useRef(startWorkLog);
+  useEffect(() => { startWorkLogRef.current = startWorkLog; }, [startWorkLog]);
+
+  const [showEndWorkLogModal, setShowEndWorkLogModal] = useState(false);
+  const [endWorkLog, setEndWorkLog] = useState('');
+  const [isStoppingTracker, setIsStoppingTracker] = useState(false);
+
   const [isTracking, setIsTracking] = useState((window as TTWindow).__tt_core.isTracking);
   const isTrackingRef = useRef(isTracking);
   useEffect(() => {
     isTrackingRef.current = isTracking;
     (window as TTWindow).__tt_core.isTracking = isTracking;
   }, [isTracking]);
+
+  const [isPaused, setIsPaused] = useState((window as TTWindow).__tt_core.isPaused);
+  useEffect(() => { (window as TTWindow).__tt_core.isPaused = isPaused; }, [isPaused]);
+
+  const [pausedTimeLogId, setPausedTimeLogId] = useState<number | undefined>((window as TTWindow).__tt_core.pausedTimeLogId);
+  useEffect(() => { (window as TTWindow).__tt_core.pausedTimeLogId = pausedTimeLogId; }, [pausedTimeLogId]);
 
   const [startAt, setStartAt] = useState<Date | null>((window as TTWindow).__tt_core.startAt);
   useEffect(() => { (window as TTWindow).__tt_core.startAt = startAt; }, [startAt]);
@@ -914,6 +932,13 @@ export default function TimeTracking() {
   const runTick = useCallback(() => {
     const core = (window as TTWindow).__tt_core;
 
+    if (!core.isTracking) {
+      if (mountedRef.current) {
+        setElapsed(core.elapsed);
+      }
+      return;
+    }
+
     // Always increment core.elapsed since this interval is global
     core.elapsed += 1;
 
@@ -927,8 +952,8 @@ export default function TimeTracking() {
       if (isTrackingRef.current) {
         const raw = localStorage.getItem(trackerKey);
         if (raw) {
-          const parsed = JSON.parse(raw) as { isTracking: boolean; startAt?: string; note?: string; timeLogId?: number; lastHeartbeat?: string };
-          if (parsed.isTracking && parsed.startAt) {
+          const parsed = JSON.parse(raw) as { isTracking: boolean; isPaused?: boolean; startAt?: string; note?: string; timeLogId?: number; lastHeartbeat?: string };
+          if (parsed.isTracking && !parsed.isPaused && parsed.startAt) {
             const lastHeartbeat = parsed.lastHeartbeat ? new Date(parsed.lastHeartbeat) : new Date(parsed.startAt);
             const gap = now.getTime() - lastHeartbeat.getTime();
             // Allow 3 minutes gap to account for timer drift before assuming sleep/power cut
@@ -1088,11 +1113,13 @@ export default function TimeTracking() {
     const core = (window as TTWindow).__tt_core;
 
     // Sync UI with global core on mount
-    if (core.isTracking) {
-      setIsTracking(true);
+    if (core.isTracking || core.isPaused) {
+      if (core.isTracking) setIsTracking(true);
+      if (core.isPaused) setIsPaused(true);
       setStartAt(core.startAt);
       setElapsed(core.elapsed);
       setActiveTimeLogId(core.activeTimeLogId);
+      setPausedTimeLogId(core.pausedTimeLogId);
       setNote(core.note);
       setSelectedProjectId(core.projectId);
       setSelectedTaskId(core.taskId);
@@ -1111,12 +1138,12 @@ export default function TimeTracking() {
         startVisualActivityCheck();
       }
     } else {
-      // Only clear if NOT tracking (fresh start)
+      // Only clear if NOT tracking and NOT paused (fresh start)
       // Check localStorage for crashed session
       const raw = localStorage.getItem(trackerKey);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed.isTracking && parsed.startAt) {
+        if (parsed.isTracking || parsed.isPaused) {
           // Resume logic from localStorage (handled by the original logic below)
         } else {
           core.cleanup();
@@ -1131,6 +1158,8 @@ export default function TimeTracking() {
         if (raw) {
           const parsed = JSON.parse(raw) as {
             isTracking: boolean;
+            isPaused?: boolean;
+            pausedTimeLogId?: number;
             startAt?: string;
             taskId?: number;
             projectId?: number;
@@ -1143,8 +1172,24 @@ export default function TimeTracking() {
             taskTitle?: string;
           };
 
-          if (parsed.isTracking && parsed.startAt && !core.isTracking) {
-            // Resume normally
+          if ((parsed.isTracking || parsed.isPaused) && !core.isTracking && !core.isPaused) {
+            if (parsed.isPaused) {
+              setIsPaused(true);
+              core.isPaused = true;
+              if (parsed.pausedTimeLogId) {
+                setPausedTimeLogId(parsed.pausedTimeLogId);
+                core.pausedTimeLogId = parsed.pausedTimeLogId;
+              }
+              const pId = parsed.projectId ? Number(parsed.projectId) : undefined;
+              setSelectedProjectId(pId);
+              core.projectId = pId;
+              const tId = parsed.taskId ? Number(parsed.taskId) : undefined;
+              setSelectedTaskId(tId);
+              core.taskId = tId;
+              setNote(parsed.note ?? '');
+              core.note = parsed.note ?? '';
+            } else if (parsed.startAt) {
+              // Resume normally
             core.isTracking = true;
             setIsTracking(true);
             isTrackingRef.current = true;
@@ -1199,6 +1244,7 @@ export default function TimeTracking() {
             if (core.stream) {
               startShotSchedule();
               startVisualActivityCheck();
+            }
             }
           }
         }
@@ -1464,8 +1510,8 @@ export default function TimeTracking() {
       return;
     }
 
-    if (!selectedTaskId || !note) {
-      toast.error('Please select a task and enter a note');
+    if (!isPaused && (!selectedTaskId || !startWorkLog.trim())) {
+      toast.error('Please select a task and write your start work log');
       return;
     }
     const project_id = getProjectId(selectedTaskId);
@@ -1478,6 +1524,7 @@ export default function TimeTracking() {
     const taskObj = taskOptions.find(t => t.id === Number(selectedTaskId));
     const projectName = projectObj?.name || 'Active Project';
     const taskTitle = taskObj?.title || 'Active Task';
+    const finalNote = note.trim() || taskTitle;
 
     const now = new Date();
 
@@ -1488,8 +1535,10 @@ export default function TimeTracking() {
 
     // Set global core state FIRST
     core.isTracking = true;
+    core.isPaused = false;
+    core.pausedTimeLogId = undefined;
     core.startAt = now;
-    core.note = note;
+    core.note = finalNote;
     core.projectId = project_id;
     core.taskId = Number(selectedTaskId);
     core.elapsed = 0;
@@ -1497,10 +1546,13 @@ export default function TimeTracking() {
     core.activityData = {};
 
     setIsTracking(true);
+    setIsPaused(false);
+    setPausedTimeLogId(undefined);
     setStartAt(now);
     setElapsed(0);
     try { localStorage.removeItem('tt-last-captured-minute'); } catch { void 0; }
     lastCaptureTimeRef.current = now;
+    lastCapturedMinuteRef.current = null;
 
     try {
       const res = await createTimeLog.mutateAsync({
@@ -1509,7 +1561,8 @@ export default function TimeTracking() {
         start_time: toLocalISOString(now),
         end_time: undefined,
         desktop_app_id: 'web',
-        description: note,
+        description: finalNote,
+        start_work_log: isPaused ? '' : startWorkLog.trim(),
       });
       const logId = res.id;
       const serverStart = new Date(res.start_time);
@@ -1521,12 +1574,13 @@ export default function TimeTracking() {
 
       localStorage.setItem(trackerKey, JSON.stringify({
         isTracking: true,
+        isPaused: false,
         startAt: serverStart.toISOString(),
         projectId: project_id,
         taskId: Number(selectedTaskId),
         projectName,
         taskTitle,
-        note,
+        note: finalNote,
         timeLogId: logId
       }));
 
@@ -1554,24 +1608,56 @@ export default function TimeTracking() {
     toast.success('Tracking started');
   };
 
-  const stopTracking = async () => {
+  const pauseTracking = async () => {
+    await stopTracking(undefined, true);
+  };
+
+  const stopTracking = async (endWorkLogText?: string, isPauseAction = false) => {
     const core = (window as TTWindow).__tt_core;
-    if (!core.isTracking) return;
+    if (!core.isTracking && !core.isPaused) return;
+
+    const wasTracking = core.isTracking;
+    const wasPaused = core.isPaused;
 
     // Capture final screenshot and activity data before stopping
-    try {
-      await captureScreenshot();
-    } catch { void 0; }
+    if (wasTracking) {
+      try {
+        await captureScreenshot();
+      } catch { void 0; }
+    }
 
     try { localStorage.removeItem(trackerKey); } catch { void 0; }
 
     // Use core cleanup to stop all intervals and tracks
-    const activeLogId = core.activeTimeLogId;
+    const activeLogId = core.activeTimeLogId || core.pausedTimeLogId;
     const startTime = core.startAt;
     const currentNote = core.note;
     const currentTaskId = core.taskId;
+    const currentProjectId = core.projectId;
 
     core.cleanup();
+
+    if (isPauseAction) {
+      core.isPaused = true;
+      core.pausedTimeLogId = activeLogId;
+      core.projectId = currentProjectId;
+      core.taskId = currentTaskId;
+      core.note = currentNote;
+      setIsPaused(true);
+      setPausedTimeLogId(activeLogId);
+      
+      localStorage.setItem(trackerKey, JSON.stringify({
+        isTracking: false,
+        isPaused: true,
+        pausedTimeLogId: activeLogId,
+        projectId: currentProjectId,
+        taskId: currentTaskId,
+        note: currentNote,
+      }));
+    } else {
+      setIsPaused(false);
+      setPausedTimeLogId(undefined);
+    }
 
     setIsTracking(false);
     setStartAt(null);
@@ -1580,22 +1666,38 @@ export default function TimeTracking() {
 
     const end = new Date();
 
-    if (startTime && activeLogId) {
-      const durationMinutes = Math.round((end.getTime() - startTime.getTime()) / 1000 / 60);
-      try {
-        await updateTimeLog.mutateAsync({
-          id: activeLogId,
-          payload: {
-            end_time: toLocalISOString(end),
-            duration: durationMinutes,
-            description: currentNote,
-          }
-        });
-        toast.success('Tracking stopped and saved');
-      } catch {
-        toast.error('Failed to save time log');
+    if (activeLogId) {
+      if (wasTracking) {
+        const durationMinutes = Math.round((end.getTime() - (startTime ? startTime.getTime() : end.getTime())) / 1000 / 60);
+        try {
+          await updateTimeLog.mutateAsync({
+            id: activeLogId,
+            payload: {
+              end_time: toLocalISOString(end),
+              duration: durationMinutes,
+              description: currentNote,
+              end_work_log: endWorkLogText || undefined,
+            }
+          });
+          if (!isPauseAction) toast.success('Tracking stopped and saved');
+          else toast.success('Tracking paused');
+        } catch {
+          toast.error('Failed to save time log');
+        }
+      } else if (wasPaused && !isPauseAction) {
+        try {
+          await updateTimeLog.mutateAsync({
+            id: activeLogId,
+            payload: {
+              end_work_log: endWorkLogText || undefined,
+            }
+          });
+          toast.success('Tracking stopped and saved');
+        } catch {
+          toast.error('Failed to save time log');
+        }
       }
-    } else if (startTime && currentTaskId) {
+    } else if (startTime && currentTaskId && wasTracking) {
       const project_id = getProjectId(currentTaskId);
       if (project_id) {
         const durationMinutes = Math.round((end.getTime() - startTime.getTime()) / 1000 / 60);
@@ -1609,11 +1711,19 @@ export default function TimeTracking() {
             description: currentNote,
             desktop_app_id: 'web',
           });
-          toast.success('Tracking stopped and saved');
+          if (!isPauseAction) toast.success('Tracking stopped and saved');
+          else toast.success('Tracking paused');
         } catch {
           toast.error('Failed to save time log');
         }
       }
+    }
+
+    if (!isPauseAction) {
+      // Reset work log fields
+      setStartWorkLog('');
+      setEndWorkLog('');
+      setIsStoppingTracker(false);
     }
   };
 
@@ -1650,10 +1760,17 @@ export default function TimeTracking() {
           )}
         </div>
         <div className="flex gap-2">
-          {!isTracking ? (
-            <button onClick={startTracking} className="px-4 py-2 rounded bg-indigo-600 text-white">Start</button>
-          ) : (
-            <button onClick={stopTracking} className="px-4 py-2 rounded bg-red-600 text-white">Stop</button>
+          {!isTracking && !isPaused && (
+            <button onClick={startTracking} className="px-4 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700 transition-colors">Start</button>
+          )}
+          {isPaused && (
+            <button onClick={startTracking} className="px-4 py-2 rounded bg-green-600 text-white hover:bg-green-700 transition-colors">Resume</button>
+          )}
+          {isTracking && (
+            <button onClick={pauseTracking} className="px-4 py-2 rounded bg-yellow-500 text-white hover:bg-yellow-600 transition-colors">Pause</button>
+          )}
+          {(isTracking || isPaused) && (
+            <button onClick={() => { setShowEndWorkLogModal(true); }} className="px-4 py-2 rounded bg-red-600 text-white hover:bg-red-700 transition-colors">Stop</button>
           )}
           {isTracking && !hasStream && (
             <button onClick={requestScreenCapture} className="px-4 py-2 rounded bg-gray-200 text-gray-800">Resume Screenshots</button>
@@ -1663,7 +1780,7 @@ export default function TimeTracking() {
 
       <div className="bg-white rounded-lg shadow p-4 space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-          <div>
+          <div className="sm:col-span-2">
             <label className="block text-sm font-medium text-gray-700">Project</label>
             <select
               value={selectedProjectId ?? ''}
@@ -1681,7 +1798,7 @@ export default function TimeTracking() {
               ))}
             </select>
           </div>
-          <div>
+          <div className="sm:col-span-2">
             <label className="block text-sm font-medium text-gray-700">Task</label>
             <select
               value={selectedTaskId ?? ''}
@@ -1695,17 +1812,37 @@ export default function TimeTracking() {
               ))}
             </select>
           </div>
-          <div className="sm:col-span-2">
-            <label className="block text-sm font-medium text-gray-700">Note</label>
+
+          {/* FUTURE REFERENCE: TO UNHIDE THE NOTE FIELD, REMOVE THE 'hidden' CLASS BELOW.
+              AND OPTIONALLY CHANGE THE PROJECT AND TASK divs ABOVE TO className="col-span-1" INSTEAD OF "sm:col-span-2" */}
+          <div className="sm:col-span-2 hidden">
+            <label className="block text-sm font-medium text-gray-700">Note (Optional)</label>
             <input
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="What are you working on?"
+              placeholder="What are you working on? (Optional, defaults to Task name)"
               className="mt-1 block w-full border rounded px-3 py-2"
-              disabled={isTracking}
+              disabled={isTracking || isPaused}
             />
           </div>
         </div>
+
+        {/* Start Work Log */}
+        {!isTracking && !isPaused && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              📝 Start Work Log <span className="text-red-500">*</span>
+            </label>
+            <textarea
+              value={startWorkLog}
+              onChange={(e) => setStartWorkLog(e.target.value)}
+              placeholder="Describe what you plan to work on in this session...&#10;Example: Working on login page UI fixes, API integration for dashboard stats"
+              className="block w-full border border-gray-300 rounded-lg px-3 py-2 min-h-[80px] resize-y focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              rows={3}
+            />
+            <p className="mt-1 text-xs text-gray-500">This will be sent to admin as your work update</p>
+          </div>
+        )}
 
         <div className="flex items-center gap-4">
           <div className="text-sm text-gray-600">Elapsed: <span className="font-semibold">{Math.floor(elapsed / 3600).toString().padStart(2, '0')}:{Math.floor((elapsed % 3600) / 60).toString().padStart(2, '0')}:{(elapsed % 60).toString().padStart(2, '0')}</span></div>
@@ -1768,6 +1905,54 @@ export default function TimeTracking() {
                   </button>
                 </>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+      {/* End Work Log Modal */}
+      {showEndWorkLogModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white w-full max-w-lg rounded-lg shadow-lg p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">📋</span>
+              <div className="text-lg font-semibold text-gray-900">End Work Log</div>
+            </div>
+            <p className="text-sm text-gray-600">
+              Please describe what you accomplished in this session before stopping the tracker.
+            </p>
+            <textarea
+              value={endWorkLog}
+              onChange={(e) => setEndWorkLog(e.target.value)}
+              placeholder="What did you accomplish in this session?&#10;Example: Completed login page UI, fixed 3 bugs in dashboard API, pushed changes to dev branch"
+              className="block w-full border border-gray-300 rounded-lg px-3 py-2 min-h-[120px] resize-y focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              rows={4}
+              autoFocus
+            />
+            <div className="flex gap-2 justify-end">
+              <button
+                className="px-4 py-2 rounded bg-gray-200 text-gray-800 hover:bg-gray-300 transition-colors"
+                onClick={() => {
+                  setShowEndWorkLogModal(false);
+                  setEndWorkLog('');
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                className="px-4 py-2 rounded bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50"
+                disabled={isStoppingTracker}
+                onClick={async () => {
+                  if (!endWorkLog.trim()) {
+                    toast.error('Please write what you accomplished');
+                    return;
+                  }
+                  setIsStoppingTracker(true);
+                  setShowEndWorkLogModal(false);
+                  await stopTracking(endWorkLog.trim());
+                }}
+              >
+                {isStoppingTracker ? 'Stopping...' : 'Stop & Submit'}
+              </button>
             </div>
           </div>
         </div>

@@ -91,4 +91,14 @@ export const usersAPI = {
     const response = await api.get(`/users/${userId}/projects/${projectId}/assigned-tasks`);
     return response.data;
   },
+
+  getTelegramWorklogSetting: async (): Promise<{ send_worklog_telegram: boolean }> => {
+    const response = await api.get('/settings/telegram-worklog');
+    return response.data;
+  },
+
+  updateTelegramWorklogSetting: async (enabled: boolean): Promise<{ send_worklog_telegram: boolean }> => {
+    const response = await api.put('/settings/telegram-worklog', { send_worklog_telegram: enabled });
+    return response.data;
+  },
 };

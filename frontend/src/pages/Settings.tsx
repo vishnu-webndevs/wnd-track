@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -29,6 +29,7 @@ type PasswordForm = z.infer<typeof passwordSchema>;
 
 export default function Settings() {
   const { user, updateUser } = useAuthStore();
+  const queryClient = useQueryClient();
 
   const profileForm = useForm<ProfileForm>({
     resolver: zodResolver(profileSchema),
@@ -85,6 +86,35 @@ export default function Settings() {
     onError: (error: unknown) => {
       const err = error as AxiosError<{ message?: string }>;
       toast.error(err.response?.data?.message ?? 'Failed to update password');
+    },
+  });
+
+  // Telegram Work Log Setting
+  const { data: telegramSetting } = useQuery({
+    queryKey: ['telegram-worklog-setting'],
+    queryFn: () => usersAPI.getTelegramWorklogSetting(),
+    enabled: !!user && user.role === 'admin',
+  });
+
+  const [telegramToggle, setTelegramToggle] = useState(false);
+
+  useEffect(() => {
+    if (telegramSetting) {
+      setTelegramToggle(telegramSetting.send_worklog_telegram);
+    }
+  }, [telegramSetting]);
+
+  const telegramToggleMutation = useMutation({
+    mutationFn: (enabled: boolean) => usersAPI.updateTelegramWorklogSetting(enabled),
+    onSuccess: (data) => {
+      setTelegramToggle(data.send_worklog_telegram);
+      queryClient.invalidateQueries({ queryKey: ['telegram-worklog-setting'] });
+      toast.success(data.send_worklog_telegram ? 'Telegram work log notifications enabled' : 'Telegram work log notifications disabled');
+    },
+    onError: (error: unknown) => {
+      const err = error as AxiosError<{ message?: string }>;
+      toast.error(err.response?.data?.message ?? 'Failed to update setting');
+      setTelegramToggle(!telegramToggle);
     },
   });
 
@@ -202,6 +232,52 @@ export default function Settings() {
             </button>
           </div>
         </form>
+      </div>
+
+      {/* Telegram Notification Settings */}
+      <div className="bg-white shadow rounded-lg p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <span className="text-xl">📱</span>
+          <h2 className="text-lg font-semibold text-gray-900">Telegram Notifications</h2>
+        </div>
+
+        <div className="space-y-4">
+          <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200">
+            <div className="flex-1">
+              <h3 className="text-sm font-medium text-gray-900">Work Log Notifications via Telegram</h3>
+              <p className="text-xs text-gray-500 mt-1">
+                When enabled, employee work logs (start &amp; end) will also be sent to the admin Telegram chat along with email notifications.
+              </p>
+            </div>
+            <div className="ml-4">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={telegramToggle}
+                disabled={telegramToggleMutation.isPending}
+                onClick={() => {
+                  const newValue = !telegramToggle;
+                  setTelegramToggle(newValue);
+                  telegramToggleMutation.mutate(newValue);
+                }}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 ${
+                  telegramToggle ? 'bg-indigo-600' : 'bg-gray-300'
+                } ${telegramToggleMutation.isPending ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ease-in-out ${
+                    telegramToggle ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+
+          <p className="text-xs text-gray-400 italic">
+            Note: Employee availability notifications (tracker start) are always sent to Telegram regardless of this setting.
+            Work updates are always sent via email to all admin users.
+          </p>
+        </div>
       </div>
     </div>
   );

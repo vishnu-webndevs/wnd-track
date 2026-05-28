@@ -29,6 +29,7 @@ class User extends Authenticatable
         'status',
         'hire_date',
         'telegram_chat_id',
+        'send_worklog_telegram',
     ];
 
     /**
@@ -52,6 +53,7 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'hire_date' => 'date',
+            'send_worklog_telegram' => 'boolean',
         ];
     }
 

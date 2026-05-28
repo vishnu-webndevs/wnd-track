@@ -30,13 +30,13 @@ class MonitorOfflineTrackers extends Command
      */
     public function handle()
     {
-        $offlineThreshold = Carbon::now()->subMinutes(6); // 6 minutes to be safe (5 min buffer + 1 min margin)
+        $offlineThreshold = Carbon::now()->subSeconds(90); // 90 seconds (1.5 minutes) to avoid network skew issues
         
         // Include recently-closed logs (by StopGhostTimeLogs) to avoid race condition
         $stuckLogs = TimeLog::with(['user', 'project'])
             ->where(function ($q) {
                 $q->whereNull('end_time') // Still running
-                  ->orWhere('end_time', '>', Carbon::now()->subMinutes(10)); // Recently closed by ghost stopper
+                  ->orWhere('end_time', '>', Carbon::now()->subMinutes(2)); // Recently closed by ghost stopper (updated from 10 to 2 minutes)
             })
             ->where('updated_at', '<', $offlineThreshold)
             ->get();

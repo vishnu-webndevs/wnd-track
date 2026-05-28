@@ -689,4 +689,41 @@ class UserController extends Controller
             return response()->json(null);
         }
     }
+
+    public function getTelegramWorklogSetting(Request $request)
+    {
+        $user = Auth::user();
+        if ($user->role !== 'admin') {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        return response()->json([
+            'send_worklog_telegram' => (bool) $user->send_worklog_telegram,
+        ]);
+    }
+
+    public function updateTelegramWorklogSetting(Request $request)
+    {
+        $user = Auth::user();
+        if ($user->role !== 'admin') {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'send_worklog_telegram' => 'required|boolean',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $user->update([
+            'send_worklog_telegram' => $request->send_worklog_telegram,
+        ]);
+
+        return response()->json([
+            'message' => 'Telegram work log setting updated',
+            'send_worklog_telegram' => (bool) $user->send_worklog_telegram,
+        ]);
+    }
 }

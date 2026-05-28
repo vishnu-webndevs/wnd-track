@@ -80,6 +80,8 @@ export interface TimeLog {
   end_time?: string;
   duration?: number;
   description?: string;
+  start_work_log?: string;
+  end_work_log?: string;
   is_manual?: boolean;
   created_at: string;
   updated_at: string;
