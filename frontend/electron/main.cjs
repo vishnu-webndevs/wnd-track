@@ -1,7 +1,6 @@
-const { app, BrowserWindow, screen, ipcMain } = require('electron');
+const { app, BrowserWindow, screen, ipcMain, shell, session } = require('electron');
 const path = require('path');
 const { uIOhook, UiohookKey } = require('uiohook-napi');
-const { shell } = require('electron');
 
 let mainWindow;
 let isQuitting = false;
@@ -111,14 +110,16 @@ function createWindow() {
 
 
   // In development, load from localhost
-  // In production, load from file
   const isDev = !app.isPackaged;
 
   if (isDev) {
     win.loadURL('http://localhost:5173');
     // win.webContents.openDevTools();
   } else {
-    win.loadURL('https://tracker.webndevs.com/#/');
+    // Clear cache to always get the latest deployed changes from the server
+    session.defaultSession.clearCache().finally(() => {
+      win.loadURL('https://tracker.webndevs.com/#/');
+    });
   }
 
   // Handle external links if needed
