@@ -598,7 +598,7 @@ export default function Timesheets() {
         )}
 
         {groupedByDate.length > 0 && (
-          <div className="space-y-6 overflow-y-auto max-h-[calc(100vh-300px)] pr-2 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
+          <div className="space-y-6 overflow-y-auto max-h-[calc(100vh-220px)] pr-2 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
             {groupedByDate.map(([date, info]) => (
               <div key={date} className="border rounded-lg">
                 <div className="flex items-center justify-between bg-gray-50 px-4 py-2">
