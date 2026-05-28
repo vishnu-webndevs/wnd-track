@@ -1,7 +1,7 @@
 {
   "name": "frontend",
   "private": true,
-  "version": "1.0.29",
+  "version": "1.0.32",
   "main": "electron/main.cjs",
   "type": "module",
   "description": "Time Tracking Desktop App",
@@ -70,6 +70,7 @@
   "build": {
     "appId": "com.tracker.webndevs",
     "productName": "Tracker Webndevs",
+    "icon": "public/tracker_logo.png",
     "forceCodeSigning": false,
     "files": [
       "dist/**/*",
@@ -79,6 +80,7 @@
       "output": "release-installer"
     },
     "win": {
+      "icon": "public/tracker_logo.png",
       "target": [
         "nsis",
         "portable"

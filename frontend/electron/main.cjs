@@ -75,7 +75,7 @@ function createWindow() {
       contextIsolation: false, // For simple migration, though strictly less secure. Better to use preload in future.
       // preload: path.join(__dirname, 'preload.js'),
     },
-    icon: path.join(__dirname, '../public/favicon.ico') // Assuming favicon exists
+    icon: path.join(__dirname, '../public/tracker_logo.png')
   });
 
   mainWindow = win;
