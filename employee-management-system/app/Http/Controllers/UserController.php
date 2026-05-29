@@ -252,13 +252,15 @@ class UserController extends Controller
             'start_time' => 'sometimes|date',
             'end_time' => 'nullable|date',
             'description' => 'nullable|string',
+            'start_work_log' => 'nullable|string',
+            'end_work_log' => 'nullable|string',
         ]);
 
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        $data = $request->only(['start_time', 'end_time', 'description']);
+        $data = $request->only(['start_time', 'end_time', 'description', 'start_work_log', 'end_work_log']);
 
         // Recalculate duration if start_time or end_time changed
         $startTime = isset($data['start_time']) ? \Carbon\Carbon::parse($data['start_time']) : $timeLog->start_time;
@@ -699,6 +701,7 @@ class UserController extends Controller
 
         return response()->json([
             'send_worklog_telegram' => (bool) $user->send_worklog_telegram,
+            'telegram_bot_token' => \App\Models\Setting::get('telegram_bot_token', env('TELEGRAM_BOT_TOKEN') ?: ''),
         ]);
     }
 
@@ -711,6 +714,7 @@ class UserController extends Controller
 
         $validator = Validator::make($request->all(), [
             'send_worklog_telegram' => 'required|boolean',
+            'telegram_bot_token' => 'nullable|string',
         ]);
 
         if ($validator->fails()) {
@@ -721,9 +725,14 @@ class UserController extends Controller
             'send_worklog_telegram' => $request->send_worklog_telegram,
         ]);
 
+        if ($request->has('telegram_bot_token')) {
+            \App\Models\Setting::set('telegram_bot_token', $request->telegram_bot_token);
+        }
+
         return response()->json([
-            'message' => 'Telegram work log setting updated',
+            'message' => 'Telegram setting updated',
             'send_worklog_telegram' => (bool) $user->send_worklog_telegram,
+            'telegram_bot_token' => \App\Models\Setting::get('telegram_bot_token', env('TELEGRAM_BOT_TOKEN') ?: ''),
         ]);
     }
 }

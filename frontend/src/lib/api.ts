@@ -102,6 +102,13 @@ api.interceptors.response.use(
         window.location.href = getLoginUrl();
       }
     }
+
+    if (error.response?.status === 403 && error.response?.data?.code === '2FA_REQUIRED') {
+      // Clear local 2FA verified token on sessionStorage
+      sessionStorage.removeItem('tt-2fa-verified');
+      // Dispatch a custom window event so that the active Timesheets component re-locks itself immediately
+      window.dispatchEvent(new Event('tt-2fa-required'));
+    }
     return Promise.reject(error);
   }
 );

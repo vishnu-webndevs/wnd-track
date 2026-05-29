@@ -97,8 +97,57 @@
                                                     @endforeach
                                                 </table>
 
+                                                <!-- Daily Work Logs Detail -->
+                                                <table width="100%" cellspacing="0" cellpadding="0" border="0" style="margin-top: 15px; margin-bottom: 8px;">
+                                                    <tr>
+                                                        <td style="font-size: 11px; font-weight: 700; color: #7f8c8d; text-transform: uppercase; letter-spacing: 0.5px;">DAILY WORK LOGS DETAIL</td>
+                                                    </tr>
+                                                </table>
+
+                                                <table width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse: separate; border-spacing: 0 6px; width: 100%;">
+                                                    @foreach($data['logs'] as $log)
+                                                        <tr>
+                                                            <td style="background-color: rgba(255,255,255,0.75); padding: 12px; border-radius: 6px; border: 1px solid rgba(0,0,0,0.03);">
+                                                                <table width="100%" cellspacing="0" cellpadding="0" border="0">
+                                                                    <tr>
+                                                                        <td style="font-size: 13px; font-weight: 700; color: #2c3e50; line-height: 1.3;">
+                                                                            {{ $log->project->name ?? 'No Project' }} - {{ $log->task->title ?? 'No Task' }}
+                                                                        </td>
+                                                                        <td align="right" style="font-size: 11px; font-weight: 600; color: #7f8c8d; white-space: nowrap; padding-left: 10px;">
+                                                                            {{ Carbon\Carbon::parse($log->start_time)->format('h:i A') }} - 
+                                                                            {{ $log->end_time ? Carbon\Carbon::parse($log->end_time)->format('h:i A') : 'In Progress' }} 
+                                                                            ({{ floor($log->duration / 60) }}h {{ $log->duration % 60 }}m)
+                                                                        </td>
+                                                                    </tr>
+                                                                    @if($log->description)
+                                                                        <tr>
+                                                                            <td colspan="2" style="padding-top: 6px; font-size: 12px; color: #555555; line-height: 1.4;">
+                                                                                <span style="font-weight: 600; color: #7f8c8d;">Note:</span> {!! nl2br(e($log->description)) !!}
+                                                                            </td>
+                                                                        </tr>
+                                                                    @endif
+                                                                    @if($log->start_work_log)
+                                                                        <tr>
+                                                                            <td colspan="2" style="padding-top: 6px; font-size: 12px; color: #2e7d32; line-height: 1.4;">
+                                                                                <span style="font-weight: 600; color: #2e7d32;">🟢 Start:</span> {!! nl2br(e($log->start_work_log)) !!}
+                                                                            </td>
+                                                                        </tr>
+                                                                    @endif
+                                                                    @if($log->end_work_log)
+                                                                        <tr>
+                                                                            <td colspan="2" style="padding-top: 4px; font-size: 12px; color: #c62828; line-height: 1.4;">
+                                                                                <span style="font-weight: 600; color: #c62828;">🔴 End:</span> {!! nl2br(e($log->end_work_log)) !!}
+                                                                            </td>
+                                                                        </tr>
+                                                                    @endif
+                                                                </table>
+                                                            </td>
+                                                        </tr>
+                                                    @endforeach
+                                                </table>
+
                                                 <!-- Footer -->
-                                                <table width="100%" cellspacing="0" cellpadding="0" border="0" style="margin-top: 10px;">
+                                                <table width="100%" cellspacing="0" cellpadding="0" border="0" style="margin-top: 12px;">
                                                     <tr>
                                                         <td align="right" style="font-size: 13px; font-weight: 700; color: #2c3e50;">
                                                             Day Total: {{ floor($userDayTotal / 60) }}h {{ $userDayTotal % 60 }}m

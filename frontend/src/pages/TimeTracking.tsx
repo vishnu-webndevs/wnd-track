@@ -124,6 +124,8 @@ export default function TimeTracking() {
   const [endWorkLog, setEndWorkLog] = useState('');
   const [isStoppingTracker, setIsStoppingTracker] = useState(false);
 
+
+
   const [isTracking, setIsTracking] = useState((window as TTWindow).__tt_core.isTracking);
   const isTrackingRef = useRef(isTracking);
   useEffect(() => {
@@ -1170,6 +1172,7 @@ export default function TimeTracking() {
             fixedShotNextTime?: string;
             projectName?: string;
             taskTitle?: string;
+            startWorkLog?: string;
           };
 
           if ((parsed.isTracking || parsed.isPaused) && !core.isTracking && !core.isPaused) {
@@ -1188,6 +1191,7 @@ export default function TimeTracking() {
               core.taskId = tId;
               setNote(parsed.note ?? '');
               core.note = parsed.note ?? '';
+              setStartWorkLog(parsed.startWorkLog ?? '');
             } else if (parsed.startAt) {
               // Resume normally
             core.isTracking = true;
@@ -1216,6 +1220,7 @@ export default function TimeTracking() {
 
             setNote(parsed.note ?? '');
             core.note = parsed.note ?? '';
+            setStartWorkLog(parsed.startWorkLog ?? '');
 
             if (parsed.timeLogId) {
               setActiveTimeLogId(parsed.timeLogId);
@@ -1505,6 +1510,7 @@ export default function TimeTracking() {
 
   const startTracking = async () => {
     const core = (window as TTWindow).__tt_core;
+    const isResuming = isPaused;
     if (core.isTracking) {
       toast.info('Tracking is already running');
       return;
@@ -1517,6 +1523,12 @@ export default function TimeTracking() {
     const project_id = getProjectId(selectedTaskId);
     if (!project_id) {
       toast.error('Selected task has no project');
+      return;
+    }
+
+    // Validate that employee describes next plan before resuming
+    if (isPaused && !startWorkLog.trim()) {
+      toast.error('Please describe what project or task you are switching to in the Start Work Log');
       return;
     }
 
@@ -1562,7 +1574,8 @@ export default function TimeTracking() {
         end_time: undefined,
         desktop_app_id: 'web',
         description: finalNote,
-        start_work_log: isPaused ? '' : startWorkLog.trim(),
+        start_work_log: startWorkLog.trim(),
+        tracker_action: isResuming ? 'resume' : 'start',
       });
       const logId = res.id;
       const serverStart = new Date(res.start_time);
@@ -1581,8 +1594,13 @@ export default function TimeTracking() {
         projectName,
         taskTitle,
         note: finalNote,
-        timeLogId: logId
+        timeLogId: logId,
+        startWorkLog: startWorkLog.trim(),
       }));
+
+      // Clear accomplishments and start log state for the next segment
+      setEndWorkLog('');
+      setStartWorkLog('');
 
       startHeartbeat(logId, serverStart);
     } catch {
@@ -1653,6 +1671,7 @@ export default function TimeTracking() {
         projectId: currentProjectId,
         taskId: currentTaskId,
         note: currentNote,
+        startWorkLog: startWorkLogRef.current,
       }));
     } else {
       setIsPaused(false);
@@ -1677,6 +1696,7 @@ export default function TimeTracking() {
               duration: durationMinutes,
               description: currentNote,
               end_work_log: endWorkLogText || undefined,
+              tracker_action: isPauseAction ? 'pause' : 'stop',
             }
           });
           if (!isPauseAction) toast.success('Tracking stopped and saved');
@@ -1690,6 +1710,7 @@ export default function TimeTracking() {
             id: activeLogId,
             payload: {
               end_work_log: endWorkLogText || undefined,
+              tracker_action: 'stop',
             }
           });
           toast.success('Tracking stopped and saved');
@@ -1841,6 +1862,98 @@ export default function TimeTracking() {
               rows={3}
             />
             <p className="mt-1 text-xs text-gray-500">This will be sent to admin as your work update</p>
+          </div>
+        )}
+
+        {/* Active/Paused Work Plan */}
+        {(isTracking || isPaused) && (
+          <div className="pt-2 border-t border-gray-100 space-y-2">
+            <label className="block text-sm font-semibold text-gray-800 mb-1 flex items-center gap-1.5">
+              <span>📝</span> Note & Work Log Details (Work Plan)
+            </label>
+            <div className="flex gap-3">
+              <textarea
+                value={note}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setNote(val);
+                  const core = (window as TTWindow).__tt_core;
+                  core.note = val;
+                  try {
+                    const raw = localStorage.getItem(trackerKey);
+                    if (raw) {
+                      const parsed = JSON.parse(raw);
+                      localStorage.setItem(trackerKey, JSON.stringify({
+                        ...parsed,
+                        note: val
+                      }));
+                    }
+                  } catch { void 0; }
+                }}
+                placeholder="What are you working on right now? Describe your work plan..."
+                className="block flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 min-h-[60px] resize-y font-mono"
+                rows={2}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const targetLogId = activeTimeLogId || pausedTimeLogId;
+                  if (targetLogId) {
+                    updateTimeLog.mutate({
+                      id: targetLogId,
+                      payload: {
+                        description: note,
+                      }
+                    }, {
+                      onSuccess: () => {
+                        toast.success('Work plan updated');
+                      },
+                      onError: () => {
+                        toast.error('Failed to update work plan');
+                      }
+                    });
+                  }
+                }}
+                disabled={updateTimeLog.isPending}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-sm font-semibold rounded-lg shadow transition-colors whitespace-nowrap self-end h-[38px] flex items-center"
+              >
+                {updateTimeLog.isPending ? 'Saving...' : 'Update Plan'}
+              </button>
+            </div>
+            <p className="text-xs text-gray-500">You can update your work plan anytime. It will save immediately when you click "Update Plan" or automatically sync every minute.</p>
+          </div>
+        )}
+
+        {/* Next Work Plan when Paused */}
+        {isPaused && (
+          <div className="pt-2 border-t border-gray-100 space-y-2">
+            <label className="block text-sm font-semibold text-gray-800 mb-1 flex items-center gap-1.5">
+              <span>📝</span> Note & Next Work Plan (Start Work Log) <span className="text-red-500">*</span>
+            </label>
+            <div className="flex gap-3">
+              <textarea
+                value={startWorkLog}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setStartWorkLog(val);
+                  // Auto-save to localStorage so it survives page reloads
+                  try {
+                    const raw = localStorage.getItem(trackerKey);
+                    if (raw) {
+                      const parsed = JSON.parse(raw);
+                      localStorage.setItem(trackerKey, JSON.stringify({
+                        ...parsed,
+                        startWorkLog: val
+                      }));
+                    }
+                  } catch { void 0; }
+                }}
+                placeholder="What task or project are you switching to? Describe your next work plan...&#10;Example: Working on API endpoint for setting updates, writing unit tests"
+                className="block flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 min-h-[80px] resize-y font-mono"
+                rows={3}
+              />
+            </div>
+            <p className="text-xs text-gray-500">This note will be saved as the Start Work Log of the resumed segment when you click "Resume".</p>
           </div>
         )}
 

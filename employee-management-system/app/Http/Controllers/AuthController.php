@@ -55,6 +55,10 @@ class AuthController extends Controller
 
         Auth::login($user);
 
+        // Always forget 2FA verification backend cache status upon new login
+        // to force a fresh 2FA challenge.
+        \Illuminate\Support\Facades\Cache::forget('2fa_verified_' . $user->id);
+
         return response()
             ->json([
             'user' => $user,
@@ -80,6 +84,9 @@ class AuthController extends Controller
         try {
             $user = $request->user();
             if ($user) {
+                // Clear 2FA verification status from backend cache on logout
+                \Illuminate\Support\Facades\Cache::forget('2fa_verified_' . $user->id);
+
                 $runningLog = TimeLog::where('user_id', $user->id)
                     ->whereNull('end_time')
                     ->latest()

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { usersAPI } from '../api/users';
 import { timeTrackingAPI } from '../api/timeTracking';
+import { authAPI } from '../api/auth';
 import { useAuthStore } from '../stores/authStore';
 import type { TimeLog, User, Screenshot } from '../types';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -23,11 +24,182 @@ export default function Timesheets() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuthStore();
+  const hasInitializedRef = useRef(false);
+
+  // 2FA States
+  const [is2FaVerified, setIs2FaVerified] = useState<boolean>(() => {
+    return sessionStorage.getItem('tt-2fa-verified') === 'true';
+  });
+  const [isChecking2Fa, setIsChecking2Fa] = useState(false);
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
+  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+  const [maskedEmail, setMaskedEmail] = useState('');
+  const [otpCode, setOtpCode] = useState<string[]>(Array(6).fill(''));
+  const [backupCodeInput, setBackupCodeInput] = useState('');
+  const [availableMethods, setAvailableMethods] = useState<('email' | 'totp' | 'backup')[]>(['email']);
+  const [selectedMethod, setSelectedMethod] = useState<'email' | 'totp' | 'backup'>('email');
+  const [errorMsg, setErrorMsg] = useState('');
+  const [cooldown, setCooldown] = useState(0);
+
+  // Cooldown effect
+  useEffect(() => {
+    if (cooldown > 0) {
+      const timer = setTimeout(() => setCooldown(cooldown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [cooldown]);
+
+  const sendOtp = async () => {
+    setIsSendingOtp(true);
+    setErrorMsg('');
+    try {
+      const res = await authAPI.send2FaOtp();
+      setMaskedEmail(res.email || 'your registered email');
+      setCooldown(60);
+      toast.success(res.message || 'Verification code sent successfully');
+    } catch (err: any) {
+      setErrorMsg(err.response?.data?.message || 'Failed to send verification code. Please try again.');
+      toast.error('Failed to send verification code');
+    } finally {
+      setIsSendingOtp(false);
+    }
+  };
+
+  // Listen for global 2FA challenge triggers from Axios interceptor (e.g. backend cache expires)
+  useEffect(() => {
+    const handle2FaRequired = () => {
+      setIs2FaVerified(false);
+      hasInitializedRef.current = false;
+    };
+    window.addEventListener('tt-2fa-required', handle2FaRequired);
+    return () => {
+      window.removeEventListener('tt-2fa-required', handle2FaRequired);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!user || user.role !== 'admin' || hasInitializedRef.current) return;
+
+    const init2Fa = async () => {
+      hasInitializedRef.current = true;
+      setIsChecking2Fa(true);
+      try {
+        const res = await authAPI.get2FaStatusFull();
+        if (res.verified) {
+          setIs2FaVerified(true);
+          sessionStorage.setItem('tt-2fa-verified', 'true');
+        } else {
+          setIs2FaVerified(false);
+          sessionStorage.removeItem('tt-2fa-verified');
+          const methods = res.methods || ['email'];
+          setAvailableMethods(methods);
+          const defaultM = res.default_method || methods[0] || 'email';
+          setSelectedMethod(defaultM);
+
+          if (defaultM === 'email') {
+            await sendOtp();
+          }
+        }
+      } catch {
+        setIs2FaVerified(false);
+        sessionStorage.removeItem('tt-2fa-verified');
+        await sendOtp();
+      } finally {
+        setIsChecking2Fa(false);
+      }
+    };
+    init2Fa();
+  }, [user]);
+
+  const handleMethodChange = async (method: 'email' | 'totp' | 'backup') => {
+    setSelectedMethod(method);
+    setErrorMsg('');
+    setOtpCode(Array(6).fill(''));
+    setBackupCodeInput('');
+    if (method === 'email' && cooldown === 0) {
+      await sendOtp();
+    }
+  };
+
+  const handleVerifyOtp = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    
+    let code = '';
+    if (selectedMethod === 'backup') {
+      code = backupCodeInput.trim();
+      if (code.length !== 8) {
+        setErrorMsg('Please enter a valid 8-character recovery code.');
+        return;
+      }
+    } else {
+      code = otpCode.join('').trim();
+      if (code.length !== 6) {
+        setErrorMsg('Please enter the full 6-digit code.');
+        return;
+      }
+    }
+
+    setIsVerifyingOtp(true);
+    setErrorMsg('');
+    try {
+      const res = await authAPI.verify2FaOtp(code, selectedMethod);
+      if (res.verified) {
+        setIs2FaVerified(true);
+        sessionStorage.setItem('tt-2fa-verified', 'true');
+        toast.success(res.message || 'Two-factor authentication verified successfully.');
+      }
+    } catch (err: any) {
+      setErrorMsg(err.response?.data?.message || 'Verification failed. Please check and try again.');
+      toast.error('Verification failed');
+    } finally {
+      setIsVerifyingOtp(false);
+    }
+  };
+
+  const handleOtpChange = (value: string, index: number) => {
+    if (value && !/^\d+$/.test(value)) return;
+
+    const newCode = [...otpCode];
+    newCode[index] = value.slice(-1);
+    setOtpCode(newCode);
+    setErrorMsg('');
+
+    if (value && index < 5) {
+      const nextInput = document.getElementById(`otp-input-${index + 1}`);
+      if (nextInput) (nextInput as HTMLInputElement).focus();
+    }
+  };
+
+  const handleOtpKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, index: number) => {
+    if (e.key === 'Backspace' && !otpCode[index] && index > 0) {
+      const prevInput = document.getElementById(`otp-input-${index - 1}`);
+      if (prevInput) {
+        (prevInput as HTMLInputElement).focus();
+        const newCode = [...otpCode];
+        newCode[index - 1] = '';
+        setOtpCode(newCode);
+      }
+    }
+  };
+
+  const handleOtpPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    const text = e.clipboardData.getData('text').trim();
+    if (/^\d{6}$/.test(text)) {
+      const chars = text.split('');
+      setOtpCode(chars);
+      setErrorMsg('');
+      const lastInput = document.getElementById('otp-input-5');
+      if (lastInput) (lastInput as HTMLInputElement).focus();
+    }
+  };
+
   const [search, setSearch] = useState('');
   const [employeeId, setEmployeeId] = useState<number | undefined>(undefined);
   const [startDate, setStartDate] = useState<string>(() => new Date(new Date().setDate(new Date().getDate() - 7)).toISOString().slice(0, 10));
   const [endDate, setEndDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [selectedLog, setSelectedLog] = useState<TimeLog | null>(null);
+  const [viewingNotesLog, setViewingNotesLog] = useState<TimeLog | null>(null);
   const [selectedShot, setSelectedShot] = useState<Screenshot | null>(null);
   const [isLiveWatching, setIsLiveWatching] = useState(false);
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -48,7 +220,9 @@ export default function Timesheets() {
     date: '',
     startTime: '',
     endTime: '',
-    description: ''
+    description: '',
+    startWorkLog: '',
+    endWorkLog: ''
   });
 
   const { data: projects } = useQuery({
@@ -109,7 +283,9 @@ export default function Timesheets() {
       return timeTrackingAPI.updateTimeLogAdmin(employeeId, selectedLogToEdit.id, {
         start_time: startStr,
         end_time: endStr,
-        description: data.description
+        description: data.description,
+        start_work_log: data.startWorkLog,
+        end_work_log: data.endWorkLog
       });
     },
     onSuccess: () => {
@@ -528,6 +704,169 @@ export default function Timesheets() {
     return <div className="py-8 text-center text-gray-500">Access denied.</div>;
   }
 
+  if (user.role === 'admin' && !is2FaVerified) {
+    if (isChecking2Fa) {
+      return (
+        <div className="min-h-[60vh] flex flex-col items-center justify-center space-y-4">
+          <LoadingSpinner size="lg" />
+          <p className="text-gray-500 animate-pulse font-medium">Checking security verification status...</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="min-h-[70vh] flex items-center justify-center px-4 py-8">
+        <div className="bg-white/80 backdrop-blur-md shadow-2xl rounded-2xl border border-gray-100 p-8 max-w-md w-full text-center space-y-6 transform transition-all duration-300 hover:scale-[1.01]">
+          {/* Animated Lock Shield */}
+          <div className="relative mx-auto w-20 h-20 flex items-center justify-center bg-indigo-50 text-indigo-600 rounded-full border border-indigo-100 shadow-inner">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.8" stroke="currentColor" className="w-10 h-10 animate-pulse">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+            </svg>
+            <div className="absolute inset-0 rounded-full bg-indigo-400/20 blur animate-ping opacity-75 pointer-events-none"></div>
+          </div>
+
+          <div className="space-y-2">
+            <h2 className="text-2xl font-bold text-gray-900 font-sans tracking-tight">Security Verification</h2>
+            <p className="text-sm text-gray-500 leading-relaxed">
+              {selectedMethod === 'backup' 
+                ? 'Use one of your 8-character recovery backup codes to unlock timesheets.'
+                : selectedMethod === 'totp'
+                ? 'Open your Authenticator App (Google/Microsoft) and enter the 6-digit passcode.'
+                : 'To view timesheet records and employee logs, please complete Two-Factor Authentication.'
+              }
+            </p>
+          </div>
+
+          {/* Method Switcher Header */}
+          {availableMethods.length > 1 && (
+            <div className="flex justify-center border-b border-gray-100 pb-2">
+              <div className="flex bg-gray-100 p-1 rounded-xl w-full">
+                {availableMethods.includes('totp') && (
+                  <button
+                    type="button"
+                    onClick={() => handleMethodChange('totp')}
+                    className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all outline-none ${
+                      selectedMethod === 'totp' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+                    }`}
+                  >
+                    📲 App
+                  </button>
+                )}
+                {availableMethods.includes('email') && (
+                  <button
+                    type="button"
+                    onClick={() => handleMethodChange('email')}
+                    className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all outline-none ${
+                      selectedMethod === 'email' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+                    }`}
+                  >
+                    ✉️ Email
+                  </button>
+                )}
+                {availableMethods.includes('backup') && (
+                  <button
+                    type="button"
+                    onClick={() => handleMethodChange('backup')}
+                    className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all outline-none ${
+                      selectedMethod === 'backup' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+                    }`}
+                  >
+                    🛡️ Backup
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {selectedMethod === 'email' && maskedEmail && (
+            <div className="bg-indigo-50/50 rounded-xl px-4 py-3 border border-indigo-50/80 inline-block w-full">
+              <p className="text-xs font-medium text-indigo-700">We've sent a 6-digit verification code to</p>
+              <span className="font-bold text-sm block mt-1 tracking-wide text-indigo-900">{maskedEmail}</span>
+            </div>
+          )}
+
+          {errorMsg && (
+            <div className="bg-red-50 text-red-600 rounded-xl p-3 border border-red-100 text-xs font-semibold">
+              {errorMsg}
+            </div>
+          )}
+
+          <form onSubmit={handleVerifyOtp} className="space-y-6">
+            {selectedMethod === 'backup' ? (
+              <div className="max-w-xs mx-auto space-y-2">
+                <input
+                  type="text"
+                  maxLength={8}
+                  placeholder="Enter Backup Code (e.g. A1B2C3D4)"
+                  value={backupCodeInput}
+                  onChange={(e) => setBackupCodeInput(e.target.value.toUpperCase())}
+                  className="block w-full border border-gray-300 rounded-xl py-3 px-3 text-center text-lg font-bold font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-gray-50"
+                  autoComplete="off"
+                  disabled={isVerifyingOtp}
+                />
+              </div>
+            ) : (
+              /* 6-Digit PIN input boxes */
+              <div className="flex justify-between max-w-xs mx-auto gap-2">
+                {otpCode.map((char, index) => (
+                  <input
+                    key={index}
+                    id={`otp-input-${index}`}
+                    type="text"
+                    maxLength={1}
+                    value={char}
+                    onChange={(e) => handleOtpChange(e.target.value, index)}
+                    onKeyDown={(e) => handleOtpKeyDown(e, index)}
+                    onPaste={handleOtpPaste}
+                    className="w-12 h-14 text-center text-xl font-extrabold text-gray-900 bg-gray-50 border border-gray-200 rounded-xl shadow-sm focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all outline-none"
+                    autoComplete="off"
+                    disabled={isVerifyingOtp}
+                  />
+                ))}
+              </div>
+            )}
+
+            <div className="space-y-3">
+              <button
+                type="submit"
+                disabled={isVerifyingOtp || (selectedMethod === 'backup' ? backupCodeInput.length !== 8 : otpCode.some(c => !c))}
+                className="w-full py-3 bg-indigo-600 text-white rounded-xl font-semibold shadow-lg shadow-indigo-600/20 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-indigo-700/30 transition-all flex items-center justify-center space-x-2"
+              >
+                {isVerifyingOtp ? (
+                  <>
+                    <LoadingSpinner size="sm" />
+                    <span>Verifying Credentials...</span>
+                  </>
+                ) : (
+                  <span>Verify and Access Timesheets</span>
+                )}
+              </button>
+
+              {selectedMethod === 'email' && (
+                <div className="pt-2 text-xs">
+                  {cooldown > 0 ? (
+                    <span className="text-gray-400 font-medium">
+                      Resend code in <strong className="text-indigo-600 font-semibold">{cooldown}s</strong>
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={sendOtp}
+                      disabled={isSendingOtp}
+                      className="text-indigo-600 hover:text-indigo-800 font-semibold underline underline-offset-4 disabled:opacity-50 transition-colors outline-none"
+                    >
+                      {isSendingOtp ? 'Resending Code...' : 'Resend Verification Code'}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between relative">
@@ -634,40 +973,31 @@ export default function Timesheets() {
                           <td className="px-4 py-2 text-sm text-gray-500">{log.end_time ? fixDate(log.end_time).toLocaleString() : '-'}</td>
                           <td className="px-4 py-2 text-sm text-gray-900">{log.duration ?? '-'}</td>
                           <td className="px-4 py-2 text-sm text-gray-500">
-                            {log.description && (
-                              <div className="relative group inline-block max-w-full">
-                                <div className="text-gray-900 font-semibold cursor-help hover:text-indigo-600 transition-colors">
-                                  {truncateWords(log.description, 3)}
-                                </div>
-                                <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block bg-gray-950 text-white text-xs rounded-md p-3 z-50 shadow-xl whitespace-normal w-64 break-words border border-gray-800">
-                                  <div className="font-semibold mb-1 text-gray-400">Note:</div>
-                                  {log.description}
-                                </div>
-                              </div>
+                            {(log.description || log.start_work_log || log.end_work_log) ? (
+                              <button
+                                onClick={() => setViewingNotesLog(log)}
+                                className="text-left w-full focus:outline-none group block space-y-1"
+                                title="Click to view full notes & work logs"
+                              >
+                                {log.description && (
+                                  <div className="text-gray-900 font-semibold group-hover:text-indigo-600 transition-colors">
+                                    {truncateWords(log.description, 6)}
+                                  </div>
+                                )}
+                                {log.start_work_log && (
+                                  <div className="text-xs text-emerald-600 font-medium group-hover:text-emerald-700 transition-colors">
+                                    <span className="font-semibold">Start:</span> {truncateWords(log.start_work_log, 6)}
+                                  </div>
+                                )}
+                                {log.end_work_log && (
+                                  <div className="text-xs text-rose-600 font-medium group-hover:text-rose-700 transition-colors">
+                                    <span className="font-semibold">End:</span> {truncateWords(log.end_work_log, 6)}
+                                  </div>
+                                )}
+                              </button>
+                            ) : (
+                              '-'
                             )}
-                            {log.start_work_log && (
-                              <div className="relative group block max-w-full mt-1">
-                                <div className="text-xs text-emerald-600 font-medium cursor-help hover:text-emerald-700 transition-colors">
-                                  <span className="font-semibold">Start:</span> {truncateWords(log.start_work_log, 3)}
-                                </div>
-                                <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block bg-gray-950 text-white text-xs rounded-md p-3 z-50 shadow-xl whitespace-normal w-64 break-words border border-gray-800">
-                                  <div className="font-semibold mb-1 text-emerald-400">🟢 Start Work Log:</div>
-                                  {log.start_work_log}
-                                </div>
-                              </div>
-                            )}
-                            {log.end_work_log && (
-                              <div className="relative group block max-w-full mt-1">
-                                <div className="text-xs text-rose-600 font-medium cursor-help hover:text-rose-700 transition-colors">
-                                  <span className="font-semibold">End:</span> {truncateWords(log.end_work_log, 3)}
-                                </div>
-                                <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block bg-gray-950 text-white text-xs rounded-md p-3 z-50 shadow-xl whitespace-normal w-64 break-words border border-gray-800">
-                                  <div className="font-semibold mb-1 text-rose-400">🔴 End Work Log:</div>
-                                  {log.end_work_log}
-                                </div>
-                              </div>
-                            )}
-                            {!log.description && !log.start_work_log && !log.end_work_log && '-'}
                           </td>
                           <td className="px-4 py-2 text-right">
                             <div className="flex justify-end gap-2">
@@ -681,7 +1011,9 @@ export default function Timesheets() {
                                       date: log.start_time.slice(0, 10),
                                       startTime: startDt.toTimeString().slice(0, 5),
                                       endTime: endDt ? endDt.toTimeString().slice(0, 5) : '',
-                                      description: log.description || ''
+                                      description: log.description || '',
+                                      startWorkLog: log.start_work_log || '',
+                                      endWorkLog: log.end_work_log || ''
                                     });
                                     setShowEditModal(true);
                                   }}
@@ -787,6 +1119,32 @@ export default function Timesheets() {
                           LIVE
                       </div>
                   </div>
+              )}
+
+              {/* Note & Work Logs Section */}
+              {(selectedLog.description || selectedLog.start_work_log || selectedLog.end_work_log) && (
+                <div className="mb-6 bg-gray-50 p-4 rounded-lg border border-gray-200">
+                  <div className="flex flex-col md:flex-row gap-4">
+                    {selectedLog.description && (
+                      <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-150 flex-1 flex flex-col">
+                        <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Note / Description</div>
+                        <p className="text-sm text-gray-900 whitespace-pre-wrap break-words font-medium leading-relaxed">{selectedLog.description}</p>
+                      </div>
+                    )}
+                    {selectedLog.start_work_log && (
+                      <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-150 flex-1 flex flex-col">
+                        <div className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-2">🟢 Start Work Log</div>
+                        <p className="text-sm text-gray-900 whitespace-pre-wrap break-words font-medium leading-relaxed">{selectedLog.start_work_log}</p>
+                      </div>
+                    )}
+                    {selectedLog.end_work_log && (
+                      <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-150 flex-1 flex flex-col">
+                        <div className="text-xs font-bold text-rose-600 uppercase tracking-wider mb-2">🔴 End Work Log</div>
+                        <p className="text-sm text-gray-900 whitespace-pre-wrap break-words font-medium leading-relaxed">{selectedLog.end_work_log}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
               )}
 
               {loadingShots ? (
@@ -1003,23 +1361,30 @@ export default function Timesheets() {
         </div>
       )}
       {showManualModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
-            <div className="flex items-center justify-between px-6 py-4 border-b">
-              <h3 className="text-lg font-semibold text-gray-900">Add Manual Time</h3>
-              <button onClick={() => setShowManualModal(false)} className="text-gray-400 hover:text-gray-500">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden border border-gray-100">
+            {/* Header - Fixed */}
+            <div className="flex items-center justify-between px-6 py-4 border-b flex-shrink-0 bg-gray-50">
+              <h3 className="text-lg font-bold text-gray-900 font-sans">Add Manual Time</h3>
+              <button 
+                onClick={() => setShowManualModal(false)} 
+                className="p-1.5 rounded-full hover:bg-gray-200 text-gray-400 hover:text-gray-600 transition-colors"
+                aria-label="Close manual time modal"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
-            <div className="p-6 space-y-4">
+            
+            {/* Body - Scrollable */}
+            <div className="p-6 space-y-4 overflow-y-auto flex-1 scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Project (Optional)</label>
+                <label className="block text-sm font-semibold text-gray-700">Project (Optional)</label>
                 <select
                   value={manualForm.projectId}
                   onChange={(e) => setManualForm({ ...manualForm, projectId: e.target.value, taskId: '' })}
-                  className="mt-1 block w-full border rounded px-3 py-2"
+                  className="mt-1 block w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-sans"
                 >
                   <option value="">No Project</option>
                   {projects?.map((p) => (
@@ -1029,11 +1394,11 @@ export default function Timesheets() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700">Task (Optional)</label>
+                <label className="block text-sm font-semibold text-gray-700">Task (Optional)</label>
                 <select
                   value={manualForm.taskId}
                   onChange={(e) => setManualForm({ ...manualForm, taskId: e.target.value })}
-                  className="mt-1 block w-full border rounded px-3 py-2"
+                  className="mt-1 block w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-sans"
                   disabled={!manualForm.projectId}
                 >
                   <option value="">Select Task</option>
@@ -1045,131 +1410,278 @@ export default function Timesheets() {
               
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2">
-                  <label className="block text-sm font-medium text-gray-700">Date</label>
+                  <label className="block text-sm font-semibold text-gray-700">Date</label>
                   <input
                     type="date"
                     value={manualForm.date}
                     onChange={(e) => setManualForm({ ...manualForm, date: e.target.value })}
-                    className="mt-1 block w-full border rounded px-3 py-2"
+                    className="mt-1 block w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-sans"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Start Time</label>
+                  <label className="block text-sm font-semibold text-gray-700">Start Time</label>
                   <input
                     type="time"
                     value={manualForm.startTime}
                     onChange={(e) => setManualForm({ ...manualForm, startTime: e.target.value })}
-                    className="mt-1 block w-full border rounded px-3 py-2"
+                    className="mt-1 block w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-sans"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">End Time</label>
+                  <label className="block text-sm font-semibold text-gray-700">End Time</label>
                   <input
                     type="time"
                     value={manualForm.endTime}
                     onChange={(e) => setManualForm({ ...manualForm, endTime: e.target.value })}
-                    className="mt-1 block w-full border rounded px-3 py-2"
+                    className="mt-1 block w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-sans"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700">Description</label>
+                <label className="block text-sm font-semibold text-gray-700">Description</label>
                 <textarea
                   value={manualForm.description}
                   onChange={(e) => setManualForm({ ...manualForm, description: e.target.value })}
-                  className="mt-1 block w-full border rounded px-3 py-2"
+                  className="mt-1 block w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-mono"
                   rows={3}
+                  placeholder="Describe the reason for manual time entry..."
                 />
               </div>
+            </div>
 
-              <div className="flex justify-end gap-3 pt-4">
-                <button
-                  onClick={() => setShowManualModal(false)}
-                  className="px-4 py-2 border rounded text-gray-700 hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => addManualTimeMutation.mutate(manualForm)}
-                  disabled={addManualTimeMutation.isPending}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
-                >
-                  {addManualTimeMutation.isPending ? 'Saving...' : 'Save Time Log'}
-                </button>
-              </div>
+            {/* Footer - Fixed */}
+            <div className="px-6 py-4 border-t bg-gray-50 flex-shrink-0 flex justify-end gap-3 rounded-b-xl">
+              <button
+                type="button"
+                onClick={() => setShowManualModal(false)}
+                className="px-4 py-2 border rounded-lg text-gray-700 hover:bg-gray-100 font-medium transition-colors text-sm shadow-sm"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => addManualTimeMutation.mutate(manualForm)}
+                disabled={addManualTimeMutation.isPending}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-semibold disabled:opacity-50 transition-colors text-sm shadow-sm"
+              >
+                {addManualTimeMutation.isPending ? 'Saving...' : 'Save Time Log'}
+              </button>
             </div>
           </div>
         </div>
       )}
 
       {showEditModal && selectedLogToEdit && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
-            <div className="flex items-center justify-between px-6 py-4 border-b">
-              <h3 className="text-lg font-semibold text-gray-900">Edit Time Log</h3>
-              <button onClick={() => setShowEditModal(false)} className="text-gray-400 hover:text-gray-500">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden border border-gray-100">
+            {/* Header - Fixed */}
+            <div className="flex items-center justify-between px-6 py-4 border-b flex-shrink-0 bg-gray-50">
+              <h3 className="text-lg font-bold text-gray-900 font-sans">Edit Time Log</h3>
+              <button 
+                onClick={() => setShowEditModal(false)} 
+                className="p-1.5 rounded-full hover:bg-gray-200 text-gray-400 hover:text-gray-600 transition-colors"
+                aria-label="Close edit modal"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
-            <div className="p-6 space-y-4">
+            
+            {/* Body - Scrollable */}
+            <div className="p-6 space-y-4 overflow-y-auto flex-1 scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2">
-                  <label className="block text-sm font-medium text-gray-700">Date</label>
+                  <label className="block text-sm font-semibold text-gray-700">Date</label>
                   <input
                     type="date"
                     value={editForm.date}
                     onChange={(e) => setEditForm({ ...editForm, date: e.target.value })}
-                    className="mt-1 block w-full border rounded px-3 py-2"
+                    className="mt-1 block w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-sans"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Start Time</label>
+                  <label className="block text-sm font-semibold text-gray-700">Start Time</label>
                   <input
                     type="time"
                     value={editForm.startTime}
                     onChange={(e) => setEditForm({ ...editForm, startTime: e.target.value })}
-                    className="mt-1 block w-full border rounded px-3 py-2"
+                    className="mt-1 block w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-sans"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">End Time</label>
+                  <label className="block text-sm font-semibold text-gray-700">End Time</label>
                   <input
                     type="time"
                     value={editForm.endTime}
                     onChange={(e) => setEditForm({ ...editForm, endTime: e.target.value })}
-                    className="mt-1 block w-full border rounded px-3 py-2"
+                    className="mt-1 block w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-sans"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700">Description</label>
+                <label className="block text-sm font-semibold text-gray-700">Description</label>
                 <textarea
                   value={editForm.description}
                   onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
-                  className="mt-1 block w-full border rounded px-3 py-2"
+                  className="mt-1 block w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-mono"
                   rows={3}
+                  placeholder="Note / Description..."
                 />
               </div>
 
-              <div className="flex justify-end gap-3 pt-4">
-                <button
-                  onClick={() => setShowEditModal(false)}
-                  className="px-4 py-2 border rounded text-gray-700 hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => editTimeMutation.mutate(editForm)}
-                  disabled={editTimeMutation.isPending}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
-                >
-                  {editTimeMutation.isPending ? 'Saving...' : 'Save Changes'}
-                </button>
+              <div>
+                <label className="block text-sm font-semibold text-emerald-600">🟢 Start Work Log</label>
+                <textarea
+                  value={editForm.startWorkLog}
+                  onChange={(e) => setEditForm({ ...editForm, startWorkLog: e.target.value })}
+                  className="mt-1 block w-full border border-emerald-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 font-mono"
+                  rows={2}
+                  placeholder="Start work log update..."
+                />
               </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-rose-600">🔴 End Work Log</label>
+                <textarea
+                  value={editForm.endWorkLog}
+                  onChange={(e) => setEditForm({ ...editForm, endWorkLog: e.target.value })}
+                  className="mt-1 block w-full border border-rose-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500 font-mono"
+                  rows={2}
+                  placeholder="End work log update..."
+                />
+              </div>
+            </div>
+
+            {/* Footer - Fixed */}
+            <div className="px-6 py-4 border-t bg-gray-50 flex-shrink-0 flex justify-end gap-3 rounded-b-xl">
+              <button
+                type="button"
+                onClick={() => setShowEditModal(false)}
+                className="px-4 py-2 border rounded-lg text-gray-700 hover:bg-gray-100 font-medium transition-colors text-sm shadow-sm"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => editTimeMutation.mutate(editForm)}
+                disabled={editTimeMutation.isPending}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-semibold disabled:opacity-50 transition-colors text-sm shadow-sm"
+              >
+                {editTimeMutation.isPending ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {viewingNotesLog && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setViewingNotesLog(null)}
+        >
+          <div 
+            className="bg-white rounded-xl shadow-2xl w-full max-w-xl overflow-hidden border border-gray-100 flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b flex-shrink-0 bg-gray-50">
+              <div className="flex items-center gap-2">
+                <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <h3 className="text-lg font-bold text-gray-900 font-sans">Note & Work Log Details</h3>
+              </div>
+              <button 
+                onClick={() => setViewingNotesLog(null)} 
+                className="p-1.5 rounded-full hover:bg-gray-200 text-gray-400 hover:text-gray-600 transition-colors"
+                aria-label="Close notes modal"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6 max-h-[60vh] overflow-y-auto scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
+              {viewingNotesLog.description && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Note / Description</span>
+                    <button 
+                      onClick={() => {
+                        navigator.clipboard.writeText(viewingNotesLog.description || '');
+                        toast.success('Note copied to clipboard!');
+                      }}
+                      className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-1 transition-colors"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                      </svg>
+                      Copy Note
+                    </button>
+                  </div>
+                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-150 text-gray-950 text-sm whitespace-pre-wrap break-words font-medium leading-relaxed shadow-inner">
+                    {viewingNotesLog.description}
+                  </div>
+                </div>
+              )}
+
+              {viewingNotesLog.start_work_log && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-emerald-600 uppercase tracking-wider flex items-center gap-1">🟢 Start Work Log</span>
+                    <button 
+                      onClick={() => {
+                        navigator.clipboard.writeText(viewingNotesLog.start_work_log || '');
+                        toast.success('Start Work Log copied to clipboard!');
+                      }}
+                      className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-1 transition-colors"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                      </svg>
+                      Copy Log
+                    </button>
+                  </div>
+                  <div className="bg-emerald-50/40 p-4 rounded-lg border border-emerald-100 text-gray-900 text-sm whitespace-pre-wrap break-words font-medium leading-relaxed shadow-inner">
+                    {viewingNotesLog.start_work_log}
+                  </div>
+                </div>
+              )}
+
+              {viewingNotesLog.end_work_log && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-rose-600 uppercase tracking-wider flex items-center gap-1">🔴 End Work Log</span>
+                    <button 
+                      onClick={() => {
+                        navigator.clipboard.writeText(viewingNotesLog.end_work_log || '');
+                        toast.success('End Work Log copied to clipboard!');
+                      }}
+                      className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-1 transition-colors"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                      </svg>
+                      Copy Log
+                    </button>
+                  </div>
+                  <div className="bg-rose-50/40 p-4 rounded-lg border border-rose-100 text-gray-900 text-sm whitespace-pre-wrap break-words font-medium leading-relaxed shadow-inner">
+                    {viewingNotesLog.end_work_log}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-4 border-t bg-gray-50 flex justify-end flex-shrink-0">
+              <button 
+                onClick={() => setViewingNotesLog(null)}
+                className="px-5 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-semibold shadow-md hover:shadow-lg transition-all"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>

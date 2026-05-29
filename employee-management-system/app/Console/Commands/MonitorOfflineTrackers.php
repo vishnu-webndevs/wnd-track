@@ -77,7 +77,7 @@ class MonitorOfflineTrackers extends Command
 
     private function sendTelegramNotification($message, $specificChatId = null)
     {
-        $botToken = env('TELEGRAM_BOT_TOKEN');
+        $botToken = \App\Models\Setting::get('telegram_bot_token', env('TELEGRAM_BOT_TOKEN'));
         $adminChatId = env('TELEGRAM_CHAT_ID');
 
         if (!$botToken) {

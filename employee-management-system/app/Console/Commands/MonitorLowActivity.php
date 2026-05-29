@@ -31,7 +31,7 @@ class MonitorLowActivity extends Command
      */
     public function handle()
     {
-        $botToken = env('TELEGRAM_BOT_TOKEN');
+        $botToken = \App\Models\Setting::get('telegram_bot_token', env('TELEGRAM_BOT_TOKEN'));
         if (!$botToken) {
             $this->error('Telegram Bot Token not configured.');
             return;

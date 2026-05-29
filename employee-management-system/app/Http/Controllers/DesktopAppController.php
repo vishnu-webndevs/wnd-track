@@ -115,60 +115,35 @@ class DesktopAppController extends Controller
             $projectName = $project ? $project->name : 'N/A';
             $taskTitle = $task ? $task->title : 'N/A';
             $nowFormatted = now()->format('d M Y, h:i A');
+            $action = $request->tracker_action ?? 'start'; // 'start' or 'resume'
 
-            // Only send start notifications if there is a start_work_log (meaning it's a fresh start, not a resume)
-            if ($request->start_work_log) {
-                $telegram = new TelegramService();
+            $telegram = new TelegramService();
 
-                // 1. Telegram: Notify admin that employee is available
+            // 1. Telegram: Notify admin about tracker event (start/resume)
+            try {
+                $telegram->notifyTrackerEvent(
+                    $action,
+                    $user->name,
+                    $projectName,
+                    $taskTitle,
+                    $nowFormatted,
+                    $request->start_work_log
+                );
+            } catch (\Exception $e) {
+                Log::error("Telegram {$action} notification error: " . $e->getMessage());
+            }
+
+            // 2. Telegram: Send event confirmation to employee if chat_id exists
+            if ($user->telegram_chat_id) {
                 try {
-                    $telegram->notifyEmployeeAvailable($user->name, $projectName, $taskTitle, $nowFormatted);
+                    $telegram->notifyEmployeeTrackerEvent(
+                        $user->telegram_chat_id,
+                        $action,
+                        $user->name,
+                        $nowFormatted
+                    );
                 } catch (\Exception $e) {
-                    Log::error('Telegram start notification error: ' . $e->getMessage());
-                }
-
-                // 2. Email: Send start work log to all admins (DISABLED: Using Telegram only)
-                /*
-                try {
-                    $admins = User::where('role', 'admin')->get();
-                    foreach ($admins as $admin) {
-                        if ($admin->email) {
-                            Mail::to($admin->email)->send(new WorkLogNotification(
-                                $user->name,
-                                $projectName,
-                                $taskTitle,
-                                $request->start_work_log,
-                                'start',
-                                $nowFormatted
-                            ));
-                        }
-                    }
-                } catch (\Exception $e) {
-                    Log::error('Email start notification error: ' . $e->getMessage());
-                }
-                */
-
-                // 3. Telegram: Send work log if admin has enabled it
-                try {
-                    $adminWithTelegram = User::where('role', 'admin')->where('send_worklog_telegram', true)->first();
-                    if ($adminWithTelegram) {
-                        $telegram->sendWorkLog($user->name, $projectName, $taskTitle, $request->start_work_log, 'start');
-                    }
-                } catch (\Exception $e) {
-                    Log::error('Telegram start worklog error: ' . $e->getMessage());
-                }
-
-                // 4. Telegram: Send minimal start confirmation to employee if chat_id exists
-                if ($user->telegram_chat_id) {
-                    try {
-                        $employeeMessage = "🟢 *Hello {$user->name}!*\n"
-                            . "Your tracking session has started.\n\n"
-                            . "⏱️ *Start Time:* {$nowFormatted}\n\n"
-                            . "_Have a great and productive session!_";
-                        $telegram->sendToChat($user->telegram_chat_id, $employeeMessage);
-                    } catch (\Exception $e) {
-                        Log::error('Telegram employee start notification error: ' . $e->getMessage());
-                    }
+                    Log::error("Telegram employee {$action} notification error: " . $e->getMessage());
                 }
             }
         } catch (\Exception $e) {
@@ -243,9 +218,9 @@ class DesktopAppController extends Controller
 
         $timeLog->update($data);
 
-        // Send end work log notifications when tracker is stopped (end_time is provided and end_work_log is present)
-        // Ensure we only send this once (check if we actually updated it now)
-        if ($request->end_work_log && (isset($data['end_time']) || $timeLog->end_time)) {
+        // Send notifications for pause/stop events
+        $trackerAction = $request->tracker_action; // 'pause' or 'stop'
+        if ($trackerAction && in_array($trackerAction, ['pause', 'stop']) && (isset($data['end_time']) || $timeLog->end_time)) {
             try {
                 $user = auth()->user();
                 $timeLog->load(['project.manager', 'task']);
@@ -259,69 +234,76 @@ class DesktopAppController extends Controller
                     $durationStr = ($hours > 0 ? "{$hours}h " : '') . "{$mins}m";
                 }
 
-                // 1. Email: Send end work log to all admins and the Project Manager
+                $telegram = new TelegramService();
+
+                // 1. Telegram: Notify admin about pause/stop event
                 try {
-                    $admins = User::where('role', 'admin')->get();
-                    $manager = $timeLog->project ? $timeLog->project->manager : null;
-
-                    $recipientEmails = [];
-                    foreach ($admins as $admin) {
-                        if ($admin->email) {
-                            $recipientEmails[] = $admin->email;
-                        }
-                    }
-                    if ($manager && $manager->email) {
-                        $recipientEmails[] = $manager->email;
-                    }
-                    $recipientEmails = array_unique($recipientEmails);
-
-                    foreach ($recipientEmails as $email) {
-                        try {
-                            Mail::to($email)->send(new WorkLogNotification(
-                                $user->name,
-                                $projectName,
-                                $taskTitle,
-                                $request->end_work_log,
-                                'end',
-                                $nowFormatted,
-                                $durationStr
-                            ));
-                        } catch (\Exception $e) {
-                            Log::error("Email stop notification failed for {$email}: " . $e->getMessage());
-                        }
-                    }
+                    $telegram->notifyTrackerEvent(
+                        $trackerAction,
+                        $user->name,
+                        $projectName,
+                        $taskTitle,
+                        $nowFormatted,
+                        $request->end_work_log,
+                        $durationStr
+                    );
                 } catch (\Exception $e) {
-                    Log::error('Email stop notification error: ' . $e->getMessage());
+                    Log::error("Telegram {$trackerAction} notification error: " . $e->getMessage());
                 }
 
-                // 2. Telegram: Send end work log if admin has enabled it
-                try {
-                    $adminWithTelegram = User::where('role', 'admin')->where('send_worklog_telegram', true)->first();
-                    if ($adminWithTelegram) {
-                        $telegram = new TelegramService();
-                        $telegram->sendWorkLog($user->name, $projectName, $taskTitle, $request->end_work_log, 'end');
-                    }
-                } catch (\Exception $e) {
-                    Log::error('Telegram stop notification error: ' . $e->getMessage());
-                }
-
-                // 3. Telegram: Send minimal stop confirmation to employee if chat_id exists
+                // 2. Telegram: Send event confirmation to employee if chat_id exists
                 if ($user->telegram_chat_id) {
                     try {
-                        $telegram = new TelegramService();
-                        $startTimeFormatted = \Carbon\Carbon::parse($timeLog->start_time)->format('d M Y, h:i A');
-                        $employeeMessage = "🔴 *Hello {$user->name}!*\n"
-                            . "Your tracking session has ended.\n\n"
-                            . "⏱️ *Start Time:* {$startTimeFormatted}\n"
-                            . "⏱️ *Stop Time:* {$nowFormatted}\n\n"
-                            . "_Thank you for your hard work!_";
-                        $telegram->sendToChat($user->telegram_chat_id, $employeeMessage);
+                        $telegram->notifyEmployeeTrackerEvent(
+                            $user->telegram_chat_id,
+                            $trackerAction,
+                            $user->name,
+                            $nowFormatted,
+                            $durationStr
+                        );
                     } catch (\Exception $e) {
-                        Log::error('Telegram employee stop notification error: ' . $e->getMessage());
+                        Log::error("Telegram employee {$trackerAction} notification error: " . $e->getMessage());
+                    }
+                }
+
+                // 3. Email: Send end work log to admins and PM only on stop (not pause)
+                if ($trackerAction === 'stop' && $request->end_work_log) {
+                    try {
+                        $admins = User::where('role', 'admin')->get();
+                        $manager = $timeLog->project ? $timeLog->project->manager : null;
+
+                        $recipientEmails = [];
+                        foreach ($admins as $admin) {
+                            if ($admin->email) {
+                                $recipientEmails[] = $admin->email;
+                            }
+                        }
+                        if ($manager && $manager->email) {
+                            $recipientEmails[] = $manager->email;
+                        }
+                        $recipientEmails = array_unique($recipientEmails);
+
+                        foreach ($recipientEmails as $email) {
+                            try {
+                                Mail::to($email)->send(new WorkLogNotification(
+                                    $user->name,
+                                    $projectName,
+                                    $taskTitle,
+                                    $request->end_work_log,
+                                    'end',
+                                    $nowFormatted,
+                                    $durationStr
+                                ));
+                            } catch (\Exception $e) {
+                                Log::error("Email stop notification failed for {$email}: " . $e->getMessage());
+                            }
+                        }
+                    } catch (\Exception $e) {
+                        Log::error('Email stop notification error: ' . $e->getMessage());
                     }
                 }
             } catch (\Exception $e) {
-                Log::error('Notification setup error on tracker stop: ' . $e->getMessage());
+                Log::error('Notification setup error on tracker update: ' . $e->getMessage());
             }
         }
 

@@ -1,7 +1,7 @@
 {
   "name": "frontend",
   "private": true,
-  "version": "1.0.33",
+  "version": "1.0.34",
   "main": "electron/main.cjs",
   "type": "module",
   "description": "Time Tracking Desktop App",

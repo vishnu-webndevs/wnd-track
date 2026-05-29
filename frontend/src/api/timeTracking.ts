@@ -11,6 +11,7 @@ export interface SyncTimeLogPayload {
   start_work_log?: string;
   desktop_app_id: string; // 'web'
   use_server_time?: boolean;
+  tracker_action?: 'start' | 'resume' | 'pause' | 'stop';
 }
 
 export interface ActivityPayload {
@@ -102,7 +103,17 @@ export const timeTrackingAPI = {
     const res = await api.post(`/users/${userId}/time-logs`, data);
     return res.data;
   },
-  updateTimeLogAdmin: async (userId: number, timeLogId: number, data: { start_time?: string; end_time?: string | null; description?: string }) => {
+  updateTimeLogAdmin: async (
+    userId: number,
+    timeLogId: number,
+    data: {
+      start_time?: string;
+      end_time?: string | null;
+      description?: string;
+      start_work_log?: string;
+      end_work_log?: string;
+    }
+  ) => {
     const res = await api.put(`/users/${userId}/time-logs/${timeLogId}`, data);
     return res.data;
   },

@@ -34,6 +34,8 @@ export default function Login() {
     try {
       setIsLoading(true);
       const result = await authAPI.login(data);
+      // Clear any pre-existing 2FA verified flags from sessionStorage on new login
+      sessionStorage.removeItem('tt-2fa-verified');
       login(result.user);
       toast.success('Login successful!');
       navigate('/dashboard');

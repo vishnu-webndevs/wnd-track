@@ -12,7 +12,7 @@ class TelegramService
 
     public function __construct()
     {
-        $this->botToken = env('TELEGRAM_BOT_TOKEN');
+        $this->botToken = \App\Models\Setting::get('telegram_bot_token', env('TELEGRAM_BOT_TOKEN'));
         $this->adminChatId = env('TELEGRAM_CHAT_ID');
     }
 
@@ -104,4 +104,70 @@ class TelegramService
 
         return $this->sendToAdmin($message);
     }
+
+    /**
+     * Notify admin about tracker events: start, resume, pause, stop
+     */
+    public function notifyTrackerEvent(string $action, string $employeeName, string $projectName, string $taskTitle, string $time, ?string $workLog = null, ?string $duration = null): bool
+    {
+        $config = match ($action) {
+            'start'  => ['emoji' => '🟢', 'label' => 'Tracker Started',  'color' => ''],
+            'resume' => ['emoji' => '▶️',  'label' => 'Tracker Resumed',  'color' => ''],
+            'pause'  => ['emoji' => '⏸️',  'label' => 'Tracker Paused',   'color' => ''],
+            'stop'   => ['emoji' => '🔴', 'label' => 'Tracker Stopped',  'color' => ''],
+            default  => ['emoji' => 'ℹ️',  'label' => 'Tracker Event',    'color' => ''],
+        };
+
+        $message = "{$config['emoji']} *{$config['label']}*\n\n"
+            . "👤 *{$employeeName}*\n"
+            . "📁 Project: {$projectName}\n"
+            . "📋 Task: {$taskTitle}\n"
+            . "⏱️ Time: {$time}";
+
+        if ($duration) {
+            $message .= "\n⏳ Duration: {$duration}";
+        }
+
+        if ($workLog) {
+            $logLabel = in_array($action, ['start', 'resume']) ? 'Start Work Log' : 'End Work Log';
+            $message .= "\n\n📝 *{$logLabel}:*\n{$workLog}";
+        }
+
+        return $this->sendToAdmin($message);
+    }
+
+    /**
+     * Notify employee about their tracker event
+     */
+    public function notifyEmployeeTrackerEvent(string $chatId, string $action, string $employeeName, string $time, ?string $duration = null): bool
+    {
+        $config = match ($action) {
+            'start'  => ['emoji' => '🟢', 'label' => 'Tracker Started',  'msg' => 'Your tracking session has started.'],
+            'resume' => ['emoji' => '▶️',  'label' => 'Tracker Resumed',  'msg' => 'Your tracking session has resumed.'],
+            'pause'  => ['emoji' => '⏸️',  'label' => 'Tracker Paused',   'msg' => 'Your tracking session is paused.'],
+            'stop'   => ['emoji' => '🔴', 'label' => 'Tracker Stopped',  'msg' => 'Your tracking session has ended.'],
+            default  => ['emoji' => 'ℹ️',  'label' => 'Tracker Event',    'msg' => 'Tracker event recorded.'],
+        };
+
+        $message = "{$config['emoji']} *{$config['label']}*\n\n"
+            . "Hello *{$employeeName}*!\n"
+            . "{$config['msg']}\n\n"
+            . "⏱️ *Time:* {$time}";
+
+        if ($duration) {
+            $message .= "\n⏳ *Duration:* {$duration}";
+        }
+
+        $footer = match ($action) {
+            'start', 'resume' => "\n\n_Have a great and productive session!_",
+            'pause'           => "\n\n_Take a break, you deserve it!_",
+            'stop'            => "\n\n_Thank you for your hard work!_",
+            default           => '',
+        };
+
+        $message .= $footer;
+
+        return $this->sendToChat($chatId, $message);
+    }
 }
+

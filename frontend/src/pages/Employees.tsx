@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Search, Edit, Trash2, UserPlus, Eye } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, UserPlus, Eye, EyeOff } from 'lucide-react';
 import { usersAPI } from '../api/users';
 import { useAuthStore } from '../stores/authStore';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -21,6 +21,9 @@ export default function Employees() {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isViewOpen, setIsViewOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [showChatId, setShowChatId] = useState(false);
+  const [showCreateChatId, setShowCreateChatId] = useState(false);
+  const [showEditChatId, setShowEditChatId] = useState(false);
   const queryClient = useQueryClient();
 
   const isAdmin = currentUser?.role === 'admin';
@@ -127,7 +130,7 @@ export default function Employees() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Employees</h1>
         {isAdmin && (
-          <button onClick={() => setIsCreateOpen(true)} className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+          <button onClick={() => { setIsCreateOpen(true); setShowCreateChatId(false); }} className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
             <Plus className="h-4 w-4 mr-2" />
             Add Employee
           </button>
@@ -260,6 +263,7 @@ export default function Employees() {
                           onClick={() => {
                             setSelectedUser(employee);
                             setIsViewOpen(true);
+                            setShowChatId(false);
                           }}
                         >
                           <Eye className="h-4 w-4" />
@@ -270,6 +274,7 @@ export default function Employees() {
                           onClick={() => {
                             setSelectedUser(employee);
                             setIsEditOpen(true);
+                            setShowEditChatId(false);
                             editForm.reset({
                               name: employee.name,
                               email: employee.email,
@@ -383,7 +388,23 @@ export default function Employees() {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-500 uppercase">Telegram Chat ID</label>
-                  <p className="mt-1 text-sm text-gray-900">{selectedUser.telegram_chat_id || '-'}</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <p className="text-sm text-gray-900">
+                      {showChatId 
+                        ? (selectedUser.telegram_chat_id || '-') 
+                        : (selectedUser.telegram_chat_id ? '••••••••' : '-')}
+                    </p>
+                    {selectedUser.telegram_chat_id && (
+                      <button
+                        type="button"
+                        onClick={() => setShowChatId(!showChatId)}
+                        className="text-gray-500 hover:text-gray-700 focus:outline-none"
+                        title={showChatId ? "Hide Chat ID" : "Show Chat ID"}
+                      >
+                        {showChatId ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
               <div className="flex items-center justify-end pt-2">
@@ -469,7 +490,22 @@ export default function Employees() {
                 </div>
                 <div className="sm:col-span-2">
                   <label className="block text-sm font-medium text-gray-700">Telegram Chat ID</label>
-                  <input {...createForm.register('telegram_chat_id')} className="mt-1 block w-full border rounded px-3 py-2" placeholder="e.g. 123456789" />
+                  <div className="relative mt-1">
+                    <input
+                      {...createForm.register('telegram_chat_id')}
+                      type={showCreateChatId ? "text" : "password"}
+                      className="block w-full border rounded pl-3 pr-10 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 font-mono w-full"
+                      placeholder="e.g. 123456789"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowCreateChatId(!showCreateChatId)}
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700 focus:outline-none"
+                      title={showCreateChatId ? "Hide Chat ID" : "Show Chat ID"}
+                    >
+                      {showCreateChatId ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
                 </div>
               </div>
               <div className="flex items-center justify-end gap-2 pt-2">
@@ -563,7 +599,22 @@ export default function Employees() {
                 </div>
                 <div className="sm:col-span-2">
                   <label className="block text-sm font-medium text-gray-700">Telegram Chat ID</label>
-                  <input {...editForm.register('telegram_chat_id')} className="mt-1 block w-full border rounded px-3 py-2" placeholder="e.g. 123456789" />
+                  <div className="relative mt-1">
+                    <input
+                      {...editForm.register('telegram_chat_id')}
+                      type={showEditChatId ? "text" : "password"}
+                      className="block w-full border rounded pl-3 pr-10 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 font-mono w-full"
+                      placeholder="e.g. 123456789"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowEditChatId(!showEditChatId)}
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700 focus:outline-none"
+                      title={showEditChatId ? "Hide Chat ID" : "Show Chat ID"}
+                    >
+                      {showEditChatId ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
                 </div>
               </div>
               <div className="flex items-center justify-end gap-2 pt-2">

@@ -24,6 +24,7 @@ export const useAuthStore = create<AuthState>()((set) => ({
   logout: () => {
     set({ user: null, isAuthenticated: false, authChecked: true });
     localStorage.removeItem(AUTH_LAST_USED_KEY);
+    sessionStorage.removeItem('tt-2fa-verified');
   },
   updateUser: (userData) => {
     set((state) => ({

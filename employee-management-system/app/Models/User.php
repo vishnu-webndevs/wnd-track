@@ -30,6 +30,10 @@ class User extends Authenticatable
         'hire_date',
         'telegram_chat_id',
         'send_worklog_telegram',
+        'two_factor_enabled',
+        'two_factor_method',
+        'two_factor_secret',
+        'two_factor_backup_codes',
     ];
 
     /**
@@ -40,6 +44,7 @@ class User extends Authenticatable
     protected $hidden = [
         'password',
         'remember_token',
+        'two_factor_secret',
     ];
 
     /**
@@ -54,6 +59,8 @@ class User extends Authenticatable
             'password' => 'hashed',
             'hire_date' => 'date',
             'send_worklog_telegram' => 'boolean',
+            'two_factor_enabled' => 'boolean',
+            'two_factor_backup_codes' => 'array',
         ];
     }
 
@@ -95,5 +102,32 @@ class User extends Authenticatable
     public function isEmployee()
     {
         return $this->role === 'employee';
+    }
+
+    /**
+     * Accessor to automatically decrypt telegram_chat_id.
+     */
+    public function getTelegramChatIdAttribute($value)
+    {
+        if (empty($value)) {
+            return $value;
+        }
+
+        try {
+            return \Illuminate\Support\Facades\Crypt::decryptString($value);
+        } catch (\Illuminate\Contracts\Encryption\DecryptException $e) {
+            // Fallback for existing plaintext values
+            return $value;
+        }
+    }
+
+    /**
+     * Mutator to automatically encrypt telegram_chat_id.
+     */
+    public function setTelegramChatIdAttribute($value)
+    {
+        $this->attributes['telegram_chat_id'] = !empty($value) 
+            ? \Illuminate\Support\Facades\Crypt::encryptString($value) 
+            : $value;
     }
 }

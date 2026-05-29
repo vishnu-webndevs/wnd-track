@@ -9,6 +9,8 @@ use App\Http\Controllers\ProjectController;
 use App\Http\Controllers\TaskController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DesktopAppController;
+use App\Http\Controllers\TwoFactorController;
+use App\Http\Middleware\AdminTwoFactorMiddleware;
 
 /*
 |--------------------------------------------------------------------------
@@ -18,6 +20,7 @@ use App\Http\Controllers\DesktopAppController;
 | Here is where you can register API routes for your application. These
 | routes are loaded by the RouteServiceProvider and all of them will
 | be assigned to the "api" middleware group. Make something great!
+|
 |
 */
 Route::get('/up', function () {
@@ -37,6 +40,17 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/settings/telegram-worklog', [UserController::class, 'updateTelegramWorklogSetting']);
     Route::get('/settings/telegram-worklog', [UserController::class, 'getTelegramWorklogSetting']);
 
+    // 2FA Routes
+    Route::post('/2fa/send', [TwoFactorController::class, 'sendOtp']);
+    Route::post('/2fa/verify', [TwoFactorController::class, 'verifyOtp']);
+    Route::get('/2fa/status', [TwoFactorController::class, 'checkStatus']);
+    Route::get('/2fa/settings', [TwoFactorController::class, 'getSettings']);
+    Route::post('/2fa/settings', [TwoFactorController::class, 'updateSettings']);
+    Route::post('/2fa/totp/setup', [TwoFactorController::class, 'setupTotp']);
+    Route::post('/2fa/totp/verify', [TwoFactorController::class, 'verifyAndEnableTotp']);
+    Route::post('/2fa/totp/disconnect', [TwoFactorController::class, 'disconnectTotp']);
+    Route::post('/2fa/backup-codes/generate', [TwoFactorController::class, 'generateBackupCodes']);
+
     // Dashboard
     Route::get('/dashboard', [DashboardController::class, 'index']);
     Route::get('/dashboard/time-analytics', [DashboardController::class, 'getTimeAnalytics']);
@@ -48,19 +62,23 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/users/{user}', [UserController::class, 'update']);
     Route::delete('/users/{user}', [UserController::class, 'destroy']);
     Route::post('/users/{user}/reset-password', [UserController::class, 'resetPassword']);
-    Route::get('/users/{user}/time-logs', [UserController::class, 'getTimeLogs']);
-    Route::post('/users/{user}/time-logs', [UserController::class, 'storeTimeLog']);
-    Route::put('/users/{user}/time-logs/{timeLog}', [UserController::class, 'updateTimeLogAdmin']);
-    Route::get('/users/{user}/screenshots', [UserController::class, 'getScreenshots']);
-    Route::delete('/users/{user}/screenshots/{screenshot}', [UserController::class, 'deleteScreenshot']);
-    Route::get('/users/{user}/screenshots/{screenshot}/file', [UserController::class, 'getScreenshotFile']);
-    Route::post('/users/{user}/trigger-live', [UserController::class, 'triggerLive']);
-    Route::post('/users/{user}/stop-live', [UserController::class, 'stopLive']);
-    Route::post('/users/{user}/signal', [UserController::class, 'signal']);
-    Route::get('/users/{user}/signal', [UserController::class, 'getSignal']);
-    Route::get('/users/{user}/activity-summary', [UserController::class, 'getActivitySummary']);
     Route::get('/users/{user}/assigned-projects', [UserController::class, 'getAssignedProjects']);
     Route::get('/users/{user}/projects/{project}/assigned-tasks', [UserController::class, 'getAssignedProjectTasks']);
+
+    // Timesheets and Monitoring Protected by 2FA for Admins
+    Route::middleware(AdminTwoFactorMiddleware::class)->group(function () {
+        Route::get('/users/{user}/time-logs', [UserController::class, 'getTimeLogs']);
+        Route::post('/users/{user}/time-logs', [UserController::class, 'storeTimeLog']);
+        Route::put('/users/{user}/time-logs/{timeLog}', [UserController::class, 'updateTimeLogAdmin']);
+        Route::get('/users/{user}/screenshots', [UserController::class, 'getScreenshots']);
+        Route::delete('/users/{user}/screenshots/{screenshot}', [UserController::class, 'deleteScreenshot']);
+        Route::get('/users/{user}/screenshots/{screenshot}/file', [UserController::class, 'getScreenshotFile']);
+        Route::post('/users/{user}/trigger-live', [UserController::class, 'triggerLive']);
+        Route::post('/users/{user}/stop-live', [UserController::class, 'stopLive']);
+        Route::post('/users/{user}/signal', [UserController::class, 'signal']);
+        Route::get('/users/{user}/signal', [UserController::class, 'getSignal']);
+        Route::get('/users/{user}/activity-summary', [UserController::class, 'getActivitySummary']);
+    });
 
     // Clients
     Route::get('/clients', [ClientController::class, 'index']);

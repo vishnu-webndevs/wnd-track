@@ -92,13 +92,13 @@ export const usersAPI = {
     return response.data;
   },
 
-  getTelegramWorklogSetting: async (): Promise<{ send_worklog_telegram: boolean }> => {
+  getTelegramWorklogSetting: async (): Promise<{ send_worklog_telegram: boolean; telegram_bot_token: string }> => {
     const response = await api.get('/settings/telegram-worklog');
     return response.data;
   },
 
-  updateTelegramWorklogSetting: async (enabled: boolean): Promise<{ send_worklog_telegram: boolean }> => {
-    const response = await api.put('/settings/telegram-worklog', { send_worklog_telegram: enabled });
+  updateTelegramWorklogSetting: async (payload: { send_worklog_telegram: boolean; telegram_bot_token?: string }): Promise<{ send_worklog_telegram: boolean; telegram_bot_token: string }> => {
+    const response = await api.put('/settings/telegram-worklog', payload);
     return response.data;
   },
 };
