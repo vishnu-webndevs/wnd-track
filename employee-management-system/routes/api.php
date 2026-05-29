@@ -64,6 +64,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/users/{user}/reset-password', [UserController::class, 'resetPassword']);
     Route::get('/users/{user}/assigned-projects', [UserController::class, 'getAssignedProjects']);
     Route::get('/users/{user}/projects/{project}/assigned-tasks', [UserController::class, 'getAssignedProjectTasks']);
+    Route::put('/time-logs/{timeLog}/notes', [UserController::class, 'updateTimeLogEmployee']);
 
     // Timesheets and Monitoring Protected by 2FA for Admins
     Route::middleware(AdminTwoFactorMiddleware::class)->group(function () {

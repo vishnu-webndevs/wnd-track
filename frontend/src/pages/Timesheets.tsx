@@ -275,7 +275,17 @@ export default function Timesheets() {
 
   const editTimeMutation = useMutation({
     mutationFn: (data: typeof editForm) => {
-      if (!employeeId || !selectedLogToEdit) throw new Error("No employee or log selected");
+      if (!selectedLogToEdit) throw new Error("No log selected");
+
+      if (user?.role === 'employee') {
+        return timeTrackingAPI.updateTimeLogEmployee(selectedLogToEdit.id, {
+          description: data.description,
+          start_work_log: data.startWorkLog,
+          end_work_log: data.endWorkLog
+        });
+      }
+
+      if (!employeeId) throw new Error("No employee selected");
       
       const startStr = `${data.date} ${data.startTime}:00`;
       const endStr = data.endTime ? `${data.date} ${data.endTime}:00` : null;
@@ -1001,7 +1011,7 @@ export default function Timesheets() {
                           </td>
                           <td className="px-4 py-2 text-right">
                             <div className="flex justify-end gap-2">
-                              {user?.role === 'admin' && (
+                              {(user?.role === 'admin' || user?.role === 'employee') && (
                                 <button
                                   onClick={() => {
                                     setSelectedLogToEdit(log);
@@ -1498,7 +1508,8 @@ export default function Timesheets() {
                     type="date"
                     value={editForm.date}
                     onChange={(e) => setEditForm({ ...editForm, date: e.target.value })}
-                    className="mt-1 block w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-sans"
+                    disabled={user?.role === 'employee'}
+                    className="mt-1 block w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-sans disabled:opacity-60 disabled:bg-gray-100 disabled:cursor-not-allowed"
                   />
                 </div>
                 <div>
@@ -1507,7 +1518,8 @@ export default function Timesheets() {
                     type="time"
                     value={editForm.startTime}
                     onChange={(e) => setEditForm({ ...editForm, startTime: e.target.value })}
-                    className="mt-1 block w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-sans"
+                    disabled={user?.role === 'employee'}
+                    className="mt-1 block w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-sans disabled:opacity-60 disabled:bg-gray-100 disabled:cursor-not-allowed"
                   />
                 </div>
                 <div>
@@ -1516,7 +1528,8 @@ export default function Timesheets() {
                     type="time"
                     value={editForm.endTime}
                     onChange={(e) => setEditForm({ ...editForm, endTime: e.target.value })}
-                    className="mt-1 block w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-sans"
+                    disabled={user?.role === 'employee'}
+                    className="mt-1 block w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-sans disabled:opacity-60 disabled:bg-gray-100 disabled:cursor-not-allowed"
                   />
                 </div>
               </div>

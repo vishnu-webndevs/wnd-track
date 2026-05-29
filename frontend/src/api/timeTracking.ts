@@ -117,6 +117,17 @@ export const timeTrackingAPI = {
     const res = await api.put(`/users/${userId}/time-logs/${timeLogId}`, data);
     return res.data;
   },
+  updateTimeLogEmployee: async (
+    timeLogId: number,
+    data: {
+      description?: string;
+      start_work_log?: string;
+      end_work_log?: string;
+    }
+  ) => {
+    const res = await api.put(`/time-logs/${timeLogId}/notes`, data);
+    return res.data;
+  },
   getUserScreenshotsAdmin: async (
     userId: number,
     filters: { start_date?: string; end_date?: string; project_id?: number; time_log_id?: number } = {}

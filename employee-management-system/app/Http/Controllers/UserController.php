@@ -281,6 +281,36 @@ class UserController extends Controller
         ]);
     }
 
+    public function updateTimeLogEmployee(Request $request, TimeLog $timeLog)
+    {
+        $user = Auth::user();
+        
+        // Ensure the time log belongs to the authenticated employee
+        if ($timeLog->user_id !== $user->id) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'description' => 'nullable|string',
+            'start_work_log' => 'nullable|string',
+            'end_work_log' => 'nullable|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $timeLog->description = $request->input('description');
+        $timeLog->start_work_log = $request->input('start_work_log');
+        $timeLog->end_work_log = $request->input('end_work_log');
+        $timeLog->save();
+
+        return response()->json([
+            'message' => 'Time log notes updated successfully.',
+            'time_log' => $timeLog->load(['project', 'task'])
+        ]);
+    }
+
     public function getAssignedProjects(User $user)
     {
         if (Auth::user()->role !== 'admin' && Auth::id() !== $user->id) {
