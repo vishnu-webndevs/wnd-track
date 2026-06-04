@@ -12,6 +12,8 @@ RUN npm run build
 # Production Stage
 FROM nginx:alpine
 
+ENV API_UPSTREAM=http://backend:8080
+
 RUN apk add --no-cache curl \
  && rm /etc/nginx/conf.d/default.conf
 
