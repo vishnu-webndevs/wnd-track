@@ -62,7 +62,7 @@ let realtimeBlockArmed = false;
 const blockRealtimeTemporarily = () => {
   const now = Date.now();
   if (realtimeBlockedUntil > now) return;
-  realtimeBlockedUntil = now + 10 * 60 * 1000;
+  realtimeBlockedUntil = now + 60 * 1000;
 };
 
 export const getEcho = (): Echo<'reverb'> => {
