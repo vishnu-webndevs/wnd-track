@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Models\Project;
 use App\Models\Task;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 class PresenceService
@@ -151,7 +152,17 @@ class PresenceService
         try {
             broadcast(new UserStatusChanged($presenceData))->toOthers();
         } catch (\Exception $e) {
-            Log::warning('Failed to broadcast user presence status: ' . $e->getMessage());
+            try {
+                $cooldownSeconds = 300;
+                $cacheKey = 'presence:broadcast_presence_failed';
+                $shouldLog = Cache::add($cacheKey, true, $cooldownSeconds);
+                if ($shouldLog) {
+                    Log::warning('Failed to broadcast user presence status: ' . $e->getMessage());
+                }
+            } catch (\Throwable $inner) {
+                Log::warning('Failed to broadcast user presence status: ' . $e->getMessage());
+                void $inner;
+            }
         }
     }
 
