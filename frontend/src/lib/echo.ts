@@ -4,6 +4,27 @@ import Pusher from 'pusher-js';
 // Make Pusher available globally (required by Laravel Echo)
 (window as unknown as { Pusher: typeof Pusher }).Pusher = Pusher;
 
+const createNoopChannel = () => {
+  const channel: any = {
+    here: () => channel,
+    joining: () => channel,
+    leaving: () => channel,
+    listen: () => channel,
+    stopListening: () => channel,
+    whisper: () => channel,
+    listenForWhisper: () => channel,
+    stopListeningForWhisper: () => channel,
+  };
+  return channel;
+};
+
+const noopEchoInstance: any = {
+  join: () => createNoopChannel(),
+  private: () => createNoopChannel(),
+  leave: () => void 0,
+  disconnect: () => void 0,
+};
+
 const getAuthHeaders = (): Record<string, string> => {
   const token = localStorage.getItem('token');
   const isNgrok = window.location.hostname.endsWith('.ngrok-free.dev') || window.location.hostname.endsWith('.ngrok.io');
@@ -35,8 +56,20 @@ const getApiBaseUrl = (): string => {
 
 let echoInstance: Echo<'reverb'> | null = null;
 let tokenUsed: string | null = null;
+let realtimeBlockedUntil = 0;
+let realtimeBlockArmed = false;
+
+const blockRealtimeTemporarily = () => {
+  const now = Date.now();
+  if (realtimeBlockedUntil > now) return;
+  realtimeBlockedUntil = now + 10 * 60 * 1000;
+};
 
 export const getEcho = (): Echo<'reverb'> => {
+  if (Date.now() < realtimeBlockedUntil) {
+    return noopEchoInstance as Echo<'reverb'>;
+  }
+
   const currentToken = localStorage.getItem('token');
 
   // Recreate instance if token changes to keep authorization headers up-to-date
@@ -79,6 +112,28 @@ export const getEcho = (): Echo<'reverb'> => {
       headers: getAuthHeaders(),
     },
   });
+
+  try {
+    const connectorAny = (echoInstance as any)?.connector;
+    const pusher = connectorAny?.pusher;
+    if (pusher?.connection?.bind && !realtimeBlockArmed) {
+      realtimeBlockArmed = true;
+      const stopLoop = () => {
+        blockRealtimeTemporarily();
+        try {
+          pusher.disconnect();
+        } catch (e) {
+          void e;
+        }
+        disconnectEcho();
+        realtimeBlockArmed = false;
+      };
+      pusher.connection.bind('error', stopLoop);
+      pusher.connection.bind('unavailable', stopLoop);
+    }
+  } catch (e) {
+    void e;
+  }
 
   return echoInstance;
 };
