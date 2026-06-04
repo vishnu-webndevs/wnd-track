@@ -7,12 +7,16 @@ import ProtectedRoute from './components/ProtectedRoute';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Employees from './pages/Employees';
+import TeamAvailability from './pages/TeamAvailability';
+import Chat from './pages/Chat';
 import Clients from './pages/Clients';
 import Projects from './pages/Projects';
 import Tasks from './pages/Tasks';
 import TimeTracking from './pages/TimeTracking';
 import Timesheets from './pages/Timesheets';
 import Settings from './pages/Settings';
+import Meetings from './pages/Meetings';
+import MeetingRoom from './pages/MeetingRoom';
 import { authAPI } from './api/auth';
 import { useAuthStore } from './stores/authStore';
 
@@ -72,6 +76,10 @@ function AppContent() {
                 <Route path="/tasks" element={<Tasks />} />
                 <Route path="/time-tracking" element={<TimeTracking />} />
                 <Route path="/timesheets" element={<Timesheets />} />
+                <Route path="/chat" element={<Chat />} />
+                <Route path="/meetings" element={<Meetings />} />
+                <Route path="/meeting-room/:id" element={<MeetingRoom />} />
+                <Route path="/team-availability" element={<ProtectedRoute requiredRole="admin"><TeamAvailability /></ProtectedRoute>} />
                 <Route path="/settings" element={<ProtectedRoute requiredRole="admin"><Settings /></ProtectedRoute>} />
                 <Route path="/" element={<Dashboard />} />
               </Routes>

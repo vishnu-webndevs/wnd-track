@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class User extends Authenticatable
 {
@@ -92,6 +93,19 @@ class User extends Authenticatable
     public function activityLogs()
     {
         return $this->hasMany(ActivityLog::class);
+    }
+
+    public function presence(): HasOne
+    {
+        return $this->hasOne(UserPresence::class);
+    }
+
+    public function meetings()
+    {
+        return $this->belongsToMany(Meeting::class, 'meeting_participants')
+            ->using(MeetingParticipant::class)
+            ->withPivot(['role', 'status', 'joined_at', 'left_at'])
+            ->withTimestamps();
     }
 
     public function isAdmin()

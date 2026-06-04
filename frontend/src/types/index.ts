@@ -1,3 +1,5 @@
+import { Meeting } from './meetings';
+
 export interface User {
   id: number;
   name: string;
@@ -136,6 +138,16 @@ export interface DashboardStats {
   overdueTasks: Task[];
   todayHours?: number;
   todayMinutes?: number;
+  onlineEmployees?: number;
+  availableEmployees?: number;
+  activeTrackers?: number;
+  offlineEmployees?: number;
+  upcomingMeetings?: number;
+  liveMeetings?: number;
+  unreadMessages?: number;
+  pendingNotifications?: number;
+  upcomingMeetingsList?: Meeting[];
+  activeMeetingsList?: Meeting[];
 }
 
 export interface ApiResponse<T> {

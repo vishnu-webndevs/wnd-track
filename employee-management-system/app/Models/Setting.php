@@ -13,18 +13,22 @@ class Setting extends Model
      */
     public static function get(string $key, $default = null)
     {
-        $setting = self::where('key', $key)->first();
-        if ($setting) {
-            $value = $setting->value;
-            if ($key === 'telegram_bot_token' && !empty($value)) {
-                try {
-                    return \Illuminate\Support\Facades\Crypt::decryptString($value);
-                } catch (\Illuminate\Contracts\Encryption\DecryptException $e) {
-                    // Fallback for existing plaintext value
-                    return $value;
+        try {
+            $setting = self::where('key', $key)->first();
+            if ($setting) {
+                $value = $setting->value;
+                if ($key === 'telegram_bot_token' && !empty($value)) {
+                    try {
+                        return \Illuminate\Support\Facades\Crypt::decryptString($value);
+                    } catch (\Illuminate\Contracts\Encryption\DecryptException $e) {
+                        // Fallback for existing plaintext value
+                        return $value;
+                    }
                 }
+                return $value;
             }
-            return $value;
+        } catch (\Illuminate\Database\QueryException $e) {
+            // Table might not exist during early migrations or test setups
         }
         return $default;
     }

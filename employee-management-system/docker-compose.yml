@@ -10,6 +10,17 @@ services:
       - "8080:8080"
     volumes:
       - tracker_storage:/var/www/html/storage
+    depends_on:
+      - reverb
+
+  reverb:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["php", "artisan", "reverb:start", "--host=0.0.0.0", "--port=8080"]
+    ports:
+      - "8081:8080"
 
 volumes:
   tracker_storage:

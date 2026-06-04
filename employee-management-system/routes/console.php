@@ -12,4 +12,5 @@ Schedule::command('report:daily-time')->dailyAt('21:00');
 Schedule::command('timelogs:stop-ghosts')->everyMinute();
 Schedule::command('timelogs:monitor-offline')->everyMinute();
 Schedule::command('timelogs:monitor-activity')->everyFiveMinutes();
+Schedule::command('meetings:remind')->everyMinute();
 

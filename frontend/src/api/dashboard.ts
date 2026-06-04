@@ -21,6 +21,17 @@ export const dashboardAPI = {
       overdueTasks: [],
       todayHours: statsBlock.today_hours ?? 0,
       todayMinutes: statsBlock.today_minutes ?? 0,
+      // Extended properties
+      onlineEmployees: statsBlock.online_employees ?? 0,
+      availableEmployees: statsBlock.available_employees ?? 0,
+      activeTrackers: statsBlock.active_trackers ?? 0,
+      offlineEmployees: statsBlock.offline_employees ?? 0,
+      upcomingMeetings: statsBlock.upcoming_meetings ?? 0,
+      liveMeetings: statsBlock.live_meetings ?? 0,
+      unreadMessages: statsBlock.unread_messages ?? 0,
+      pendingNotifications: statsBlock.pending_notifications ?? 0,
+      upcomingMeetingsList: data.upcoming_meetings_list ?? [],
+      activeMeetingsList: data.active_meetings_list ?? [],
     };
   },
 };

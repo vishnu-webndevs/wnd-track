@@ -14,7 +14,9 @@ return new class extends Migration
     {
         // Fix for MySQL implicitly adding ON UPDATE CURRENT_TIMESTAMP to the first timestamp column
         // We want start_time to default to NOW() on create, but NOT update on every row update.
-        DB::statement('ALTER TABLE time_logs MODIFY start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement('ALTER TABLE time_logs MODIFY start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+        }
     }
 
     /**

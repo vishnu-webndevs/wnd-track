@@ -11,11 +11,19 @@ import {
   X,
   User,
   Building2,
-  Timer
+  Timer,
+  MessageSquare,
+  Video
 } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import { timeTrackingAPI } from '../api/timeTracking';
+import { teamAvailabilityAPI } from '../api/teamAvailability';
 import { authAPI } from '../api/auth';
+import NotificationBell from './NotificationBell';
+import { useNotifications } from '../hooks/useNotifications';
+import { useChatStore } from '../stores/chatStore';
+import VoiceCallBar from './VoiceCallBar';
+import JoinMeetingPopup from './JoinMeetingPopup';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -26,6 +34,41 @@ export default function Layout({ children }: LayoutProps) {
   const { user, logout } = useAuthStore();
   const location = useLocation();
   const navigate = useNavigate();
+  const { totalUnreadCount, fetchUnreadCount } = useChatStore();
+
+  // Initialize real-time notifications
+  useNotifications();
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    teamAvailabilityAPI.sendHeartbeat(navigator.onLine).catch(() => {});
+
+    const interval = window.setInterval(() => {
+      teamAvailabilityAPI.sendHeartbeat(navigator.onLine).catch(() => {});
+    }, 30000);
+
+    const handleOnlineStatus = () => {
+      teamAvailabilityAPI.sendHeartbeat(navigator.onLine).catch(() => {});
+    };
+    window.addEventListener('online', handleOnlineStatus);
+    window.addEventListener('offline', handleOnlineStatus);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('online', handleOnlineStatus);
+      window.removeEventListener('offline', handleOnlineStatus);
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (user?.id) {
+      fetchUnreadCount();
+      
+      const interval = setInterval(fetchUnreadCount, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [user?.id, fetchUnreadCount]);
 
   const activityCountsRef = useRef({ keyboard: 0, mouse: 0, scroll: 0 });
   const flushIntervalRef = useRef<number | null>(null);
@@ -163,6 +206,8 @@ export default function Layout({ children }: LayoutProps) {
     { name: 'Projects', href: '/projects', icon: Briefcase },
     { name: 'Tasks', href: '/tasks', icon: CheckSquare },
     { name: 'Clients', href: '/clients', icon: Building2 },
+    { name: 'Chat', href: '/chat', icon: MessageSquare },
+    { name: 'Meetings', href: '/meetings', icon: Video },
     ...(user?.role === 'employee' ? [
       { name: 'Time Tracking', href: '/time-tracking', icon: Timer },
       ...(!trackingOn ? [{ name: 'Timesheets', href: '/timesheets', icon: User }] : [])
@@ -171,6 +216,7 @@ export default function Layout({ children }: LayoutProps) {
 
   const adminNavigation = [
     { name: 'Employees', href: '/employees', icon: Users },
+    { name: 'Team Center', href: '/team-availability', icon: Users },
     { name: 'Timesheets', href: '/timesheets', icon: User },
     { name: 'Settings', href: '/settings', icon: Settings },
   ];
@@ -297,11 +343,16 @@ export default function Layout({ children }: LayoutProps) {
                     isActive(item.href)
                       ? 'bg-indigo-100 text-indigo-900'
                       : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                  } group flex items-center px-2 py-2 text-base font-medium rounded-md`}
+                  } group flex items-center w-full px-2 py-2 text-base font-medium rounded-md`}
                   onClick={() => setSidebarOpen(false)}
                 >
                   <item.icon className="mr-4 h-6 w-6" />
-                  {item.name}
+                  <span className="flex-1 text-left">{item.name}</span>
+                  {item.name === 'Chat' && totalUnreadCount > 0 && (
+                    <span className="ml-auto inline-block py-0.5 px-2 text-xs font-semibold rounded-full bg-indigo-600 text-white">
+                      {totalUnreadCount}
+                    </span>
+                  )}
                 </Link>
               ))}
               {user?.role === 'admin' && (
@@ -359,10 +410,15 @@ export default function Layout({ children }: LayoutProps) {
                       isActive(item.href)
                         ? 'bg-indigo-100 text-indigo-900'
                         : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                    } group flex items-center px-2 py-2 text-sm font-medium rounded-md`}
+                    } group flex items-center w-full px-2 py-2 text-sm font-medium rounded-md`}
                   >
                     <item.icon className="mr-3 h-5 w-5" />
-                    {item.name}
+                    <span className="flex-1 text-left">{item.name}</span>
+                    {item.name === 'Chat' && totalUnreadCount > 0 && (
+                      <span className="ml-auto inline-block py-0.5 px-2 text-xs font-semibold rounded-full bg-indigo-600 text-white">
+                        {totalUnreadCount}
+                      </span>
+                    )}
                   </Link>
                 ))}
                 {user?.role === 'admin' && (
@@ -410,13 +466,28 @@ export default function Layout({ children }: LayoutProps) {
       </div>
 
       <div className="flex flex-col flex-1 w-0 overflow-hidden">
-        <div className="lg:hidden pl-1 pt-1 sm:pl-3 sm:pt-3">
-          <button
-            className="-ml-0.5 -mt-0.5 h-12 w-12 inline-flex items-center justify-center rounded-md text-gray-500 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500"
-            onClick={() => setSidebarOpen(true)}
-          >
-            <Menu className="h-6 w-6" />
-          </button>
+        {/* Top header bar */}
+        <div className="relative z-10 flex-shrink-0 flex h-14 bg-white border-b border-gray-200 shadow-sm">
+          <div className="lg:hidden pl-1 flex items-center">
+            <button
+              className="h-12 w-12 inline-flex items-center justify-center rounded-md text-gray-500 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500"
+              onClick={() => setSidebarOpen(true)}
+            >
+              <Menu className="h-6 w-6" />
+            </button>
+          </div>
+          <div className="flex-1 flex items-center justify-end px-4 gap-3">
+            <NotificationBell />
+            <div className="hidden sm:flex items-center gap-2 text-sm">
+              <div className="h-8 w-8 rounded-full bg-indigo-100 flex items-center justify-center">
+                <User className="h-4 w-4 text-indigo-600" />
+              </div>
+              <div className="leading-tight">
+                <p className="font-medium text-gray-700 text-xs">{user?.name}</p>
+                <p className="text-[10px] text-gray-400 capitalize">{user?.role}</p>
+              </div>
+            </div>
+          </div>
         </div>
         <main className="flex-1 relative z-0 overflow-y-auto focus:outline-none">
           <div className="py-6">
@@ -425,6 +496,8 @@ export default function Layout({ children }: LayoutProps) {
             </div>
           </div>
         </main>
+        <VoiceCallBar />
+        <JoinMeetingPopup />
       </div>
     </div>
   );

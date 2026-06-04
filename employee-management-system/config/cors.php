@@ -15,7 +15,7 @@ return [
     |
     */
 
-    'paths' => ['api/*', 'sanctum/csrf-cookie'],
+    'paths' => ['api/*', 'sanctum/csrf-cookie', 'broadcasting/auth'],
 
     'allowed_methods' => ['*'],
 
@@ -41,7 +41,7 @@ return [
         return $origins;
     })(),
 
-    'allowed_origins_patterns' => [],
+    'allowed_origins_patterns' => ['#^http://192\.168\.\d+\.\d+:5173$#', '#^http://10\.\d+\.\d+\.\d+:5173$#', '#^http://172\.(1[6-9]|2[0-9]|3[0-1])\.\d+\.\d+:5173$#'],
 
     'allowed_headers' => ['*'],
 

@@ -6,8 +6,8 @@ const getDefaultApiBaseUrl = () => {
     return 'https://tracker.webndevs.com/api';
   }
 
-  // If running on localhost/127.0.0.1, assume dev mode with port 8000
-  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+  // If running on localhost/127.0.0.1 or local network IP, assume dev mode with port 8000
+  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.') || hostname.startsWith('10.') || hostname.startsWith('172.')) {
     return `${protocol}//${hostname}:8000/api`;
   }
 
@@ -28,6 +28,14 @@ const getApiBaseUrl = () => {
 
 const API_BASE_URL = getApiBaseUrl();
 const IS_ABSOLUTE_API_URL = /^https?:\/\//i.test(API_BASE_URL);
+const IS_NGROK = (() => {
+  try {
+    const hostFromBaseUrl = IS_ABSOLUTE_API_URL ? new URL(API_BASE_URL).hostname : window.location.hostname;
+    return hostFromBaseUrl.endsWith('.ngrok-free.dev') || hostFromBaseUrl.endsWith('.ngrok.io');
+  } catch {
+    return false;
+  }
+})();
 
 const AUTH_STORAGE_KEY = 'auth-storage';
 const AUTH_LAST_USED_KEY = 'auth-last-used-at';
@@ -50,6 +58,7 @@ export const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
+    ...(IS_NGROK ? { 'ngrok-skip-browser-warning': 'true' } : {}),
   },
 });
 

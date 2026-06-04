@@ -7,6 +7,10 @@ use App\Models\Client;
 use App\Models\Project;
 use App\Models\Task;
 use App\Models\TimeLog;
+use App\Models\UserPresence;
+use App\Models\Meeting;
+use App\Models\Conversation;
+use App\Models\NotificationRecipient;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 
@@ -30,6 +34,7 @@ class DashboardController extends Controller
 
     private function getAdminDashboard()
     {
+        $userId = auth()->id();
         $totalEmployees = User::where('role', 'employee')->count();
         $totalClients = Client::count();
         $totalProjects = Project::count();
@@ -39,6 +44,33 @@ class DashboardController extends Controller
         $completedProjects = Project::where('status', 'completed')->count();
         $pendingTasks = Task::where('status', 'pending')->count();
         $inProgressTasks = Task::where('status', 'in_progress')->count();
+
+        // Presence Stats
+        $onlineEmployees = UserPresence::where('status', '!=', 'offline')->count();
+        $availableEmployees = UserPresence::where('status', 'available')->count();
+        $activeTrackers = UserPresence::where('status', 'working')->count();
+        $offlineEmployees = $totalEmployees - $onlineEmployees;
+
+        // Meeting Stats
+        $upcomingMeetingsCount = Meeting::whereHas('participants', function($q) use ($userId) {
+            $q->where('user_id', $userId);
+        })->where('status', 'scheduled')->count();
+
+        $liveMeetingsCount = Meeting::whereHas('participants', function($q) use ($userId) {
+            $q->where('user_id', $userId);
+        })->where('status', 'live')->count();
+
+        // Chat unread count
+        $conversations = Conversation::forUser($userId)->get();
+        $unreadMessages = 0;
+        foreach ($conversations as $conversation) {
+            $unreadMessages += $conversation->getUnreadCountFor($userId);
+        }
+
+        // Notification unread count
+        $pendingNotifications = NotificationRecipient::where('user_id', $userId)
+            ->where('is_read', false)
+            ->count();
 
         $recentProjects = Project::with(['client', 'manager'])
             ->latest()
@@ -58,6 +90,24 @@ class DashboardController extends Controller
             ->groupBy('status')
             ->pluck('count', 'status');
 
+        // Lists for widgets
+        $upcomingMeetingsList = Meeting::whereHas('participants', function($q) use ($userId) {
+            $q->where('user_id', $userId);
+        })
+        ->where('status', 'scheduled')
+        ->with(['creator:id,name', 'participants:id,name'])
+        ->orderBy('scheduled_at', 'asc')
+        ->take(3)
+        ->get();
+
+        $activeMeetingsList = Meeting::whereHas('participants', function($q) use ($userId) {
+            $q->where('user_id', $userId);
+        })
+        ->where('status', 'live')
+        ->with(['creator:id,name', 'participants:id,name'])
+        ->orderBy('started_at', 'asc')
+        ->get();
+
         return response()->json([
             'stats' => [
                 'total_employees' => $totalEmployees,
@@ -68,34 +118,69 @@ class DashboardController extends Controller
                 'completed_projects' => $completedProjects,
                 'pending_tasks' => $pendingTasks,
                 'in_progress_tasks' => $inProgressTasks,
+                // Presence
+                'online_employees' => $onlineEmployees,
+                'available_employees' => $availableEmployees,
+                'active_trackers' => $activeTrackers,
+                'offline_employees' => $offlineEmployees,
+                // Meetings
+                'upcoming_meetings' => $upcomingMeetingsCount,
+                'live_meetings' => $liveMeetingsCount,
+                // Communication
+                'unread_messages' => $unreadMessages,
+                'pending_notifications' => $pendingNotifications,
             ],
             'recent_projects' => $recentProjects,
             'recent_tasks' => $recentTasks,
             'project_status_counts' => $projectStatusCounts,
             'task_status_counts' => $taskStatusCounts,
+            'upcoming_meetings_list' => $upcomingMeetingsList,
+            'active_meetings_list' => $activeMeetingsList,
         ]);
     }
 
     private function getEmployeeDashboard($user)
     {
+        $userId = $user->id;
         $assignedTasks = $user->assignedTasks()->count();
         $inProgressTasks = $user->assignedTasks()->where('status', 'in_progress')->count();
         $completedTasks = $user->assignedTasks()->where('status', 'completed')->count();
         $pendingTasks = $user->assignedTasks()->where('status', 'pending')->count();
 
-        $totalHours = TimeLog::where('user_id', $user->id)
+        $totalHours = TimeLog::where('user_id', $userId)
             ->whereNotNull('duration')
             ->sum('duration');
 
-        $todayHours = TimeLog::where('user_id', $user->id)
+        $todayHours = TimeLog::where('user_id', $userId)
             ->whereDate('start_time', Carbon::today())
             ->whereNotNull('duration')
             ->sum('duration');
 
-        $thisWeekHours = TimeLog::where('user_id', $user->id)
+        $thisWeekHours = TimeLog::where('user_id', $userId)
             ->whereBetween('start_time', [Carbon::now()->startOfWeek(), Carbon::now()->endOfWeek()])
             ->whereNotNull('duration')
             ->sum('duration');
+
+        // Meeting Stats
+        $upcomingMeetingsCount = Meeting::whereHas('participants', function($q) use ($userId) {
+            $q->where('user_id', $userId);
+        })->where('status', 'scheduled')->count();
+
+        $liveMeetingsCount = Meeting::whereHas('participants', function($q) use ($userId) {
+            $q->where('user_id', $userId);
+        })->where('status', 'live')->count();
+
+        // Chat unread count
+        $conversations = Conversation::forUser($userId)->get();
+        $unreadMessages = 0;
+        foreach ($conversations as $conversation) {
+            $unreadMessages += $conversation->getUnreadCountFor($userId);
+        }
+
+        // Notification unread count
+        $pendingNotifications = NotificationRecipient::where('user_id', $userId)
+            ->where('is_read', false)
+            ->count();
 
         $recentTasks = $user->assignedTasks()
             ->with(['project'])
@@ -103,11 +188,29 @@ class DashboardController extends Controller
             ->take(5)
             ->get();
 
-        $recentTimeLogs = TimeLog::where('user_id', $user->id)
+        $recentTimeLogs = TimeLog::where('user_id', $userId)
             ->with(['project', 'task'])
             ->orderBy('start_time', 'desc')
             ->take(5)
             ->get();
+
+        // Lists for widgets
+        $upcomingMeetingsList = Meeting::whereHas('participants', function($q) use ($userId) {
+            $q->where('user_id', $userId);
+        })
+        ->where('status', 'scheduled')
+        ->with(['creator:id,name', 'participants:id,name'])
+        ->orderBy('scheduled_at', 'asc')
+        ->take(3)
+        ->get();
+
+        $activeMeetingsList = Meeting::whereHas('participants', function($q) use ($userId) {
+            $q->where('user_id', $userId);
+        })
+        ->where('status', 'live')
+        ->with(['creator:id,name', 'participants:id,name'])
+        ->orderBy('started_at', 'asc')
+        ->get();
 
         return response()->json([
             'stats' => [
@@ -115,13 +218,21 @@ class DashboardController extends Controller
                 'in_progress_tasks' => $inProgressTasks,
                 'completed_tasks' => $completedTasks,
                 'pending_tasks' => $pendingTasks,
-                'total_hours' => round($totalHours / 60, 1), // Convert minutes to hours
+                'total_hours' => round($totalHours / 60, 1),
                 'today_hours' => round($todayHours / 60, 1),
                 'today_minutes' => (int)$todayHours,
                 'this_week_hours' => round($thisWeekHours / 60, 1),
+                // Meetings
+                'upcoming_meetings' => $upcomingMeetingsCount,
+                'live_meetings' => $liveMeetingsCount,
+                // Communication
+                'unread_messages' => $unreadMessages,
+                'pending_notifications' => $pendingNotifications,
             ],
             'recent_tasks' => $recentTasks,
             'recent_time_logs' => $recentTimeLogs,
+            'upcoming_meetings_list' => $upcomingMeetingsList,
+            'active_meetings_list' => $activeMeetingsList,
         ]);
     }
 

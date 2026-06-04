@@ -80,6 +80,27 @@ class ProjectController extends Controller
             'notes' => $request->notes,
         ]);
 
+        if ($project->manager_id) {
+            try {
+                $notificationService = app(\App\Services\NotificationService::class);
+                $notificationService->sendToUser(
+                    $project->manager_id,
+                    'project_assigned',
+                    'work',
+                    '📁 Project Assigned',
+                    "You have been assigned as the manager for project: {$project->name}",
+                    [
+                        'project_id' => $project->id,
+                        'project_name' => $project->name,
+                    ],
+                    auth()->id(),
+                    '📁'
+                );
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::warning('Failed to send project assignment notification: ' . $e->getMessage());
+            }
+        }
+
         return response()->json([
             'message' => 'Project created successfully',
             'project' => $project->load(['client', 'manager'])
@@ -112,10 +133,33 @@ class ProjectController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
+        $oldManager = $project->manager_id;
+
         $project->update($request->only([
             'name', 'description', 'client_id', 'manager_id', 'status', 
             'start_date', 'end_date', 'budget', 'priority', 'notes'
         ]));
+
+        if ($project->manager_id && $project->manager_id !== $oldManager) {
+            try {
+                $notificationService = app(\App\Services\NotificationService::class);
+                $notificationService->sendToUser(
+                    $project->manager_id,
+                    'project_assigned',
+                    'work',
+                    '📁 Project Assigned',
+                    "You have been assigned as the manager for project: {$project->name}",
+                    [
+                        'project_id' => $project->id,
+                        'project_name' => $project->name,
+                    ],
+                    auth()->id(),
+                    '📁'
+                );
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::warning('Failed to send project update assignment notification: ' . $e->getMessage());
+            }
+        }
 
         return response()->json([
             'message' => 'Project updated successfully',

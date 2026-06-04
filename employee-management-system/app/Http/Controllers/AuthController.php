@@ -59,6 +59,11 @@ class AuthController extends Controller
         // to force a fresh 2FA challenge.
         \Illuminate\Support\Facades\Cache::forget('2fa_verified_' . $user->id);
 
+        try {
+            app(\App\Services\PresenceService::class)->updatePresence($user->id, 'available');
+        } catch (\Exception $e) {
+        }
+
         return response()
             ->json([
             'user' => $user,
@@ -84,6 +89,11 @@ class AuthController extends Controller
         try {
             $user = $request->user();
             if ($user) {
+                try {
+                    app(\App\Services\PresenceService::class)->updatePresence($user->id, 'offline');
+                } catch (\Exception $e) {
+                }
+
                 // Clear 2FA verification status from backend cache on logout
                 \Illuminate\Support\Facades\Cache::forget('2fa_verified_' . $user->id);
 
@@ -161,6 +171,11 @@ class AuthController extends Controller
         $token = $user->createToken('auth-token')->plainTextToken;
 
         Auth::login($user);
+
+        try {
+            app(\App\Services\PresenceService::class)->updatePresence($user->id, 'available');
+        } catch (\Exception $e) {
+        }
 
         return response()
             ->json([

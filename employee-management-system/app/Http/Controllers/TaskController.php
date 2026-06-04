@@ -88,6 +88,28 @@ class TaskController extends Controller
             'notes' => $request->notes,
         ]);
 
+        if ($task->assigned_to) {
+            try {
+                $notificationService = app(\App\Services\NotificationService::class);
+                $notificationService->sendToUser(
+                    $task->assigned_to,
+                    'task_assigned',
+                    'work',
+                    '📋 New Task Assigned',
+                    "You have been assigned a new task: {$task->title}",
+                    [
+                        'task_id' => $task->id,
+                        'task_title' => $task->title,
+                        'project_id' => $task->project_id,
+                    ],
+                    auth()->id(),
+                    '📋'
+                );
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::warning('Failed to send task assignment notification: ' . $e->getMessage());
+            }
+        }
+
         return response()->json([
             'message' => 'Task created successfully',
             'task' => $task->load(['project', 'assignedTo', 'createdBy'])
@@ -138,7 +160,31 @@ class TaskController extends Controller
             }
         }
 
+        $oldAssignee = $task->assigned_to;
+
         $task->update($data);
+
+        if ($task->assigned_to && $task->assigned_to !== $oldAssignee) {
+            try {
+                $notificationService = app(\App\Services\NotificationService::class);
+                $notificationService->sendToUser(
+                    $task->assigned_to,
+                    'task_assigned',
+                    'work',
+                    '📋 New Task Assigned',
+                    "You have been assigned a new task: {$task->title}",
+                    [
+                        'task_id' => $task->id,
+                        'task_title' => $task->title,
+                        'project_id' => $task->project_id,
+                    ],
+                    auth()->id(),
+                    '📋'
+                );
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::warning('Failed to send task update assignment notification: ' . $e->getMessage());
+            }
+        }
 
         return response()->json([
             'message' => 'Task updated successfully',

@@ -382,7 +382,7 @@ export default function Timesheets() {
 
       // Polling for signaling (Answer & Candidates)
       signalInterval = window.setInterval(async () => {
-           if (!peerRef.current) return;
+           if (!peerRef.current || isPeerConnectedRef.current) return;
            
            try {
                const offerData = await usersAPI.getSignal(employeeId, 'offer');

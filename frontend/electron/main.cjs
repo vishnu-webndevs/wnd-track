@@ -1,4 +1,4 @@
-const { app, BrowserWindow, screen, ipcMain, shell, session } = require('electron');
+const { app, BrowserWindow, screen, ipcMain, shell, session, Notification } = require('electron');
 const path = require('path');
 const { uIOhook, UiohookKey } = require('uiohook-napi');
 
@@ -176,6 +176,38 @@ app.whenReady().then(() => {
     if (mainWindow) {
       isQuitting = true;
       mainWindow.close();
+    }
+  });
+
+  ipcMain.on('focus-window', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+
+  ipcMain.on('show-notification', (event, { title, body, data }) => {
+    try {
+      const notification = new Notification({
+        title,
+        body,
+        icon: path.join(__dirname, '../public/tracker_logo.png'),
+        silent: false
+      });
+      
+      notification.on('click', () => {
+        if (mainWindow) {
+          if (mainWindow.isMinimized()) mainWindow.restore();
+          mainWindow.show();
+          mainWindow.focus();
+          mainWindow.webContents.send('notification-clicked', data);
+        }
+      });
+      
+      notification.show();
+    } catch (e) {
+      console.error('Failed to show native Electron notification:', e);
     }
   });
 });

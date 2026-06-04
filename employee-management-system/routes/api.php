@@ -10,6 +10,11 @@ use App\Http\Controllers\TaskController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DesktopAppController;
 use App\Http\Controllers\TwoFactorController;
+use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\TeamAvailabilityController;
+use App\Http\Controllers\ChatController;
+use App\Http\Controllers\VoiceController;
+use App\Http\Controllers\MeetingController;
 use App\Http\Middleware\AdminTwoFactorMiddleware;
 
 /*
@@ -25,6 +30,16 @@ use App\Http\Middleware\AdminTwoFactorMiddleware;
 */
 Route::get('/up', function () {
     return response()->json(['status' => 'ok']);
+});
+
+Route::middleware([\App\Http\Middleware\AttachSanctumTokenFromCookie::class, 'auth:sanctum'])->get('/test-auth', function (Request $request) {
+    return response()->json([
+        'authenticated' => true,
+        'user_id' => $request->user()?->id,
+        'user_name' => $request->user()?->name,
+        'headers' => $request->headers->all(),
+        'cookies' => $request->cookies->all(),
+    ]);
 });
 
 // Public routes
@@ -50,6 +65,50 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/2fa/totp/verify', [TwoFactorController::class, 'verifyAndEnableTotp']);
     Route::post('/2fa/totp/disconnect', [TwoFactorController::class, 'disconnectTotp']);
     Route::post('/2fa/backup-codes/generate', [TwoFactorController::class, 'generateBackupCodes']);
+
+    // Notifications
+    Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
+    Route::put('/notifications/{id}/read', [NotificationController::class, 'markRead']);
+    Route::put('/notifications/read-all', [NotificationController::class, 'markAllRead']);
+    Route::get('/notifications/preferences', [NotificationController::class, 'getPreferences']);
+    Route::put('/notifications/preferences', [NotificationController::class, 'updatePreferences']);
+    Route::post('/notifications/log', [NotificationController::class, 'logClientEvent']);
+    Route::post('/notifications/broadcast', [NotificationController::class, 'broadcast']);
+
+    // Team Availability
+    Route::get('/team/availability', [TeamAvailabilityController::class, 'index']);
+    Route::post('/team/heartbeat', [TeamAvailabilityController::class, 'heartbeat']);
+    Route::post('/team/status', [TeamAvailabilityController::class, 'updateStatus']);
+
+    // Chat Routes
+    Route::get('/chat/conversations', [ChatController::class, 'index']);
+    Route::post('/chat/conversations', [ChatController::class, 'store']);
+    Route::get('/chat/conversations/{id}/messages', [ChatController::class, 'messages']);
+    Route::post('/chat/conversations/{id}/messages', [ChatController::class, 'sendMessage']);
+    Route::put('/chat/conversations/{id}/read', [ChatController::class, 'markRead']);
+    Route::get('/chat/unread-count', [ChatController::class, 'totalUnread']);
+    Route::post('/chat/conversations/{id}/typing', [ChatController::class, 'typing']);
+
+    // Voice Routes
+    Route::post('/voice/initiate', [VoiceController::class, 'initiate']);
+    Route::post('/voice/signal', [VoiceController::class, 'signal']);
+    Route::post('/voice/end', [VoiceController::class, 'end']);
+    Route::get('/voice/ice-servers', [VoiceController::class, 'iceServers']);
+
+    // Meeting Routes
+    Route::get('/meetings', [MeetingController::class, 'index']);
+    Route::post('/meetings', [MeetingController::class, 'store']);
+    Route::get('/meetings/{id}', [MeetingController::class, 'show']);
+    Route::put('/meetings/{id}', [MeetingController::class, 'update']);
+    Route::delete('/meetings/{id}', [MeetingController::class, 'destroy']);
+    Route::post('/meetings/{id}/start', [MeetingController::class, 'start']);
+    Route::post('/meetings/{id}/end', [MeetingController::class, 'end']);
+    Route::post('/meetings/{id}/join', [MeetingController::class, 'join']);
+    Route::post('/meetings/{id}/leave', [MeetingController::class, 'leave']);
+    Route::post('/meetings/{id}/respond', [MeetingController::class, 'respond']);
+    Route::get('/meetings/{id}/messages', [MeetingController::class, 'messages']);
+    Route::post('/meetings/{id}/messages', [MeetingController::class, 'sendMessage']);
 
     // Dashboard
     Route::get('/dashboard', [DashboardController::class, 'index']);
@@ -122,3 +181,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/desktop/screenshots', [DesktopAppController::class, 'getUserScreenshots']);
     Route::post('/desktop/batch', [DesktopAppController::class, 'submitBatch']);
 });
+
+use Illuminate\Support\Facades\Broadcast;
+Broadcast::routes(['middleware' => ['auth:sanctum']]);
+require __DIR__.'/channels.php';
