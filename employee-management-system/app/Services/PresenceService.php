@@ -161,7 +161,6 @@ class PresenceService
                 }
             } catch (\Throwable $inner) {
                 Log::warning('Failed to broadcast user presence status: ' . $e->getMessage());
-                void $inner;
             }
         }
     }
