@@ -30,9 +30,6 @@ const getApiBaseUrl = (): string => {
   if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.') || hostname.startsWith('10.') || hostname.startsWith('172.')) {
     return `${protocol}//${hostname}:8000`;
   }
-  if (hostname === 'tracker.webndevs.com') {
-    return '';
-  }
   return 'https://tracker.webndevs.com';
 };
 

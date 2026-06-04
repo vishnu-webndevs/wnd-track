@@ -11,12 +11,8 @@ const getDefaultApiBaseUrl = () => {
     return `${protocol}//${hostname}:8000/api`;
   }
 
-  // If served from the official domain, use relative /api (Nginx handles proxy)
-  if (hostname === 'tracker.webndevs.com') {
-    return '/api';
-  }
-
-  // If the frontend is served from another domain (e.g., shared preview), default to the live API.
+  // Production: default to the live API domain
+  // (Frontend and backend are deployed separately; do not rely on frontend Nginx proxying /api)
   return 'https://tracker.webndevs.com/api';
 };
 
