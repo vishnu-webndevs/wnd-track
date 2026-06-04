@@ -142,7 +142,7 @@ function createWindow() {
         // No screen found
         callback({ video: null, audio: null });
       }
-    }).catch(console.error);
+    }).catch(() => void 0);
   });
 
   // Send activity updates to renderer every second
@@ -207,7 +207,7 @@ app.whenReady().then(() => {
       
       notification.show();
     } catch (e) {
-      console.error('Failed to show native Electron notification:', e);
+      void e;
     }
   });
 });

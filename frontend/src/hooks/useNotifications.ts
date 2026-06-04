@@ -59,17 +59,14 @@ export function useNotifications() {
           ipcRenderer.removeListener('notification-clicked', handleIpcClick);
         };
       } catch (e) {
-        console.warn('Failed to register notification-clicked IPC listener:', e);
+        void e;
       }
     }
   }, []);
 
   useEffect(() => {
-    console.log('useNotifications useEffect triggered! isAuthenticated:', isAuthenticated, 'user id:', user?.id);
-    
     if (!isAuthenticated || !user?.id) {
       // Cleanup if user logs out
-      console.log('Cleaning up: user not authenticated or no user id');
       if (channelRef.current) {
         channelRef.current = null;
         disconnectEcho();
@@ -80,13 +77,11 @@ export function useNotifications() {
 
     // Request notification permission early
     if ('Notification' in window && Notification.permission === 'default') {
-      console.log('Requesting notification permission');
-      Notification.requestPermission().then(result => console.log('Notification permission result:', result)).catch(console.warn);
+      Notification.requestPermission().catch(() => void 0);
     }
 
     // Fetch initial data
     if (!initializedRef.current) {
-      console.log('Fetching initial notifications data');
       fetchUnreadCount();
       fetchNotifications(true);
       initializedRef.current = true;
@@ -94,14 +89,11 @@ export function useNotifications() {
 
     // Subscribe to private notification channel
     try {
-      console.log('About to get Echo instance and subscribe to notifications channel');
       const echo = getEcho();
       const channelName = `notifications.${user.id}`;
-      console.log('Subscribing to channel:', channelName);
       const channel = echo.private(channelName);
 
       channel.listen('.notification.created', (data: NotificationData) => {
-        console.log('🎯 RECEIVED NOTIFICATION FROM CHANNEL:', data);
         // Add to store
         addNotification({ ...data, is_read: false });
         incrementUnreadCount();
@@ -138,7 +130,6 @@ export function useNotifications() {
       });
 
       channel.listen('.call.incoming', (data: { session_id: string; caller_id: number; caller_name: string; type: string }) => {
-        console.log('📞 Received incoming call!', data);
         useVoiceStore.getState().receiveCall(data.session_id, data.caller_id, data.caller_name);
         
         triggerDesktopNotification({
@@ -148,20 +139,11 @@ export function useNotifications() {
         });
       });
 
-      // Also listen to the presence channel to debug!
-      console.log('Also subscribing to team-presence presence channel for debug');
-      echo.join('team-presence')
-        .here(users => console.log('team-presence here:', users))
-        .joining(user => console.log('user joined team-presence:', user))
-        .leaving(user => console.log('user left team-presence:', user))
-        .listen('.user.status.changed', (data) => console.log('Received user status change from presence channel:', data));
-
       channelRef.current = channel;
     } catch (e) {
-      console.warn('❌ WebSocket connection failed, falling back to polling:', e);
+      void e;
       // Fallback: poll every 30 seconds
       const pollInterval = setInterval(() => {
-        console.log('Polling for unread notifications');
         fetchUnreadCount();
       }, 30000);
 
@@ -169,7 +151,6 @@ export function useNotifications() {
     }
 
     return () => {
-      console.log('Cleaning up useNotifications');
       if (channelRef.current) {
         try {
           const echo = getEcho();
@@ -189,8 +170,6 @@ export function useNotifications() {
 export function triggerDesktopNotification(data: Partial<NotificationData> & { title: string; message: string }) {
   const title = data.title || 'WND Tracker';
   const body = data.message || '';
-  
-  console.log('triggerDesktopNotification called with:', { title, body, data });
 
   // Check if running in Electron
   const w = window as unknown as {
@@ -205,7 +184,7 @@ export function triggerDesktopNotification(data: Partial<NotificationData> & { t
         const { ipcRenderer } = w.require!('electron');
         ipcRenderer.send('focus-window');
       } catch (e) {
-        console.warn('Electron focus-window failed:', e);
+        void e;
       }
     }
     window.focus();
@@ -232,7 +211,7 @@ export function triggerDesktopNotification(data: Partial<NotificationData> & { t
       const { ipcRenderer } = w.require!('electron');
       ipcRenderer.send('show-notification', { title, body, data });
     } catch (e) {
-      console.warn('Electron IPC notification failed, falling back to HTML5:', e);
+      void e;
       try {
         const notification = new Notification(title, {
           body,
@@ -242,7 +221,7 @@ export function triggerDesktopNotification(data: Partial<NotificationData> & { t
         });
         notification.onclick = handleNotificationClick;
       } catch (err) {
-        console.warn('HTML5 fallback failed in Electron:', err);
+        void err;
       }
     }
     return;
@@ -250,8 +229,6 @@ export function triggerDesktopNotification(data: Partial<NotificationData> & { t
 
   // Browser environment - use Web Notifications API
   if ('Notification' in window) {
-    console.log('Notification permission status:', Notification.permission);
-    
     const showNotification = () => {
       try {
         const notification = new Notification(title, {
@@ -261,9 +238,9 @@ export function triggerDesktopNotification(data: Partial<NotificationData> & { t
           silent: false,
         });
         notification.onclick = handleNotificationClick;
-        notification.onerror = (err) => console.error('Notification error:', err);
+        notification.onerror = () => void 0;
       } catch (err) {
-        console.error('Error creating notification:', err);
+        void err;
       }
     };
 
@@ -278,4 +255,3 @@ export function triggerDesktopNotification(data: Partial<NotificationData> & { t
     }
   }
 }
-

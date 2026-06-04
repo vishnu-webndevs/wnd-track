@@ -28,10 +28,8 @@ export const authAPI = {
     } else {
       // Fallback/Warning for debugging
       if (window.location.protocol === 'file:') {
-        console.error('Login response missing token:', response.data);
         throw new Error('Live Server outdated: Backend must return an authentication token for Desktop App. Please update the server.');
       }
-      console.warn('Login response missing token in body. Relying on HttpOnly cookies or cached token.');
     }
     
     return { user };

@@ -548,7 +548,6 @@ export default function Timesheets() {
                 return rebuilt ? `${rebuilt}\r\n` : rebuilt;
             };
 
-            // console.info('[LiveView][Admin] Signal generated', data.type);
             if ((data as { type?: string }).type === 'answer') {
                 const sdp = (data as unknown as { sdp?: unknown }).sdp;
                 const payload = { ...(data as unknown as Record<string, unknown>) };

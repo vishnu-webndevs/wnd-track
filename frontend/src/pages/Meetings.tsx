@@ -61,7 +61,7 @@ export default function Meetings() {
       const otherUsers = res.data.filter((u: User) => u.id !== user?.id);
       setUsers(otherUsers);
     } catch (err) {
-      console.error('Failed to fetch active users', err);
+      void err;
     }
   };
 

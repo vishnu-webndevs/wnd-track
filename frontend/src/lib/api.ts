@@ -96,9 +96,6 @@ api.interceptors.response.use(
       }
       
       if (isTracking || coreRunning) {
-        // DO NOT logout/clear auth if tracking is running.
-        // This prevents automatic session timeout from stopping the tracker background work.
-        console.warn('Auth 401 received but tracking is active. Ignoring auto-logout.');
         return Promise.reject(error);
       }
 

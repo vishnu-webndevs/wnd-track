@@ -109,7 +109,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         set({ conversations: res.data });
       }
     } catch (e) {
-      console.error('Failed to fetch conversations:', e);
+      void e;
     }
   },
 
@@ -118,7 +118,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const count = await chatAPI.getUnreadCount();
       set({ totalUnreadCount: count });
     } catch (e) {
-      console.error('Failed to fetch unread chat count:', e);
+      void e;
     }
   },
 
@@ -138,7 +138,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         get().fetchUnreadCount();
       }
     } catch (e) {
-      console.error('Failed to fetch messages:', e);
+      void e;
     }
   },
 
@@ -152,7 +152,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }));
       get().fetchUnreadCount();
     } catch (e) {
-      console.error('Failed to mark conversation read:', e);
+      void e;
     }
   },
 }));

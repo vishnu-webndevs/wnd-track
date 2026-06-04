@@ -297,7 +297,7 @@ export default function Layout({ children }: LayoutProps) {
               }
             }
           } catch (e) {
-            console.error('Error stopping tracking on close:', e);
+            void e;
           }
         }
         

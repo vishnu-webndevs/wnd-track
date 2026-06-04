@@ -38,16 +38,13 @@ let tokenUsed: string | null = null;
 
 export const getEcho = (): Echo<'reverb'> => {
   const currentToken = localStorage.getItem('token');
-  
-  console.log('getEcho called! Current token present?', !!currentToken, 'Echo instance exists?', !!echoInstance, 'Previous token matches?', tokenUsed === currentToken);
-  
+
   // Recreate instance if token changes to keep authorization headers up-to-date
   if (echoInstance && tokenUsed === currentToken) {
     return echoInstance;
   }
 
   if (echoInstance) {
-    console.log('Disconnecting existing Echo instance because token changed');
     disconnectEcho();
   }
 
@@ -69,15 +66,6 @@ export const getEcho = (): Echo<'reverb'> => {
   const reverbScheme = import.meta.env.VITE_REVERB_SCHEME || (isHttps ? 'https' : 'http');
   const reverbPort = import.meta.env.VITE_REVERB_PORT || (isHttps ? '443' : '8080');
 
-  console.log('Creating new Echo instance with config:', {
-    reverbHost,
-    wsHost,
-    reverbScheme,
-    reverbPort,
-    baseUrl,
-    key: import.meta.env.VITE_REVERB_APP_KEY || 'wnd-tracker-key',
-  });
-
   echoInstance = new Echo({
     broadcaster: 'reverb',
     key: import.meta.env.VITE_REVERB_APP_KEY || 'wnd-tracker-key',
@@ -90,19 +78,6 @@ export const getEcho = (): Echo<'reverb'> => {
     auth: {
       headers: getAuthHeaders(),
     },
-  });
-
-  // Add debug event listeners to Echo/Pusher
-  (echoInstance.connector.pusher as any).connection.bind('state_change', (states: any) => {
-    console.log('Echo WebSocket state changed:', states);
-  });
-
-  (echoInstance.connector.pusher as any).connection.bind('connected', () => {
-    console.log('✅ Echo WebSocket connected successfully!');
-  });
-
-  (echoInstance.connector.pusher as any).connection.bind('error', (error: any) => {
-    console.error('❌ Echo WebSocket error:', error);
   });
 
   return echoInstance;

@@ -20,7 +20,7 @@ export function useChat(conversationId: number | null) {
       channelRef.current = channel;
 
       // Mark as read when entering
-      markConversationRead(conversationId).catch(console.error);
+      markConversationRead(conversationId).catch(() => void 0);
 
       // Listen for new messages
       channel.listen('.new.chat.message', (data: { message: ChatMessage }) => {
@@ -28,7 +28,7 @@ export function useChat(conversationId: number | null) {
         
         // Mark conversation as read if active
         if (conversationId === data.message.conversation_id) {
-          markConversationRead(conversationId).catch(console.error);
+          markConversationRead(conversationId).catch(() => void 0);
         }
       });
 
@@ -45,7 +45,7 @@ export function useChat(conversationId: number | null) {
       });
 
     } catch (e) {
-      console.warn('Failed to join conversation channel:', e);
+      void e;
     }
 
     return () => {

@@ -109,7 +109,7 @@ export default function Chat() {
       const filtered = res.data.filter((u) => u.id !== currentUser?.id);
       setUsersList(filtered);
     } catch (e) {
-      console.error('Failed to load users for chat:', e);
+      void e;
     } finally {
       setLoadingUsers(false);
     }
@@ -136,7 +136,7 @@ export default function Chat() {
         setSearchParams({});
       }
     } catch (e) {
-      console.error('Failed to start chat:', e);
+      void e;
     }
   };
 
@@ -154,7 +154,7 @@ export default function Chat() {
         closeNewChatModal();
       }
     } catch (e) {
-      console.error('Failed to create group chat:', e);
+      void e;
     }
   };
 
@@ -171,7 +171,7 @@ export default function Chat() {
 
     if (!isTypingRef.current) {
       isTypingRef.current = true;
-      chatAPI.sendTyping(activeConversationId, true).catch(console.error);
+      chatAPI.sendTyping(activeConversationId, true).catch(() => void 0);
     }
 
     if (typingTimeoutRef.current) {
@@ -180,7 +180,7 @@ export default function Chat() {
 
     typingTimeoutRef.current = window.setTimeout(() => {
       isTypingRef.current = false;
-      chatAPI.sendTyping(activeConversationId, false).catch(console.error);
+      chatAPI.sendTyping(activeConversationId, false).catch(() => void 0);
     }, 2000);
   };
 
@@ -193,7 +193,7 @@ export default function Chat() {
     if (typingTimeoutRef.current) {
       window.clearTimeout(typingTimeoutRef.current);
       isTypingRef.current = false;
-      chatAPI.sendTyping(activeConversationId, false).catch(console.error);
+      chatAPI.sendTyping(activeConversationId, false).catch(() => void 0);
     }
 
     const text = messageText;
@@ -206,7 +206,7 @@ export default function Chat() {
         fetchConversations();
       }
     } catch (e) {
-      console.error('Failed to send message:', e);
+      void e;
     }
   };
 

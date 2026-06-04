@@ -105,7 +105,7 @@ function ChatDrawer({ isOpen, userId, userName, onClose }: { isOpen: boolean; us
           }
         } catch (e) {
           toast.error('Failed to start chat session');
-          console.error(e);
+          void e;
         }
       }
     };
@@ -126,7 +126,7 @@ function ChatDrawer({ isOpen, userId, userName, onClose }: { isOpen: boolean; us
 
     if (!isTypingRef.current) {
       isTypingRef.current = true;
-      chatAPI.sendTyping(activeConversationId, true).catch(console.error);
+      chatAPI.sendTyping(activeConversationId, true).catch(() => void 0);
     }
 
     if (typingTimeoutRef.current) {
@@ -135,7 +135,7 @@ function ChatDrawer({ isOpen, userId, userName, onClose }: { isOpen: boolean; us
 
     typingTimeoutRef.current = window.setTimeout(() => {
       isTypingRef.current = false;
-      chatAPI.sendTyping(activeConversationId, false).catch(console.error);
+      chatAPI.sendTyping(activeConversationId, false).catch(() => void 0);
     }, 2000);
   };
 
@@ -146,7 +146,7 @@ function ChatDrawer({ isOpen, userId, userName, onClose }: { isOpen: boolean; us
     if (typingTimeoutRef.current) {
       window.clearTimeout(typingTimeoutRef.current);
       isTypingRef.current = false;
-      chatAPI.sendTyping(activeConversationId, false).catch(console.error);
+      chatAPI.sendTyping(activeConversationId, false).catch(() => void 0);
     }
 
     const text = messageText;
@@ -159,7 +159,7 @@ function ChatDrawer({ isOpen, userId, userName, onClose }: { isOpen: boolean; us
       }
     } catch (e) {
       toast.error('Message failed to send');
-      console.error(e);
+      void e;
     }
   };
 
@@ -252,7 +252,7 @@ function MeetingInviteModal({ isOpen, targetUserId, onClose }: { isOpen: boolean
           setSelectedParticipants([targetUserId]);
         }
       })
-      .catch((e) => console.error('Failed to load users for meeting:', e));
+      .catch(() => void 0);
   }, [isOpen, targetUserId]);
 
   if (!isOpen) return null;
@@ -288,7 +288,7 @@ function MeetingInviteModal({ isOpen, targetUserId, onClose }: { isOpen: boolean
       }
     } catch (err) {
       toast.error('Failed to schedule meeting');
-      console.error(err);
+      void err;
     } finally {
       setLoading(false);
     }
@@ -443,7 +443,7 @@ function BroadcastModal({ isOpen, selectedIds, presences, onClose }: { isOpen: b
       onClose();
     } catch (err) {
       toast.error('Failed to send broadcast announcement');
-      console.error(err);
+      void err;
     } finally {
       setLoading(false);
     }
@@ -568,7 +568,7 @@ export default function TeamAvailability() {
         const data = await projectsAPI.getActiveProjects();
         setProjects(data);
       } catch (e) {
-        console.error('Failed to load projects for filters:', e);
+        void e;
       }
     };
     loadProjects();
@@ -717,7 +717,7 @@ export default function TeamAvailability() {
             return res.iceServers as unknown as RTCIceServer[];
           }
         } catch (err) {
-          console.error('Failed to fetch ICE servers from backend:', err);
+          void err;
         }
         
         // Fallback to basic STUN if backend fetch fails

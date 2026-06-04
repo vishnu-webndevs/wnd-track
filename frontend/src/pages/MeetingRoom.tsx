@@ -202,7 +202,7 @@ export default function MeetingRoom() {
       Object.values(pcsRef.current).forEach(pc => {
         const sender = pc.getSenders().find(s => s.track?.kind === 'audio');
         if (sender) {
-          sender.replaceTrack(newTrack).catch(console.error);
+          sender.replaceTrack(newTrack).catch(() => void 0);
         } else {
           pc.addTrack(newTrack, current);
         }
@@ -244,9 +244,9 @@ export default function MeetingRoom() {
     const videoElem = (e.currentTarget as HTMLElement).closest('.aspect-video')?.querySelector('video');
     if (videoElem) {
       if (document.fullscreenElement) {
-        document.exitFullscreen().catch(console.error);
+        document.exitFullscreen().catch(() => void 0);
       } else {
-        videoElem.requestFullscreen().catch(console.error);
+        videoElem.requestFullscreen().catch(() => void 0);
       }
     }
   };
@@ -304,8 +304,6 @@ export default function MeetingRoom() {
     };
 
     pc.ontrack = (event) => {
-      console.log(`[WebRTC] ontrack from peer ${peerId}, kind=${event.track.kind}`);
-
       // Build or update the remote stream for this peer
       setRemoteStreams(prev => {
         // ALWAYS use our own local MediaStream so we can safely add tracks to it (remote streams are immutable in some browsers)
@@ -323,7 +321,6 @@ export default function MeetingRoom() {
       });
 
       event.track.onended = () => {
-        console.log(`[WebRTC] track ended from peer ${peerId}, kind=${event.track.kind}`);
         if (event.track.kind === 'video') {
           setPeerVideoActive(prev => ({ ...prev, [peerId]: false }));
         }
@@ -331,7 +328,6 @@ export default function MeetingRoom() {
       };
 
       event.track.onmute = () => {
-        console.log(`[WebRTC] track muted from peer ${peerId}, kind=${event.track.kind}`);
         if (event.track.kind === 'video') {
           setPeerVideoActive(prev => ({ ...prev, [peerId]: false }));
         }
@@ -339,7 +335,6 @@ export default function MeetingRoom() {
       };
 
       event.track.onunmute = () => {
-        console.log(`[WebRTC] track unmuted from peer ${peerId}, kind=${event.track.kind}`);
         if (event.track.kind === 'video') {
           setPeerVideoActive(prev => ({ ...prev, [peerId]: true }));
         }
@@ -352,9 +347,7 @@ export default function MeetingRoom() {
     };
 
     pc.oniceconnectionstatechange = () => {
-      console.log(`[WebRTC] ICE state with peer ${peerId}: ${pc.iceConnectionState}`);
       if (pc.iceConnectionState === 'failed') {
-        console.warn(`[WebRTC] ICE failed for peer ${peerId}, attempting restart...`);
         pc.restartIce();
       }
     };
@@ -367,14 +360,13 @@ export default function MeetingRoom() {
       try {
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
-        console.log(`[WebRTC] Sent offer to peer ${peerId}`);
         channel.whisper('meeting-signal', {
           to: peerId,
           from: user.id,
           offer: offer
         });
       } catch (e) {
-        console.error('Error creating initial offer:', e);
+        void e;
       }
     }
 
@@ -414,7 +406,7 @@ export default function MeetingRoom() {
         offer: offer
       });
     } catch (e) {
-      console.error('Renegotiation failed:', e);
+      void e;
     }
   };
 
@@ -525,7 +517,6 @@ export default function MeetingRoom() {
           stream.getTracks().forEach(t => t.stop());
         }
       } catch (err: any) {
-        console.warn('Mic access failed:', err?.name, err?.message);
         if (isMounted) {
           const errName = err?.name ? String(err.name) : '';
           const secureHint = window.isSecureContext ? '' : ' (HTTPS/localhost required)';
@@ -557,7 +548,7 @@ export default function MeetingRoom() {
           meteredServers = res.iceServers as unknown as RTCIceServer[];
         }
       } catch (err) {
-        console.error('Failed to fetch ICE servers from backend:', err);
+        void err;
       }
 
       if (!isMounted) return;
@@ -687,7 +678,7 @@ export default function MeetingRoom() {
             // Process queued candidates
             const queued = pendingCandidates[peerId] || [];
             for (const c of queued) {
-              await pc.addIceCandidate(new RTCIceCandidate(c)).catch(console.error);
+              await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => void 0);
             }
             pendingCandidates[peerId] = [];
 
@@ -711,7 +702,6 @@ export default function MeetingRoom() {
 
             const localType = pc.localDescription?.type;
             if (pc.signalingState !== 'have-local-offer' || localType !== 'offer') {
-              console.warn('Skipping incoming answer: no local offer sent');
               return;
             }
 
@@ -720,13 +710,13 @@ export default function MeetingRoom() {
             // Process queued candidates
             const queued = pendingCandidates[peerId] || [];
             for (const c of queued) {
-              await pc.addIceCandidate(new RTCIceCandidate(c)).catch(console.error);
+              await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => void 0);
             }
             pendingCandidates[peerId] = [];
           } else if (data.candidates) {
             for (const cand of data.candidates) {
               if (pc.remoteDescription) {
-                await pc.addIceCandidate(new RTCIceCandidate(cand)).catch(console.error);
+                await pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => void 0);
               } else {
                 if (!pendingCandidates[peerId]) pendingCandidates[peerId] = [];
                 pendingCandidates[peerId].push(cand);
@@ -735,14 +725,14 @@ export default function MeetingRoom() {
           } else if (data.candidate) {
             const cand = data.candidate;
             if (pc.remoteDescription) {
-              await pc.addIceCandidate(new RTCIceCandidate(cand)).catch(console.error);
+              await pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => void 0);
             } else {
               if (!pendingCandidates[peerId]) pendingCandidates[peerId] = [];
               pendingCandidates[peerId].push(cand);
             }
           }
         } catch (err) {
-          console.error('Error handling meeting signaling message:', err);
+          void err;
         }
       });
 
@@ -822,7 +812,7 @@ export default function MeetingRoom() {
               } catch (e) {
                 // ignore
               }
-              transceiver.sender.replaceTrack(videoTrack).catch(console.error);
+              transceiver.sender.replaceTrack(videoTrack).catch(() => void 0);
               if (pid && !videoTransceiversRef.current[pid]) {
                 videoTransceiversRef.current[pid] = transceiver;
               }
@@ -831,7 +821,7 @@ export default function MeetingRoom() {
           scheduleRenegotiation();
         })
         .catch(err => {
-          console.error('Camera access denied:', err);
+          void err;
           const errName = err?.name ? String(err.name) : '';
           const secureHint = window.isSecureContext ? '' : ' (HTTPS/localhost required)';
           const msg =
@@ -863,7 +853,7 @@ export default function MeetingRoom() {
           } catch (e) {
             // ignore
           }
-          transceiver.sender.replaceTrack(null).catch(console.error);
+          transceiver.sender.replaceTrack(null).catch(() => void 0);
           if (pid && !videoTransceiversRef.current[pid]) {
             videoTransceiversRef.current[pid] = transceiver;
           }
@@ -914,7 +904,7 @@ export default function MeetingRoom() {
             } catch (e) {
               // ignore
             }
-            transceiver.sender.replaceTrack(videoTrack).catch(console.error);
+            transceiver.sender.replaceTrack(videoTrack).catch(() => void 0);
             if (pid && !videoTransceiversRef.current[pid]) {
               videoTransceiversRef.current[pid] = transceiver;
             }
@@ -922,7 +912,7 @@ export default function MeetingRoom() {
         });
         scheduleRenegotiation();
       } catch (err) {
-        console.error('Screen share denied:', err);
+        void err;
         const e: any = err;
         const errName = e?.name ? String(e.name) : '';
         const secureHint = window.isSecureContext ? '' : ' (HTTPS/localhost required)';
@@ -963,7 +953,7 @@ export default function MeetingRoom() {
         } catch (e) {
           // ignore
         }
-        transceiver.sender.replaceTrack(null).catch(console.error);
+        transceiver.sender.replaceTrack(null).catch(() => void 0);
         if (pid && !videoTransceiversRef.current[pid]) {
           videoTransceiversRef.current[pid] = transceiver;
         }
@@ -1051,7 +1041,7 @@ export default function MeetingRoom() {
             document.querySelectorAll('video, audio').forEach((el) => {
               const mediaEl = el as HTMLMediaElement;
               if (mediaEl.paused) {
-                mediaEl.play().catch(console.error);
+                mediaEl.play().catch(() => void 0);
               }
             });
             setAudioBlocked(false);
@@ -1238,7 +1228,7 @@ export default function MeetingRoom() {
                     }
                     void applySpeakerToElement(el);
                     el.play().catch(err => {
-                      console.warn('Autoplay blocked for audio:', err);
+                      void err;
                       setAudioBlocked(true);
                     });
                   }}
@@ -1262,7 +1252,7 @@ export default function MeetingRoom() {
                       el.srcObject = remoteStream;
                     }
                     el.play().catch(err => {
-                      console.warn('Autoplay blocked for video:', err);
+                      void err;
                       setAudioBlocked(true);
                     });
                   }}

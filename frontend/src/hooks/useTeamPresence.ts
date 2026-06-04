@@ -21,7 +21,6 @@ export function useTeamPresence(filters: PresenceFilters = {}) {
       }
       setError(null);
     } catch (e: any) {
-      console.error('Failed to fetch team presence:', e);
       setError(e.response?.data?.message || 'Failed to load team availability.');
     } finally {
       setLoading(false);
@@ -40,16 +39,16 @@ export function useTeamPresence(filters: PresenceFilters = {}) {
     if (!isAuthenticated || !user?.id) return;
 
     // Send initial heartbeat
-    teamAvailabilityAPI.sendHeartbeat(navigator.onLine).catch(console.error);
+    teamAvailabilityAPI.sendHeartbeat(navigator.onLine).catch(() => void 0);
 
     // Heartbeat timer (every 30 seconds)
     const heartbeatInterval = setInterval(() => {
-      teamAvailabilityAPI.sendHeartbeat(navigator.onLine).catch(console.error);
+      teamAvailabilityAPI.sendHeartbeat(navigator.onLine).catch(() => void 0);
     }, 30000);
 
     // Bind online/offline window events
     const handleOnlineStatus = () => {
-      teamAvailabilityAPI.sendHeartbeat(navigator.onLine).catch(console.error);
+      teamAvailabilityAPI.sendHeartbeat(navigator.onLine).catch(() => void 0);
     };
     window.addEventListener('online', handleOnlineStatus);
     window.addEventListener('offline', handleOnlineStatus);
@@ -110,7 +109,7 @@ export function useTeamPresence(filters: PresenceFilters = {}) {
         });
       });
     } catch (e) {
-      console.warn('Failed to join presence channel:', e);
+      void e;
     }
 
     return () => {

@@ -640,13 +640,11 @@ export default function TimeTracking() {
   const captureScreenshot = async () => {
     // Check if we are still tracking
     if (!isTrackingRef.current) {
-      // console.log('Skipping screenshot: Not tracking');
       return;
     }
 
     // Prevent concurrent captures (Burst/Race Condition Fix)
     if (isCapturingRef.current) {
-      // console.log('Skipping screenshot: Already capturing');
       return;
     }
     isCapturingRef.current = true;
@@ -696,7 +694,6 @@ export default function TimeTracking() {
       const imageCapture = ImageCaptureCtor ? new ImageCaptureCtor(track) : null;
 
       let blob: Blob | null = null;
-      // console.log('Attempting to capture screenshot...');
       if (imageCapture && imageCapture.grabFrame) {
         const frame: ImageBitmap = await imageCapture.grabFrame();
         const canvas = document.createElement('canvas');
@@ -753,8 +750,6 @@ export default function TimeTracking() {
       }
 
       if (blob) {
-        // console.log('Screenshot captured successfully, uploading...');
-
         const now = new Date();
         const captureTargetTime = new Date(now);
         captureTargetTime.setSeconds(59);
@@ -878,8 +873,6 @@ export default function TimeTracking() {
         lastCaptureTimeRef.current = captureTargetTime;
         lastCapturedMinuteRef.current = currentMinute;
         localStorage.setItem('tt-last-captured-minute', currentMinute);
-      } else {
-        // console.error('Failed to create blob from screenshot');
       }
     } catch (e) {
       void e;
@@ -1359,7 +1352,7 @@ export default function TimeTracking() {
             title: '🌐 Internet Connection Lost',
             message: 'Internet connection lost. Tracking will continue temporarily.',
             icon: '🌐'
-          }).catch(err => console.warn('Failed to log network_lost to server:', err));
+          }).catch(() => void 0);
 
           notificationsAPI.logNotification({
             type: 'network_restored',
@@ -1367,9 +1360,9 @@ export default function TimeTracking() {
             title: '🌐 Internet Connection Restored',
             message: 'Internet connection restored successfully.',
             icon: '🌐'
-          }).catch(err => console.warn('Failed to log network_restored to server:', err));
+          }).catch(() => void 0);
         } catch (e) {
-          console.warn('Error calling notificationsAPI.logNotification:', e);
+          void e;
         }
       }
     };
