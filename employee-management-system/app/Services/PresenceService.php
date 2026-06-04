@@ -127,6 +127,14 @@ class PresenceService
      */
     protected function broadcastPresence(UserPresence $presence): void
     {
+        try {
+            $disabledUntil = Cache::get('broadcast:disabled_until');
+            if (is_numeric($disabledUntil) && (int) $disabledUntil > time()) {
+                return;
+            }
+        } catch (\Throwable $e) {
+        }
+
         $presence->load(['user', 'currentProject', 'currentTask']);
 
         $presenceData = [
@@ -156,6 +164,7 @@ class PresenceService
                 $cooldownSeconds = 300;
                 $cacheKey = 'presence:broadcast_presence_failed';
                 $shouldLog = Cache::add($cacheKey, true, $cooldownSeconds);
+                Cache::put('broadcast:disabled_until', time() + $cooldownSeconds, $cooldownSeconds);
                 if ($shouldLog) {
                     Log::warning('Failed to broadcast user presence status: ' . $e->getMessage());
                 }

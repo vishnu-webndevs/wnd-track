@@ -7,6 +7,7 @@ use App\Models\Notification;
 use App\Models\NotificationPreference;
 use App\Models\NotificationRecipient;
 use App\Models\User;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 class NotificationService
@@ -60,9 +61,27 @@ class NotificationService
             // 3. Broadcast to WebSocket (in-app + desktop notification)
             if ($prefs['in_app'] || $prefs['desktop']) {
                 try {
+                    $disabledUntil = Cache::get('broadcast:disabled_until');
+                    if (is_numeric($disabledUntil) && (int) $disabledUntil > time()) {
+                        continue;
+                    }
+                } catch (\Throwable $e) {
+                }
+
+                try {
                     broadcast(new NotificationCreated($notification, $recipientId));
                 } catch (\Exception $e) {
-                    Log::warning('Failed to broadcast notification: ' . $e->getMessage());
+                    try {
+                        $cooldownSeconds = 300;
+                        $cacheKey = 'broadcast:notification_failed';
+                        $shouldLog = Cache::add($cacheKey, true, $cooldownSeconds);
+                        Cache::put('broadcast:disabled_until', time() + $cooldownSeconds, $cooldownSeconds);
+                        if ($shouldLog) {
+                            Log::warning('Failed to broadcast notification: ' . $e->getMessage());
+                        }
+                    } catch (\Throwable $inner) {
+                        Log::warning('Failed to broadcast notification: ' . $e->getMessage());
+                    }
                 }
             }
 
