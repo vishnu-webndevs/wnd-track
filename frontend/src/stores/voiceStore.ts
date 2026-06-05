@@ -68,6 +68,37 @@ const voiceDebugReport = (point: string, payload: Record<string, any>) => {
 };
 //#endregion
 
+const captureMicStream = async (): Promise<MediaStream> => {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    toast.error('Microphone not supported in this browser.');
+    return new MediaStream();
+  }
+
+  try {
+    const preferredMic = localStorage.getItem('tt-mic-device') || '';
+    const constraints: MediaStreamConstraints = preferredMic
+      ? { audio: { deviceId: { exact: preferredMic } }, video: false }
+      : { audio: true, video: false };
+    return await navigator.mediaDevices.getUserMedia(constraints);
+  } catch (micErr: any) {
+    const errName = micErr?.name ? String(micErr.name) : '';
+    const secureHint = window.isSecureContext ? '' : ' (HTTPS/localhost required)';
+    const msg =
+      errName === 'NotFoundError'
+        ? 'No microphone device found.'
+        : errName === 'NotAllowedError' || errName === 'SecurityError'
+          ? `Microphone access blocked${secureHint}.`
+          : `Could not access microphone${secureHint}.`;
+    toast.warning(msg);
+    voiceDebugReport('voice.mic.error', {
+      name: errName,
+      message: micErr?.message ? String(micErr.message) : String(micErr),
+      isSecureContext: window.isSecureContext,
+    });
+    return new MediaStream();
+  }
+};
+
 interface VoiceState {
   callState: CallState;
   sessionId: string | null;
@@ -136,6 +167,10 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       
       set({ callState: 'calling', recipientId, recipientName, sessionId, isMuted: false, remoteAccepted: false, offerSent: false });
       ringtone.startOutgoing();
+
+      const localStream = await captureMicStream();
+      localStream.getAudioTracks().forEach(t => { t.enabled = true; });
+      set({ localStream });
       
       // Setup WebRTC and listen to signaling channel FIRST
       await get().setupWebRTC(sessionId, true);
@@ -174,6 +209,9 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     try {
       ringtone.stop();
       set({ callState: 'connected' });
+      const localStream = await captureMicStream();
+      localStream.getAudioTracks().forEach(t => { t.enabled = true; });
+      set({ localStream, isMuted: false });
       voiceAPI.sendSignal(sessionId, { accepted: true }).catch(() => {});
       await get().setupWebRTC(sessionId, false);
     } catch (e) {
@@ -566,41 +604,17 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       }
 
       const captureMicAndAttach = async () => {
-        let localStream: MediaStream;
-        try {
-          const preferredMic = localStorage.getItem('tt-mic-device') || '';
-          const constraints: MediaStreamConstraints = preferredMic
-            ? { audio: { deviceId: { exact: preferredMic } }, video: false }
-            : { audio: true, video: false };
-          localStream = await navigator.mediaDevices.getUserMedia(constraints);
-          const t = localStream.getAudioTracks()[0] || null;
-          report('voice.mic.ok', {
-            preferredMic,
-            track: t ? { id: t.id, enabled: t.enabled, muted: (t as any).muted ?? null, readyState: t.readyState } : null,
-          });
-        } catch (micErr) {
-          const err: any = micErr;
-          const errName = err?.name ? String(err.name) : '';
-          const secureHint = window.isSecureContext ? '' : ' (HTTPS/localhost required)';
-          const msg =
-            errName === 'NotFoundError'
-              ? 'No microphone device found.'
-              : errName === 'NotAllowedError' || errName === 'SecurityError'
-                ? `Microphone access blocked${secureHint}. Joining as listener.`
-                : `Could not access microphone${secureHint}. Joining as listener.`;
-          toast.warning(msg);
-          report('voice.mic.error', {
-            name: errName,
-            message: err?.message ? String(err.message) : String(err),
-            isSecureContext: window.isSecureContext,
-          });
-          localStream = new MediaStream();
+        let localStream = get().localStream;
+        if (!localStream) {
+          localStream = await captureMicStream();
+          set({ localStream, isMuted: false });
         }
 
         if (pc.signalingState === 'closed') return;
 
-        set({ localStream });
         const audioTrack = localStream.getAudioTracks()[0] || null;
+        const { isMuted } = get();
+        if (audioTrack) audioTrack.enabled = !isMuted;
         if (audioTransceiver?.sender) {
           try { audioTransceiver.direction = 'sendrecv'; } catch { /* ignore */ }
           await audioTransceiver.sender.replaceTrack(audioTrack).catch(() => {});

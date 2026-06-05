@@ -29,6 +29,24 @@ class TeamAvailabilityController extends Controller
         $filters = $request->only(['status', 'project_id', 'department', 'search']);
         $teamPresence = $this->presenceService->getTeamStatus($filters);
 
+        $offlineSecondsRaw = Setting::get('presence_offline_seconds', env('PRESENCE_OFFLINE_SECONDS', 180));
+        $offlineSeconds = max(30, (int) $offlineSecondsRaw);
+        $now = now();
+        $teamPresence = $teamPresence->map(function ($p) use ($offlineSeconds, $now) {
+            $lastSeen = null;
+            try {
+                $lastSeen = $p->last_seen ? Carbon::parse($p->last_seen) : null;
+            } catch (\Throwable $e) {
+            }
+
+            if (!$lastSeen || $now->diffInSeconds($lastSeen) > $offlineSeconds) {
+                $p->status = 'offline';
+                $p->internet_connected = false;
+            }
+
+            return $p;
+        });
+
         $viewer = $request->user();
         if ($viewer && $viewer->role === 'admin') {
             $minStreakRaw = Setting::get('idle_no_movement_minutes', env('IDLE_NO_MOVEMENT_MINUTES', 5));
