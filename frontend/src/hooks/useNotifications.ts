@@ -105,7 +105,36 @@ export function useNotifications() {
           action: {
             label: 'View',
             onClick: () => {
-              // Handle notification click here if needed
+              const inner = (data.data ?? {}) as Record<string, unknown>;
+              const conversationIdRaw = inner.conversation_id;
+              const meetingIdRaw = inner.meeting_id;
+
+              const conversationId = conversationIdRaw !== undefined ? Number(conversationIdRaw) : NaN;
+              if (Number.isFinite(conversationId)) {
+                useChatStore.getState().setActiveConversationId(conversationId);
+                window.location.hash = '#/chat';
+                return;
+              }
+
+              const meetingId = meetingIdRaw !== undefined ? Number(meetingIdRaw) : NaN;
+              if (Number.isFinite(meetingId)) {
+                window.location.hash = `#/meeting-room/${meetingId}`;
+                return;
+              }
+
+              if (data.type === 'meeting_created' || data.type === 'meeting_reminder' || data.type === 'meeting_started') {
+                window.location.hash = '#/meetings';
+                return;
+              }
+
+              if (data.type === 'chat_message') {
+                const senderId = data.sender?.id;
+                if (typeof senderId === 'number') {
+                  window.location.hash = `#/chat?userId=${senderId}`;
+                } else {
+                  window.location.hash = '#/chat';
+                }
+              }
             },
           },
         });
