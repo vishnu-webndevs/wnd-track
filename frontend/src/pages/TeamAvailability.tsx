@@ -542,19 +542,20 @@ export default function TeamAvailability() {
   const [activeChatUserName, setActiveChatUserName] = useState('');
   const [isChatDrawerOpen, setIsChatDrawerOpen] = useState(false);
 
-  const [activeLiveUserId, setActiveLiveUserId] = useState<number | null>(null);
-  const [activeLiveUserName, setActiveLiveUserName] = useState('');
+  const [activeLiveUserIds, setActiveLiveUserIds] = useState<number[]>([]);
   const [isMeetingModalOpen, setIsMeetingModalOpen] = useState(false);
   const [meetingTargetUserId, setMeetingTargetUserId] = useState<number | null>(null);
 
   const [isBroadcastModalOpen, setIsBroadcastModalOpen] = useState(false);
 
-  // Live View state (matching Timesheets.tsx)
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const peerRef = useRef<SimplePeerInstance | null>(null);
-  const lastSignalRef = useRef<string | null>(null);
-  const isPeerConnectedRef = useRef(false);
-  const shouldBeLiveRef = useRef(false);
+  const liveVideosRef = useRef<Record<number, HTMLVideoElement | null>>({});
+  const livePeersRef = useRef<Record<number, SimplePeerInstance | null>>({});
+  const liveLastSignalRef = useRef<Record<number, string | null>>({});
+  const liveConnectedRef = useRef<Record<number, boolean>>({});
+  const liveShouldBeLiveRef = useRef<Record<number, boolean>>({});
+  const prevLiveUserIdsRef = useRef<number[]>([]);
+  const keepAliveIntervalRef = useRef<number | null>(null);
+  const signalIntervalRef = useRef<number | null>(null);
 
   useEffect(() => {
     const ids = new Set(visiblePresences.map(p => p.user_id));
@@ -574,138 +575,17 @@ export default function TeamAvailability() {
     loadProjects();
   }, []);
 
-  // Live View effects (matching Timesheets.tsx)
-  useEffect(() => {
-    shouldBeLiveRef.current = activeLiveUserId !== null;
-    let keepAliveInterval: number;
-    let signalInterval: number;
-
-    if (activeLiveUserId && SimplePeer) {
-      // Keep live session alive
-      keepAliveInterval = window.setInterval(() => {
-        usersAPI.triggerLive(activeLiveUserId).catch(() => {
-          toast.error('Live session disconnected');
-          handleStopLiveView();
-        });
-      }, 45000);
-
-      // Polling for signaling (Answer & Candidates)
-      signalInterval = window.setInterval(async () => {
-        if (!peerRef.current || !activeLiveUserId || isPeerConnectedRef.current) return;
-
-        try {
-          const offerData = await usersAPI.getSignal(activeLiveUserId, 'offer');
-          if (offerData) {
-            const sanitizeSdp = (sdp: string) => {
-              const lines = sdp.split(/\r\n|\n/);
-              const filtered = lines.filter((l) => !l.startsWith('a=max-message-size:'));
-              const rebuilt = filtered.join('\r\n').trim();
-              return rebuilt ? `${rebuilt}\r\n` : rebuilt;
-            };
-
-            const normalizeOffer = (input: unknown): SimplePeerSignalData | null => {
-              if (!input) return null;
-              if (typeof input === 'string') {
-                const trimmed = input.trim();
-                if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-                  try {
-                    return JSON.parse(trimmed) as SimplePeerSignalData;
-                  } catch {
-                    return { type: 'offer', sdp: trimmed } as SimplePeerSignalData;
-                  }
-                }
-                return { type: 'offer', sdp: trimmed } as SimplePeerSignalData;
-              }
-              if (typeof input === 'object') {
-                const obj = input as Record<string, unknown>;
-                if (typeof obj.type === 'string' && (typeof obj.sdp === 'string' || typeof obj.candidate === 'string' || typeof obj.candidate === 'object')) {
-                  return obj as unknown as SimplePeerSignalData;
-                }
-                if (typeof obj.sdp === 'string') {
-                  return { type: 'offer', sdp: obj.sdp } as SimplePeerSignalData;
-                }
-              }
-              return null;
-            };
-
-            const normalized = normalizeOffer(offerData);
-            const cleanedSdp =
-              normalized && typeof (normalized as unknown as { sdp?: unknown }).sdp === 'string'
-                ? sanitizeSdp((normalized as unknown as { sdp: string }).sdp)
-                : null;
-            const dedupeKey = cleanedSdp ?? JSON.stringify(normalized);
-
-            if (normalized && dedupeKey && dedupeKey !== lastSignalRef.current) {
-              lastSignalRef.current = dedupeKey;
-              if (isPeerConnectedRef.current) {
-                startLiveView(activeLiveUserId);
-              } else {
-                const toSignal =
-                  cleanedSdp && typeof (normalized as unknown as { sdp?: unknown }).sdp === 'string'
-                    ? ({ ...(normalized as unknown as Record<string, unknown>), sdp: cleanedSdp } as unknown as SimplePeerSignalData)
-                    : normalized;
-                peerRef.current.signal(toSignal);
-              }
-            }
-          }
-
-          // Check for candidates
-          const candidates = await usersAPI.getSignal(activeLiveUserId, 'candidate');
-          if (candidates && Array.isArray(candidates)) {
-            const normalizeCandidate = (input: unknown): SimplePeerSignalData | null => {
-              if (!input) return null;
-              if (typeof input === 'string') {
-                try {
-                  const parsed = JSON.parse(input) as unknown;
-                  return normalizeCandidate(parsed);
-                } catch {
-                  return null;
-                }
-              }
-              if (typeof input === 'object') {
-                const obj = input as Record<string, unknown>;
-                if (typeof obj.type === 'string') return obj as unknown as SimplePeerSignalData;
-                if (typeof obj.candidate === 'string') return { type: 'candidate', candidate: obj.candidate } as unknown as SimplePeerSignalData;
-                return { type: 'candidate', candidate: obj as unknown as RTCIceCandidateInit } as unknown as SimplePeerSignalData;
-              }
-              return null;
-            };
-
-            for (const cand of candidates as Array<{ candidate?: unknown }>) {
-              const raw = cand?.candidate;
-              if (!raw) continue;
-              const normalized = normalizeCandidate(raw);
-              if (!normalized) continue;
-              peerRef.current.signal(normalized);
-            }
-          }
-        } catch (e) {
-          void e;
-        }
-      }, 2000);
-    }
-    return () => {
-      shouldBeLiveRef.current = false;
-      window.clearInterval(keepAliveInterval);
-      window.clearInterval(signalInterval);
-
-      if (peerRef.current) {
-        try { peerRef.current.destroy(); } catch (e) { void e; }
-        peerRef.current = null;
-      }
-    };
-  }, [activeLiveUserId, SimplePeer]);
-
   const startLiveView = async (userId: number) => {
     if (!userId || !SimplePeer) return;
-    shouldBeLiveRef.current = true;
+    liveShouldBeLiveRef.current[userId] = true;
 
     try {
-      if (peerRef.current) {
-        try { peerRef.current.destroy(); } catch (e) { void e; }
-        peerRef.current = null;
+      const existing = livePeersRef.current[userId];
+      if (existing) {
+        try { existing.destroy(); } catch (e) { void e; }
+        livePeersRef.current[userId] = null;
       }
-      isPeerConnectedRef.current = false;
+      liveConnectedRef.current[userId] = false;
 
       // Ensure we trigger live mode on backend
       await usersAPI.triggerLive(userId);
@@ -734,7 +614,7 @@ export default function TeamAvailability() {
         trickle: true,
         config: { iceServers: iceServersConfig }
       });
-      peerRef.current = p;
+      livePeersRef.current[userId] = p;
 
       p.on('signal', async (data: SimplePeerSignalData) => {
         const sanitizeSdp = (sdp: string) => {
@@ -757,14 +637,14 @@ export default function TeamAvailability() {
       });
 
       p.on('connect', () => {
-        isPeerConnectedRef.current = true;
-        toast.success('Stream Connected');
+        liveConnectedRef.current[userId] = true;
       });
 
       p.on('stream', (stream: MediaStream) => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play().catch(() => {});
+        const el = liveVideosRef.current[userId];
+        if (el) {
+          el.srcObject = stream;
+          el.play().catch(() => {});
         }
       });
 
@@ -773,9 +653,11 @@ export default function TeamAvailability() {
       });
 
       p.on('close', () => {
-        isPeerConnectedRef.current = false;
-        if (shouldBeLiveRef.current) {
-          setTimeout(() => startLiveView(userId), 1000);
+        liveConnectedRef.current[userId] = false;
+        if (liveShouldBeLiveRef.current[userId]) {
+          setTimeout(() => {
+            if (liveShouldBeLiveRef.current[userId]) startLiveView(userId);
+          }, 1000);
         }
       });
 
@@ -785,18 +667,28 @@ export default function TeamAvailability() {
     }
   };
 
-  const handleStopLiveView = async () => {
-    shouldBeLiveRef.current = false;
-    if (activeLiveUserId) {
-      usersAPI.stopLive(activeLiveUserId).catch(() => {});
+  const stopLiveView = async (userId: number) => {
+    liveShouldBeLiveRef.current[userId] = false;
+    usersAPI.stopLive(userId).catch(() => {});
+
+    const p = livePeersRef.current[userId];
+    if (p) {
+      try { p.destroy(); } catch (e) { void e; }
+      livePeersRef.current[userId] = null;
     }
-    if (peerRef.current) {
-      try { peerRef.current.destroy(); } catch (e) { void e; }
-      peerRef.current = null;
+    liveConnectedRef.current[userId] = false;
+    liveLastSignalRef.current[userId] = null;
+
+    const el = liveVideosRef.current[userId];
+    if (el) el.srcObject = null;
+  };
+
+  const stopAllLiveViews = async (updateState: boolean = true) => {
+    const ids = Object.keys(livePeersRef.current).map((k) => Number(k)).filter((n) => Number.isFinite(n));
+    for (const id of ids) {
+      await stopLiveView(id);
     }
-    isPeerConnectedRef.current = false;
-    setActiveLiveUserId(null);
-    if (videoRef.current) videoRef.current.srcObject = null;
+    if (updateState) setActiveLiveUserIds([]);
   };
 
   const handleFilterChange = (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement>) => {
@@ -845,18 +737,165 @@ export default function TeamAvailability() {
     setIsChatDrawerOpen(true);
   };
 
+  useEffect(() => {
+    const prev = new Set(prevLiveUserIdsRef.current);
+    const next = new Set(activeLiveUserIds);
+    for (const id of prev) {
+      if (!next.has(id)) {
+        stopLiveView(id);
+      }
+    }
+    prevLiveUserIdsRef.current = activeLiveUserIds;
+  }, [activeLiveUserIds]);
+
+  useEffect(() => {
+    if (keepAliveIntervalRef.current) {
+      window.clearInterval(keepAliveIntervalRef.current);
+      keepAliveIntervalRef.current = null;
+    }
+    if (signalIntervalRef.current) {
+      window.clearInterval(signalIntervalRef.current);
+      signalIntervalRef.current = null;
+    }
+
+    if (!SimplePeer || activeLiveUserIds.length === 0) return;
+
+    keepAliveIntervalRef.current = window.setInterval(() => {
+      for (const id of activeLiveUserIds) {
+        usersAPI.triggerLive(id).catch(() => {
+          setActiveLiveUserIds((prev) => prev.filter((x) => x !== id));
+        });
+      }
+    }, 45000);
+
+    signalIntervalRef.current = window.setInterval(async () => {
+      const sanitizeSdp = (sdp: string) => {
+        const lines = sdp.split(/\r\n|\n/);
+        const filtered = lines.filter((l) => !l.startsWith('a=max-message-size:'));
+        const rebuilt = filtered.join('\r\n').trim();
+        return rebuilt ? `${rebuilt}\r\n` : rebuilt;
+      };
+
+      const normalizeOffer = (input: unknown): SimplePeerSignalData | null => {
+        if (!input) return null;
+        if (typeof input === 'string') {
+          const trimmed = input.trim();
+          if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+            try {
+              return JSON.parse(trimmed) as SimplePeerSignalData;
+            } catch {
+              return { type: 'offer', sdp: trimmed } as SimplePeerSignalData;
+            }
+          }
+          return { type: 'offer', sdp: trimmed } as SimplePeerSignalData;
+        }
+        if (typeof input === 'object') {
+          const obj = input as Record<string, unknown>;
+          if (typeof obj.type === 'string' && (typeof obj.sdp === 'string' || typeof obj.candidate === 'string' || typeof obj.candidate === 'object')) {
+            return obj as unknown as SimplePeerSignalData;
+          }
+          if (typeof obj.sdp === 'string') {
+            return { type: 'offer', sdp: obj.sdp } as SimplePeerSignalData;
+          }
+        }
+        return null;
+      };
+
+      const normalizeCandidate = (input: unknown): SimplePeerSignalData | null => {
+        if (!input) return null;
+        if (typeof input === 'string') {
+          try {
+            const parsed = JSON.parse(input) as unknown;
+            return normalizeCandidate(parsed);
+          } catch {
+            return null;
+          }
+        }
+        if (typeof input === 'object') {
+          const obj = input as Record<string, unknown>;
+          if (typeof obj.type === 'string') return obj as unknown as SimplePeerSignalData;
+          if (typeof obj.candidate === 'string') return { type: 'candidate', candidate: obj.candidate } as unknown as SimplePeerSignalData;
+          return { type: 'candidate', candidate: obj as unknown as RTCIceCandidateInit } as unknown as SimplePeerSignalData;
+        }
+        return null;
+      };
+
+      for (const id of activeLiveUserIds) {
+        const peer = livePeersRef.current[id];
+        if (!peer) continue;
+
+        try {
+          const offerData = await usersAPI.getSignal(id, 'offer');
+          if (offerData) {
+            const normalized = normalizeOffer(offerData);
+            const cleanedSdp =
+              normalized && typeof (normalized as unknown as { sdp?: unknown }).sdp === 'string'
+                ? sanitizeSdp((normalized as unknown as { sdp: string }).sdp)
+                : null;
+            const dedupeKey = cleanedSdp ?? JSON.stringify(normalized);
+
+            if (normalized && dedupeKey && dedupeKey !== liveLastSignalRef.current[id]) {
+              liveLastSignalRef.current[id] = dedupeKey;
+              if (liveConnectedRef.current[id]) {
+                startLiveView(id);
+              } else {
+                const toSignal =
+                  cleanedSdp && typeof (normalized as unknown as { sdp?: unknown }).sdp === 'string'
+                    ? ({ ...(normalized as unknown as Record<string, unknown>), sdp: cleanedSdp } as unknown as SimplePeerSignalData)
+                    : normalized;
+                peer.signal(toSignal);
+              }
+            }
+          }
+
+          const candidates = await usersAPI.getSignal(id, 'candidate');
+          if (candidates && Array.isArray(candidates)) {
+            for (const cand of candidates as Array<{ candidate?: unknown }>) {
+              const raw = cand?.candidate;
+              if (!raw) continue;
+              const normalized = normalizeCandidate(raw);
+              if (!normalized) continue;
+              peer.signal(normalized);
+            }
+          }
+        } catch (e) {
+          void e;
+        }
+      }
+    }, 2000);
+
+    return () => {
+      if (keepAliveIntervalRef.current) {
+        window.clearInterval(keepAliveIntervalRef.current);
+        keepAliveIntervalRef.current = null;
+      }
+      if (signalIntervalRef.current) {
+        window.clearInterval(signalIntervalRef.current);
+        signalIntervalRef.current = null;
+      }
+    };
+  }, [activeLiveUserIds, SimplePeer]);
+
+  useEffect(() => {
+    return () => {
+      if (keepAliveIntervalRef.current) window.clearInterval(keepAliveIntervalRef.current);
+      if (signalIntervalRef.current) window.clearInterval(signalIntervalRef.current);
+      stopAllLiveViews(false);
+    };
+  }, []);
+
   const handleLiveToggle = (userId: number) => {
-    if (activeLiveUserId === userId) {
-      handleStopLiveView();
-    } else {
-      if (!SimplePeer) {
-        toast.error('WebRTC libraries loading. Please try again in a moment.');
-        return;
-      }
-      if (activeLiveUserId) {
-        handleStopLiveView();
-      }
-      setActiveLiveUserId(userId);
+    if (!SimplePeer) {
+      toast.error('WebRTC libraries loading. Please try again in a moment.');
+      return;
+    }
+
+    setActiveLiveUserIds((prev) => {
+      if (prev.includes(userId)) return prev.filter((x) => x !== userId);
+      return [...prev, userId];
+    });
+
+    if (!activeLiveUserIds.includes(userId)) {
       startLiveView(userId);
     }
   };
@@ -1366,10 +1405,12 @@ export default function TeamAvailability() {
 
                   {isWorking && (
                     <div className="w-full mt-1">
-                      {activeLiveUserId === presence.user_id && (
+                      {activeLiveUserIds.includes(presence.user_id) && (
                         <div className="mb-2 bg-black rounded-lg overflow-hidden shadow-lg aspect-video flex items-center justify-center relative group">
                           <video 
-                            ref={videoRef} 
+                            ref={(el) => {
+                              liveVideosRef.current[presence.user_id] = el;
+                            }}
                             autoPlay 
                             playsInline 
                             muted
@@ -1383,10 +1424,10 @@ export default function TeamAvailability() {
                       )}
                       <button
                         onClick={() => handleLiveToggle(presence.user_id)}
-                        className={`w-full flex items-center justify-center gap-1 px-2.5 py-2 text-xs font-bold rounded-lg transition shadow-sm ${activeLiveUserId === presence.user_id ? 'bg-red-100 text-red-700 hover:bg-red-200 border border-red-200 animate-pulse' : 'bg-green-100 text-green-700 hover:bg-green-200 border border-green-200'}`}
+                        className={`w-full flex items-center justify-center gap-1 px-2.5 py-2 text-xs font-bold rounded-lg transition shadow-sm ${activeLiveUserIds.includes(presence.user_id) ? 'bg-red-100 text-red-700 hover:bg-red-200 border border-red-200 animate-pulse' : 'bg-green-100 text-green-700 hover:bg-green-200 border border-green-200'}`}
                       >
                         <Video className="w-3.5 h-3.5" />
-                        {activeLiveUserId === presence.user_id ? 'Stop Live View' : 'Watch Live'}
+                        {activeLiveUserIds.includes(presence.user_id) ? 'Stop Live View' : 'Watch Live'}
                       </button>
                     </div>
                   )}
