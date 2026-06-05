@@ -100,6 +100,9 @@ class TeamAvailabilityController extends Controller
 
                 $timeLogs = \App\Models\TimeLog::whereIn('user_id', $userIds)
                     ->where('start_time', '>=', $start)
+                    ->where(function ($q) {
+                        $q->whereNull('is_manual')->orWhere('is_manual', false);
+                    })
                     ->get();
 
                 foreach ($userIds as $uid) {
@@ -227,6 +230,9 @@ class TeamAvailabilityController extends Controller
         }
 
         $logs = TimeLog::where('user_id', $user->id)
+            ->where(function ($q) {
+                $q->whereNull('is_manual')->orWhere('is_manual', false);
+            })
             ->where(function ($q) use ($start, $end) {
                 $q->whereBetween('start_time', [$start, $end])
                   ->orWhereBetween('end_time', [$start, $end])

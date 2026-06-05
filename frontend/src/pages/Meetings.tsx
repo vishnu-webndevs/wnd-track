@@ -4,6 +4,7 @@ import { Plus, Video, Calendar, Clock, Loader2, X, AlertTriangle } from 'lucide-
 import { toast } from 'sonner';
 import { meetingsAPI } from '../api/meetings';
 import { usersAPI } from '../api/users';
+import { teamAvailabilityAPI } from '../api/teamAvailability';
 import { useAuthStore } from '../stores/authStore';
 import { getEcho } from '../lib/echo';
 import type { Meeting } from '../types/meetings';
@@ -69,10 +70,24 @@ export default function Meetings() {
 
   const fetchUsers = async () => {
     try {
+      let onlineIds: Set<number> | null = null;
+      try {
+        const presRes = await teamAvailabilityAPI.getTeamAvailability();
+        if (presRes.success) {
+          onlineIds = new Set(
+            presRes.data
+              .filter((p) => p.status !== 'offline')
+              .map((p) => p.user_id)
+          );
+        }
+      } catch (e) {
+        void e;
+      }
+
       const res = await usersAPI.getUsers({ status: 'active' });
-      // Filter out current user from potential invitees list
       const otherUsers = res.data.filter((u: User) => u.id !== user?.id);
-      setUsers(otherUsers);
+      const filtered = onlineIds ? otherUsers.filter((u) => onlineIds!.has(u.id)) : otherUsers;
+      setUsers(filtered);
     } catch (err) {
       void err;
     }
