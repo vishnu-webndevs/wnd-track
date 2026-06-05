@@ -5,6 +5,10 @@ namespace App\Http\Controllers;
 use App\Events\NewChatMessage;
 use App\Events\MessageRead;
 use App\Events\UserTyping;
+use App\Events\ConversationDeleted;
+use App\Events\GroupParticipantAdded;
+use App\Events\GroupParticipantRemoved;
+use App\Events\ChatCleared;
 use App\Models\Conversation;
 use App\Models\ConversationParticipant;
 use App\Models\Message;
@@ -433,5 +437,207 @@ class ChatController extends Controller
                 Log::warning('Failed to broadcast message read receipt: ' . $e->getMessage());
             }
         }
+    }
+
+    /**
+     * Delete a conversation. Only admins can delete.
+     */
+    public function destroy(Request $request, int $id): JsonResponse
+    {
+        $user = $request->user();
+        if ($user->role !== 'admin') {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+
+        $conversation = Conversation::find($id);
+        if (!$conversation) {
+            return response()->json(['success' => false, 'message' => 'Conversation not found'], 404);
+        }
+
+        $participantIds = $conversation->participants()->pluck('user_id')->toArray();
+
+        // Broadcast deleted event BEFORE we delete the records
+        try {
+            broadcast(new ConversationDeleted($id, $participantIds));
+        } catch (\Exception $e) {
+            Log::warning('Failed to broadcast ConversationDeleted: ' . $e->getMessage());
+        }
+
+        DB::transaction(function () use ($conversation) {
+            // Delete messages and their read receipts
+            $messageIds = $conversation->messages()->pluck('id')->toArray();
+            MessageReadModel::whereIn('message_id', $messageIds)->delete();
+            $conversation->messages()->delete();
+
+            // Delete participants
+            $conversation->participants()->delete();
+
+            // Delete conversation
+            $conversation->delete();
+        });
+
+        return response()->json(['success' => true, 'message' => 'Conversation deleted']);
+    }
+
+    /**
+     * Clear all messages in a conversation. Only admins can do this.
+     */
+    public function clearMessages(Request $request, int $id): JsonResponse
+    {
+        $user = $request->user();
+        if ($user->role !== 'admin') {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+
+        $conversation = Conversation::find($id);
+        if (!$conversation) {
+            return response()->json(['success' => false, 'message' => 'Conversation not found'], 404);
+        }
+
+        DB::transaction(function () use ($conversation) {
+            $messageIds = $conversation->messages()->pluck('id')->toArray();
+            MessageReadModel::whereIn('message_id', $messageIds)->delete();
+            $conversation->messages()->delete();
+        });
+
+        try {
+            broadcast(new ChatCleared($id));
+        } catch (\Exception $e) {
+            Log::warning('Failed to broadcast ChatCleared: ' . $e->getMessage());
+        }
+
+        return response()->json(['success' => true, 'message' => 'Chat history cleared']);
+    }
+
+    /**
+     * Add participants to a group conversation.
+     */
+    public function addParticipant(Request $request, int $id): JsonResponse
+    {
+        $user = $request->user();
+        if ($user->role !== 'admin') {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+
+        $request->validate([
+            'user_ids' => 'required|array',
+            'user_ids.*' => 'exists:users,id'
+        ]);
+
+        $conversation = Conversation::find($id);
+        if (!$conversation || $conversation->type !== 'group') {
+            return response()->json(['success' => false, 'message' => 'Group conversation not found'], 404);
+        }
+
+        $userIds = $request->input('user_ids');
+        $addedUsers = [];
+
+        DB::transaction(function () use ($conversation, $userIds, $user, &$addedUsers) {
+            foreach ($userIds as $userId) {
+                // Check if already participant
+                if (!$conversation->isParticipant($userId)) {
+                    ConversationParticipant::create([
+                        'conversation_id' => $conversation->id,
+                        'user_id' => $userId,
+                        'role' => 'member',
+                        'last_read_at' => null,
+                    ]);
+
+                    $addedUser = User::find($userId);
+                    if ($addedUser) {
+                        $addedUsers[] = [
+                            'id' => $addedUser->id,
+                            'name' => $addedUser->name,
+                            'role' => $addedUser->role,
+                            'department' => $addedUser->department,
+                            'position' => $addedUser->position,
+                            'status' => $addedUser->presence?->status ?? 'offline',
+                            'internet_connected' => $addedUser->presence?->internet_connected ?? false,
+                            'last_seen' => $addedUser->presence?->last_seen ? $addedUser->presence->last_seen->toIso8601String() : null,
+                        ];
+
+                        // Add System Message
+                        $msg = Message::create([
+                            'conversation_id' => $conversation->id,
+                            'sender_id' => $user->id,
+                            'body' => "{$user->name} added {$addedUser->name} to the group.",
+                            'type' => 'system',
+                        ]);
+                        
+                        $conversation->update(['last_message_at' => now()]);
+                        
+                        try {
+                            broadcast(new NewChatMessage($msg))->toOthers();
+                        } catch (\Exception $e) {
+                            Log::warning('Failed to broadcast system message: ' . $e->getMessage());
+                        }
+                    }
+                }
+            }
+        });
+
+        if (!empty($addedUsers)) {
+            try {
+                broadcast(new GroupParticipantAdded($id, $addedUsers));
+            } catch (\Exception $e) {
+                Log::warning('Failed to broadcast GroupParticipantAdded: ' . $e->getMessage());
+            }
+        }
+
+        return response()->json(['success' => true, 'added' => $addedUsers]);
+    }
+
+    /**
+     * Remove a participant from a group conversation.
+     */
+    public function removeParticipant(Request $request, int $id, int $userId): JsonResponse
+    {
+        $user = $request->user();
+        if ($user->role !== 'admin') {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+
+        $conversation = Conversation::find($id);
+        if (!$conversation || $conversation->type !== 'group') {
+            return response()->json(['success' => false, 'message' => 'Group conversation not found'], 404);
+        }
+
+        if (!$conversation->isParticipant($userId)) {
+            return response()->json(['success' => false, 'message' => 'User is not a participant'], 404);
+        }
+
+        DB::transaction(function () use ($conversation, $userId, $user) {
+            $removedUser = User::find($userId);
+            
+            ConversationParticipant::where('conversation_id', $conversation->id)
+                ->where('user_id', $userId)
+                ->delete();
+
+            if ($removedUser) {
+                // Add System Message
+                $msg = Message::create([
+                    'conversation_id' => $conversation->id,
+                    'sender_id' => $user->id,
+                    'body' => "{$user->name} removed {$removedUser->name} from the group.",
+                    'type' => 'system',
+                ]);
+                
+                $conversation->update(['last_message_at' => now()]);
+                
+                try {
+                    broadcast(new NewChatMessage($msg))->toOthers();
+                } catch (\Exception $e) {
+                    Log::warning('Failed to broadcast system message: ' . $e->getMessage());
+                }
+            }
+        });
+
+        try {
+            broadcast(new GroupParticipantRemoved($id, $userId));
+        } catch (\Exception $e) {
+            Log::warning('Failed to broadcast GroupParticipantRemoved: ' . $e->getMessage());
+        }
+
+        return response()->json(['success' => true, 'message' => 'User removed from group']);
     }
 }

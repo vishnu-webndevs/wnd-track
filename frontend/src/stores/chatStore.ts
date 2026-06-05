@@ -21,6 +21,10 @@ interface ChatState {
   fetchUnreadCount: () => Promise<void>;
   fetchMessages: (conversationId: number) => Promise<void>;
   markConversationRead: (conversationId: number) => Promise<void>;
+  removeConversation: (conversationId: number) => void;
+  clearMessages: (conversationId: number) => void;
+  addGroupParticipants: (conversationId: number, participants: any[]) => void;
+  removeGroupParticipant: (conversationId: number, userId: number) => void;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -154,5 +158,47 @@ export const useChatStore = create<ChatState>((set, get) => ({
     } catch (e) {
       void e;
     }
+  },
+
+  removeConversation: (conversationId) => {
+    set((state) => ({
+      conversations: state.conversations.filter(c => c.id !== conversationId),
+      activeConversationId: state.activeConversationId === conversationId ? null : state.activeConversationId,
+      messages: state.activeConversationId === conversationId ? [] : state.messages,
+    }));
+  },
+
+  clearMessages: (conversationId) => {
+    set((state) => ({
+      messages: state.activeConversationId === conversationId ? [] : state.messages,
+      conversations: state.conversations.map(c => 
+        c.id === conversationId ? { ...c, latest_message: undefined, unread_count: 0 } : c
+      )
+    }));
+  },
+
+  addGroupParticipants: (conversationId, participants) => {
+    set((state) => ({
+      conversations: state.conversations.map(c => {
+        if (c.id === conversationId) {
+          // add new participants avoiding duplicates
+          const currentIds = new Set(c.participants.map(p => p.id));
+          const newParts = participants.filter(p => !currentIds.has(p.id));
+          return { ...c, participants: [...c.participants, ...newParts] };
+        }
+        return c;
+      })
+    }));
+  },
+
+  removeGroupParticipant: (conversationId, userId) => {
+    set((state) => ({
+      conversations: state.conversations.map(c => {
+        if (c.id === conversationId) {
+          return { ...c, participants: c.participants.filter(p => p.id !== userId) };
+        }
+        return c;
+      })
+    }));
   },
 }));

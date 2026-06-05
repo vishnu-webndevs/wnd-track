@@ -1,4 +1,5 @@
 import axios, { AxiosHeaders } from 'axios';
+import { getEcho } from './echo';
 
 const getDefaultApiBaseUrl = () => {
   const { hostname, protocol } = window.location;
@@ -71,6 +72,22 @@ api.interceptors.request.use((config) => {
     } else {
       config.headers = new AxiosHeaders({ Authorization: `Bearer ${token}` });
     }
+  }
+
+  try {
+    const echo = getEcho();
+    const socketId = echo?.socketId();
+    if (socketId) {
+      if (config.headers instanceof AxiosHeaders) {
+        config.headers.set('X-Socket-ID', socketId);
+      } else if (config.headers) {
+        (config.headers as Record<string, string>)['X-Socket-ID'] = socketId;
+      } else {
+        config.headers = new AxiosHeaders({ 'X-Socket-ID': socketId });
+      }
+    }
+  } catch (e) {
+    // ignore
   }
 
   localStorage.setItem(AUTH_LAST_USED_KEY, String(now));

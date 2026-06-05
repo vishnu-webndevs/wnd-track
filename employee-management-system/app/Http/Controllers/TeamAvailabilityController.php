@@ -28,7 +28,7 @@ class TeamAvailabilityController extends Controller
 
         $viewer = $request->user();
         if ($viewer && $viewer->role === 'admin') {
-            $minStreakRaw = Setting::get('idle_summary_min_streak_minutes', env('IDLE_SUMMARY_MIN_STREAK_MINUTES', 3));
+            $minStreakRaw = Setting::get('idle_no_movement_minutes', env('IDLE_NO_MOVEMENT_MINUTES', 5));
             $minStreak = max(1, (int) $minStreakRaw);
 
             $start = now()->startOfDay();
@@ -77,53 +77,46 @@ class TeamAvailabilityController extends Controller
                     }
                 }
 
+                $timeLogs = \App\Models\TimeLog::whereIn('user_id', $userIds)
+                    ->where('start_time', '>=', $start)
+                    ->get();
+
                 foreach ($userIds as $uid) {
                     $uid = (int) $uid;
-                    $minutes = $perUserMinuteActivity[$uid] ?? [];
-                    if (empty($minutes)) {
-                        $idleTotals[$uid] = 0;
-                        $idleStreakCounts[$uid] = 0;
-                        continue;
-                    }
-
-                    ksort($minutes);
-                    $prevTs = null;
-                    $streakLen = 0;
+                    $userLogs = $timeLogs->where('user_id', $uid);
                     $total = 0;
                     $streakCount = 0;
 
-                    foreach ($minutes as $minuteKey => $activity) {
-                        $ts = Carbon::createFromFormat('Y-m-d H:i', $minuteKey, $start->getTimezone());
+                    foreach ($userLogs as $log) {
+                        $logStart = Carbon::parse($log->start_time)->copy()->startOfMinute();
+                        $logEnd = $log->end_time ? Carbon::parse($log->end_time)->copy()->startOfMinute() : now()->copy()->startOfMinute();
+                        
+                        if ($logStart->lt($start)) $logStart = $start->copy();
+                        if ($logEnd->gt($end)) $logEnd = $end->copy();
 
-                        $consecutive = false;
-                        if ($prevTs instanceof Carbon) {
-                            $consecutive = $ts->diffInMinutes($prevTs) === 1 && $ts->greaterThan($prevTs);
-                        }
+                        $streakLen = 0;
+                        $current = $logStart->copy();
 
-                        if (!$consecutive) {
-                            if ($streakLen >= $minStreak) {
-                                $total += $streakLen;
-                                $streakCount++;
+                        while ($current->lte($logEnd)) {
+                            $key = $current->format('Y-m-d H:i');
+                            $activity = $perUserMinuteActivity[$uid][$key] ?? 0;
+
+                            if ($activity === 0) {
+                                $streakLen++;
+                            } else {
+                                if ($streakLen >= $minStreak) {
+                                    $total += $streakLen;
+                                    $streakCount++;
+                                }
+                                $streakLen = 0;
                             }
-                            $streakLen = 0;
+                            $current->addMinute();
                         }
 
-                        if ((int) $activity === 0) {
-                            $streakLen++;
-                        } else {
-                            if ($streakLen >= $minStreak) {
-                                $total += $streakLen;
-                                $streakCount++;
-                            }
-                            $streakLen = 0;
+                        if ($streakLen >= $minStreak) {
+                            $total += $streakLen;
+                            $streakCount++;
                         }
-
-                        $prevTs = $ts;
-                    }
-
-                    if ($streakLen >= $minStreak) {
-                        $total += $streakLen;
-                        $streakCount++;
                     }
 
                     $idleTotals[$uid] = $total;

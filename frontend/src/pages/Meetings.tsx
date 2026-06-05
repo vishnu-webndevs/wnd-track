@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Video, Calendar, Clock, Loader2, X, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
@@ -40,6 +40,19 @@ export default function Meetings() {
   const [selectedParticipants, setSelectedParticipants] = useState<number[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState<'upcoming' | 'live' | 'completed'>('upcoming');
+  const selectAllRef = useRef<HTMLInputElement | null>(null);
+
+  const participantIds = useMemo(() => users.map(u => u.id), [users]);
+  const allSelected = participantIds.length > 0 && selectedParticipants.length === participantIds.length;
+  const someSelected = selectedParticipants.length > 0 && selectedParticipants.length < participantIds.length;
+
+  const getDefaultMeetingTitle = () => {
+    const d = new Date();
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `Daily meeting ${day}-${month}-${year}`;
+  };
 
   const fetchMeetings = async () => {
     try {
@@ -99,6 +112,17 @@ export default function Meetings() {
       };
     }
   }, [user?.id]);
+
+  useEffect(() => {
+    if (!selectAllRef.current) return;
+    selectAllRef.current.indeterminate = someSelected;
+  }, [someSelected, users.length, selectedParticipants.length]);
+
+  useEffect(() => {
+    if (showCreateModal && !editingMeeting && !title.trim()) {
+      setTitle(getDefaultMeetingTitle());
+    }
+  }, [showCreateModal, editingMeeting]);
 
   const handleRespond = async (id: number, status: 'accepted' | 'declined') => {
     try {
@@ -229,6 +253,14 @@ export default function Meetings() {
     setSelectedParticipants(prev =>
       prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
     );
+  };
+
+  const handleToggleAllParticipants = () => {
+    setSelectedParticipants(prev => {
+      if (participantIds.length === 0) return prev;
+      if (prev.length === participantIds.length) return [];
+      return [...participantIds];
+    });
   };
 
   if (loading) {
@@ -457,34 +489,56 @@ export default function Meetings() {
                       <p className="text-sm text-gray-400 font-medium">No active team members available</p>
                     </div>
                   ) : (
-                    users.map(u => (
-                      <label
-                        key={u.id}
-                        className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all border select-none ${
-                          selectedParticipants.includes(u.id) 
-                            ? 'bg-indigo-50/50 dark:bg-indigo-900/20 border-indigo-200 dark:border-indigo-800/50' 
-                            : 'bg-white dark:bg-gray-800 border-transparent hover:border-gray-200 dark:hover:border-gray-700 shadow-sm'
-                        }`}
-                      >
+                    <>
+                      <label className="flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all border select-none bg-white dark:bg-gray-800 border-transparent hover:border-gray-200 dark:hover:border-gray-700 shadow-sm">
                         <div className="relative flex items-center justify-center">
                           <input
+                            ref={selectAllRef}
                             type="checkbox"
-                            checked={selectedParticipants.includes(u.id)}
-                            onChange={() => handleToggleParticipant(u.id)}
+                            checked={allSelected}
+                            onChange={handleToggleAllParticipants}
                             className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 transition-all cursor-pointer"
                           />
                         </div>
                         <div className="flex items-center gap-3 flex-1">
                           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-100 to-purple-100 dark:from-indigo-900/50 dark:to-purple-900/50 flex items-center justify-center font-bold text-indigo-700 dark:text-indigo-300 text-xs shadow-sm">
-                            {u.name.charAt(0).toUpperCase()}
+                            ALL
                           </div>
                           <div>
-                            <p className="font-bold text-sm text-gray-900 dark:text-white leading-tight">{u.name}</p>
-                            <p className="text-[11px] text-gray-500 dark:text-gray-400 font-medium mt-0.5 capitalize">{u.role} {u.department ? `• ${u.department}` : ''}</p>
+                            <p className="font-bold text-sm text-gray-900 dark:text-white leading-tight">Select all</p>
+                            <p className="text-[11px] text-gray-500 dark:text-gray-400 font-medium mt-0.5">Invite everyone</p>
                           </div>
                         </div>
                       </label>
-                    ))
+                      {users.map(u => (
+                        <label
+                          key={u.id}
+                          className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all border select-none ${
+                            selectedParticipants.includes(u.id) 
+                              ? 'bg-indigo-50/50 dark:bg-indigo-900/20 border-indigo-200 dark:border-indigo-800/50' 
+                              : 'bg-white dark:bg-gray-800 border-transparent hover:border-gray-200 dark:hover:border-gray-700 shadow-sm'
+                          }`}
+                        >
+                          <div className="relative flex items-center justify-center">
+                            <input
+                              type="checkbox"
+                              checked={selectedParticipants.includes(u.id)}
+                              onChange={() => handleToggleParticipant(u.id)}
+                              className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 transition-all cursor-pointer"
+                            />
+                          </div>
+                          <div className="flex items-center gap-3 flex-1">
+                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-100 to-purple-100 dark:from-indigo-900/50 dark:to-purple-900/50 flex items-center justify-center font-bold text-indigo-700 dark:text-indigo-300 text-xs shadow-sm">
+                              {u.name.charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                              <p className="font-bold text-sm text-gray-900 dark:text-white leading-tight">{u.name}</p>
+                              <p className="text-[11px] text-gray-500 dark:text-gray-400 font-medium mt-0.5 capitalize">{u.role} {u.department ? `• ${u.department}` : ''}</p>
+                            </div>
+                          </div>
+                        </label>
+                      ))}
+                    </>
                   )}
                 </div>
               </div>

@@ -73,4 +73,24 @@ export const chatAPI = {
     const response = await api.post(`/chat/conversations/${conversationId}/typing`, { is_typing: isTyping });
     return response.data;
   },
+  
+  deleteConversation: async (conversationId: number) => {
+    const res = await api.delete(`/chat/conversations/${conversationId}`);
+    return res.data;
+  },
+
+  clearMessages: async (conversationId: number) => {
+    const res = await api.delete(`/chat/conversations/${conversationId}/messages`);
+    return res.data;
+  },
+
+  addParticipant: async (conversationId: number, userIds: number[]) => {
+    const res = await api.post(`/chat/conversations/${conversationId}/participants`, { user_ids: userIds });
+    return res.data;
+  },
+
+  removeParticipant: async (conversationId: number, userId: number) => {
+    const res = await api.delete(`/chat/conversations/${conversationId}/participants/${userId}`);
+    return res.data;
+  },
 };

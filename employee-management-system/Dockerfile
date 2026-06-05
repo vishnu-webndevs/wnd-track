@@ -8,6 +8,7 @@ ENV NGINX_CLIENT_MAX_BODY_SIZE=50M
 
 COPY . /var/www/html
 COPY docker/s6-overlay/ /etc/s6-overlay/
+COPY docker/nginx/websocket.conf /etc/nginx/conf.d/websocket.conf
 
 RUN mkdir -p storage/logs bootstrap/cache storage/app/public storage/app/public/track_app \
     storage/framework/cache/data storage/framework/sessions storage/framework/views \

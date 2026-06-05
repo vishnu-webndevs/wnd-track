@@ -84,26 +84,28 @@ export const useNotificationStore = create<NotificationState>()((set, get) => ({
   },
 
   markRead: async (id) => {
+    // Optimistic UI update
+    set((state) => ({
+      notifications: state.notifications.filter((n) => n.id !== id),
+      unreadCount: Math.max(0, state.unreadCount - 1),
+    }));
     try {
       await notificationsAPI.markRead(id);
-      set((state) => ({
-        notifications: state.notifications.filter((n) => n.id !== id),
-        unreadCount: Math.max(0, state.unreadCount - 1),
-      }));
     } catch {
       // silently fail
     }
   },
 
   markAllRead: async () => {
+    // Optimistic UI update for instant feedback
+    set((state) => ({
+      notifications: [],
+      unreadCount: 0,
+    }));
     try {
       await notificationsAPI.markAllRead();
-      set((state) => ({
-        notifications: [],
-        unreadCount: 0,
-      }));
     } catch {
-      // silently fail
+      // If it fails, we could optionally rollback or refetch, but silent fail is fine for now
     }
   },
 }));

@@ -19,8 +19,8 @@ export interface IceServersResponse {
 }
 
 export const voiceAPI = {
-  initiateCall: async (recipientId: number, type: 'voice' | 'video' = 'voice'): Promise<InitiateCallResponse> => {
-    const response = await api.post('/voice/initiate', { recipient_id: recipientId, type });
+  initiateCall: async (recipientId: number, type: 'voice' | 'video' = 'voice', sessionId?: string): Promise<InitiateCallResponse> => {
+    const response = await api.post('/voice/initiate', { recipient_id: recipientId, type, session_id: sessionId });
     return response.data;
   },
 

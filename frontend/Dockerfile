@@ -13,6 +13,7 @@ RUN npm run build
 FROM nginx:alpine
 
 ENV API_UPSTREAM=http://backend:8080
+ENV REVERB_UPSTREAM=http://backend:8081
 
 RUN apk add --no-cache curl \
  && rm /etc/nginx/conf.d/default.conf

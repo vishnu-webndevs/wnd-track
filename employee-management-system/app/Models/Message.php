@@ -21,6 +21,13 @@ class Message extends Model
         'file_size',
     ];
 
+    protected $appends = ['sender_name'];
+
+    public function getSenderNameAttribute(): string
+    {
+        return $this->sender?->name ?? 'System';
+    }
+
     /**
      * Get the conversation of the message.
      */

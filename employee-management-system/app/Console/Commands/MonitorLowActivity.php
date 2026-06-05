@@ -120,12 +120,22 @@ class MonitorLowActivity extends Command
                 }
             }
 
-            if (count($minuteActivity) < $idleMinutes) {
+            $logStart = Carbon::parse($log->start_time);
+            if ($anchor->diffInMinutes($logStart) < $idleMinutes) {
                 continue;
             }
 
-            $total = array_sum($minuteActivity);
-            if ($total !== 0) {
+            $current = $windowStart->copy()->startOfMinute();
+            $endMin = $windowEnd->copy()->startOfMinute();
+            $windowActivityTotal = 0;
+
+            while ($current->lte($endMin)) {
+                $key = $current->format('Y-m-d H:i');
+                $windowActivityTotal += ($minuteActivity[$key] ?? 0);
+                $current->addMinute();
+            }
+
+            if ($windowActivityTotal !== 0) {
                 continue;
             }
 

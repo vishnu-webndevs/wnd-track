@@ -131,16 +131,22 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
 
   initiateCall: async (recipientId, recipientName) => {
     try {
-      set({ callState: 'calling', recipientId, recipientName, isMuted: false, remoteAccepted: false, offerSent: false });
+      // Generate session ID upfront to subscribe BEFORE the receiver gets the call
+      const sessionId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2) + Date.now().toString(36);
+      
+      set({ callState: 'calling', recipientId, recipientName, sessionId, isMuted: false, remoteAccepted: false, offerSent: false });
       ringtone.startOutgoing();
       
-      const res = await voiceAPI.initiateCall(recipientId);
-      if (res.success) {
-        const sessionId = res.session_id;
-        set({ sessionId });
-        
-        // Setup peer connection as initiator
-        await get().setupWebRTC(sessionId, true);
+      // Setup WebRTC and listen to signaling channel FIRST
+      await get().setupWebRTC(sessionId, true);
+
+      // Wait a tiny bit to ensure Echo subscription is active
+      await new Promise(r => setTimeout(r, 300));
+
+      // Now tell the backend to ring the receiver
+      const res = await voiceAPI.initiateCall(recipientId, 'voice', sessionId);
+      if (!res.success) {
+        throw new Error('Call initiation failed on server');
       }
     } catch (e) {
       voiceDebugReport('voice.initiate.error', {
@@ -181,14 +187,15 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   rejectCall: () => {
     ringtone.stop();
     const { sessionId } = get();
+    get().resetCall();
     if (sessionId) {
       voiceAPI.endCall(sessionId).catch(() => {});
     }
-    get().resetCall();
   },
 
   endCall: async () => {
     const { sessionId } = get();
+    get().resetCall(); // Optimistically reset UI instantly
     if (sessionId) {
       try {
         await voiceAPI.endCall(sessionId);
@@ -196,7 +203,6 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
         // ignore
       }
     }
-    get().resetCall();
   },
 
   toggleMute: () => {
@@ -249,7 +255,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
         );
 
         if (transceiver?.sender) {
-          try { transceiver.direction = 'sendrecv'; } catch { }
+          try { transceiver.direction = 'sendrecv'; } catch { /* ignore */ }
           await transceiver.sender.replaceTrack(newTrack);
         } else {
           pc.addTrack(newTrack, current);
@@ -369,7 +375,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
           try {
             const me = JSON.parse(userStr);
             if (me.id === data.sender_id) return;
-          } catch { }
+          } catch { /* ignore */ }
         }
 
         const { signal } = data;
@@ -418,7 +424,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
             });
             if (pc.signalingState !== 'stable') {
               if (pc.signalingState === 'have-local-offer') {
-                try { await pc.setLocalDescription({ type: 'rollback' } as any); } catch { }
+                try { await pc.setLocalDescription({ type: 'rollback' } as any); } catch { /* ignore */ }
               }
             }
             await pc.setRemoteDescription(new RTCSessionDescription(signal.offer));
@@ -550,10 +556,13 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
         get().resetCall();
       });
 
-      // 5. If receiver, send ready signal immediately
+      // 5. If receiver, send ready signal after a short delay
+      // This ensures the receiver's Echo subscription is fully active before the initiator sends the offer
       if (!isInitiator) {
-        void voiceAPI.sendSignal(sessionId, { ready: true }).catch(() => {});
-        report('voice.signal.ready.sent', { pc: summarizePc(pc) });
+        setTimeout(() => {
+          void voiceAPI.sendSignal(sessionId, { ready: true }).catch(() => {});
+          report('voice.signal.ready.sent', { pc: summarizePc(pc) });
+        }, 500);
       }
 
       const captureMicAndAttach = async () => {
@@ -593,7 +602,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
         set({ localStream });
         const audioTrack = localStream.getAudioTracks()[0] || null;
         if (audioTransceiver?.sender) {
-          try { audioTransceiver.direction = 'sendrecv'; } catch { }
+          try { audioTransceiver.direction = 'sendrecv'; } catch { /* ignore */ }
           await audioTransceiver.sender.replaceTrack(audioTrack).catch(() => {});
           report('voice.mic.attached.replaceTrack', { hasTrack: !!audioTrack, pc: summarizePc(pc) });
         } else if (audioTrack) {

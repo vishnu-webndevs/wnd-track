@@ -23,7 +23,10 @@ import {
   X,
   Building,
   Briefcase,
-  Phone
+  Phone,
+  Trash2,
+  Settings,
+  Eraser
 } from 'lucide-react';
 import { useVoiceStore } from '../stores/voiceStore';
 
@@ -54,6 +57,10 @@ export default function Chat() {
   const [isGroupChat, setIsGroupChat] = useState(false);
   const [groupName, setGroupName] = useState('');
   const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
+
+  // Admin Group Management
+  const [showManageGroupModal, setShowManageGroupModal] = useState(false);
+  const [manageGroupSearch, setManageGroupSearch] = useState('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<number | null>(null);
@@ -427,6 +434,61 @@ export default function Chat() {
 
               {/* Header Right Action icons */}
               <div className="flex items-center gap-2">
+                {/* Admin Group Management */}
+                {currentUser?.role === 'admin' && (
+                  <>
+                    {activeConversation.type === 'group' && (
+                      <button
+                        onClick={async () => {
+                          setShowManageGroupModal(true);
+                          if (usersList.length === 0) {
+                            try {
+                              const res = await usersAPI.getUsers({ status: 'active' });
+                              setUsersList(res.data.filter((u) => u.id !== currentUser?.id));
+                            } catch (e) { void e; }
+                          }
+                        }}
+                        className="p-2 rounded-lg border text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 border-gray-200 dark:border-gray-700 transition"
+                        title="Manage Group"
+                      >
+                        <Settings className="w-4 h-4" />
+                      </button>
+                    )}
+                    <button
+                      onClick={async () => {
+                        if (window.confirm('Are you sure you want to clear all messages in this chat? This cannot be undone.')) {
+                          try {
+                            await chatAPI.clearMessages(activeConversation.id);
+                            useChatStore.getState().clearMessages(activeConversation.id);
+                          } catch (e) {
+                            alert('Failed to clear messages.');
+                          }
+                        }
+                      }}
+                      className="p-2 rounded-lg border text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-950/20 border-orange-200 dark:border-orange-900/50 transition"
+                      title="Clear Chat History"
+                    >
+                      <Eraser className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (window.confirm('Are you sure you want to delete this chat permanently?')) {
+                          try {
+                            await chatAPI.deleteConversation(activeConversation.id);
+                            useChatStore.getState().removeConversation(activeConversation.id);
+                          } catch (e) {
+                            alert('Failed to delete conversation.');
+                          }
+                        }
+                      }}
+                      className="p-2 rounded-lg border text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 border-red-200 dark:border-red-900/50 transition"
+                      title="Delete Conversation"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </>
+                )}
+
                 {/* Call icon if online and direct */}
                 {activeConversation.type === 'direct' && activeRecipient && (
                   <button
@@ -715,6 +777,103 @@ export default function Chat() {
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Admin Manage Group Modal */}
+      {showManageGroupModal && activeConversation && activeConversation.type === 'group' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900 bg-opacity-50">
+          <div className="w-full max-w-md bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl overflow-hidden shadow-xl flex flex-col max-h-[85vh]">
+            <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center bg-gray-50/50 dark:bg-gray-800/30">
+              <h3 className="font-bold text-gray-900 dark:text-white text-base">Manage Members</h3>
+              <button
+                onClick={() => {
+                  setShowManageGroupModal(false);
+                  setManageGroupSearch('');
+                }}
+                className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3 border-b border-gray-200 dark:border-gray-700">
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search to add users..."
+                  value={manageGroupSearch}
+                  onChange={(e) => setManageGroupSearch(e.target.value)}
+                  className="pl-8 pr-3 py-1.5 w-full text-sm border border-gray-300 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-2 divide-y divide-gray-100 dark:divide-gray-800">
+              <div className="px-2 py-1.5 text-xs font-semibold text-gray-500 dark:text-gray-400">Current Members</div>
+              {activeConversation.participants.map((p) => (
+                <div key={p.id} className="p-2 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800/30 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-[10px] ${getAvatarBg(p.name)}`}>
+                      {getInitials(p.name)}
+                    </div>
+                    <span className="text-sm font-medium text-gray-900 dark:text-white">{p.name}</span>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      if (window.confirm(`Remove ${p.name} from this group?`)) {
+                        try {
+                          await chatAPI.removeParticipant(activeConversation.id, p.id);
+                          useChatStore.getState().removeGroupParticipant(activeConversation.id, p.id);
+                        } catch (e) {
+                          alert('Failed to remove user');
+                        }
+                      }
+                    }}
+                    className="text-xs font-semibold text-red-500 hover:text-red-700 dark:hover:text-red-400 px-2 py-1 rounded-md transition"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+
+              {manageGroupSearch && (
+                <div className="mt-4">
+                  <div className="px-2 py-1.5 text-xs font-semibold text-gray-500 dark:text-gray-400">Add New Members</div>
+                  {usersList
+                    .filter(
+                      (u) =>
+                        !activeConversation.participants.some((p) => p.id === u.id) &&
+                        u.name.toLowerCase().includes(manageGroupSearch.toLowerCase())
+                    )
+                    .map((u) => (
+                      <div key={u.id} className="p-2 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800/30 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-[10px] ${getAvatarBg(u.name)}`}>
+                            {getInitials(u.name)}
+                          </div>
+                          <span className="text-sm font-medium text-gray-900 dark:text-white">{u.name}</span>
+                        </div>
+                        <button
+                          onClick={async () => {
+                            try {
+                              await chatAPI.addParticipant(activeConversation.id, [u.id]);
+                              setManageGroupSearch('');
+                            } catch (e) {
+                              alert('Failed to add user');
+                            }
+                          }}
+                          className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 px-2 py-1 rounded-md transition"
+                        >
+                          Add
+                        </button>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

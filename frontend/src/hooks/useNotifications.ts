@@ -139,6 +139,28 @@ export function useNotifications() {
         });
       });
 
+      // Handle chat management events
+      channel.listen('.conversation.deleted', (data: { conversationId: number }) => {
+        useChatStore.getState().removeConversation(data.conversationId);
+      });
+
+      channel.listen('.chat.cleared', (data: { conversationId: number }) => {
+        useChatStore.getState().clearMessages(data.conversationId);
+      });
+
+      channel.listen('.participant.added', (data: { conversationId: number; addedUsers: any[] }) => {
+        useChatStore.getState().addGroupParticipants(data.conversationId, data.addedUsers);
+      });
+
+      channel.listen('.participant.removed', (data: { conversationId: number; removedUserId: number }) => {
+        const currentUser = useAuthStore.getState().user;
+        if (currentUser && data.removedUserId === currentUser.id) {
+          useChatStore.getState().removeConversation(data.conversationId);
+        } else {
+          useChatStore.getState().removeGroupParticipant(data.conversationId, data.removedUserId);
+        }
+      });
+
       channelRef.current = channel;
     } catch (e) {
       void e;

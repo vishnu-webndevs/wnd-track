@@ -84,6 +84,10 @@ Route::middleware('auth:sanctum')->group(function () {
     // Chat Routes
     Route::get('/chat/conversations', [ChatController::class, 'index']);
     Route::post('/chat/conversations', [ChatController::class, 'store']);
+    Route::delete('/chat/conversations/{id}', [ChatController::class, 'destroy']);
+    Route::delete('/chat/conversations/{id}/messages', [ChatController::class, 'clearMessages']);
+    Route::post('/chat/conversations/{id}/participants', [ChatController::class, 'addParticipant']);
+    Route::delete('/chat/conversations/{id}/participants/{userId}', [ChatController::class, 'removeParticipant']);
     Route::get('/chat/conversations/{id}/messages', [ChatController::class, 'messages']);
     Route::post('/chat/conversations/{id}/messages', [ChatController::class, 'sendMessage']);
     Route::put('/chat/conversations/{id}/read', [ChatController::class, 'markRead']);

@@ -549,6 +549,7 @@ export default function TeamAvailability() {
   const [isBroadcastModalOpen, setIsBroadcastModalOpen] = useState(false);
 
   const liveVideosRef = useRef<Record<number, HTMLVideoElement | null>>({});
+  const liveStreamsRef = useRef<Record<number, MediaStream | null>>({});
   const livePeersRef = useRef<Record<number, SimplePeerInstance | null>>({});
   const liveLastSignalRef = useRef<Record<number, string | null>>({});
   const liveConnectedRef = useRef<Record<number, boolean>>({});
@@ -556,6 +557,7 @@ export default function TeamAvailability() {
   const prevLiveUserIdsRef = useRef<number[]>([]);
   const keepAliveIntervalRef = useRef<number | null>(null);
   const signalIntervalRef = useRef<number | null>(null);
+  const signalLockRef = useRef<boolean>(false);
 
   useEffect(() => {
     const ids = new Set(visiblePresences.map(p => p.user_id));
@@ -641,6 +643,7 @@ export default function TeamAvailability() {
       });
 
       p.on('stream', (stream: MediaStream) => {
+        liveStreamsRef.current[userId] = stream;
         const el = liveVideosRef.current[userId];
         if (el) {
           el.srcObject = stream;
@@ -681,6 +684,7 @@ export default function TeamAvailability() {
 
     const el = liveVideosRef.current[userId];
     if (el) el.srcObject = null;
+    liveStreamsRef.current[userId] = null;
   };
 
   const stopAllLiveViews = async (updateState: boolean = true) => {
@@ -769,98 +773,104 @@ export default function TeamAvailability() {
     }, 45000);
 
     signalIntervalRef.current = window.setInterval(async () => {
-      const sanitizeSdp = (sdp: string) => {
-        const lines = sdp.split(/\r\n|\n/);
-        const filtered = lines.filter((l) => !l.startsWith('a=max-message-size:'));
-        const rebuilt = filtered.join('\r\n').trim();
-        return rebuilt ? `${rebuilt}\r\n` : rebuilt;
-      };
+      if (signalLockRef.current) return;
+      signalLockRef.current = true;
+      try {
+        const sanitizeSdp = (sdp: string) => {
+          const lines = sdp.split(/\r\n|\n/);
+          const filtered = lines.filter((l) => !l.startsWith('a=max-message-size:'));
+          const rebuilt = filtered.join('\r\n').trim();
+          return rebuilt ? `${rebuilt}\r\n` : rebuilt;
+        };
 
-      const normalizeOffer = (input: unknown): SimplePeerSignalData | null => {
-        if (!input) return null;
-        if (typeof input === 'string') {
-          const trimmed = input.trim();
-          if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-            try {
-              return JSON.parse(trimmed) as SimplePeerSignalData;
-            } catch {
-              return { type: 'offer', sdp: trimmed } as SimplePeerSignalData;
-            }
-          }
-          return { type: 'offer', sdp: trimmed } as SimplePeerSignalData;
-        }
-        if (typeof input === 'object') {
-          const obj = input as Record<string, unknown>;
-          if (typeof obj.type === 'string' && (typeof obj.sdp === 'string' || typeof obj.candidate === 'string' || typeof obj.candidate === 'object')) {
-            return obj as unknown as SimplePeerSignalData;
-          }
-          if (typeof obj.sdp === 'string') {
-            return { type: 'offer', sdp: obj.sdp } as SimplePeerSignalData;
-          }
-        }
-        return null;
-      };
-
-      const normalizeCandidate = (input: unknown): SimplePeerSignalData | null => {
-        if (!input) return null;
-        if (typeof input === 'string') {
-          try {
-            const parsed = JSON.parse(input) as unknown;
-            return normalizeCandidate(parsed);
-          } catch {
-            return null;
-          }
-        }
-        if (typeof input === 'object') {
-          const obj = input as Record<string, unknown>;
-          if (typeof obj.type === 'string') return obj as unknown as SimplePeerSignalData;
-          if (typeof obj.candidate === 'string') return { type: 'candidate', candidate: obj.candidate } as unknown as SimplePeerSignalData;
-          return { type: 'candidate', candidate: obj as unknown as RTCIceCandidateInit } as unknown as SimplePeerSignalData;
-        }
-        return null;
-      };
-
-      for (const id of activeLiveUserIds) {
-        const peer = livePeersRef.current[id];
-        if (!peer) continue;
-
-        try {
-          const offerData = await usersAPI.getSignal(id, 'offer');
-          if (offerData) {
-            const normalized = normalizeOffer(offerData);
-            const cleanedSdp =
-              normalized && typeof (normalized as unknown as { sdp?: unknown }).sdp === 'string'
-                ? sanitizeSdp((normalized as unknown as { sdp: string }).sdp)
-                : null;
-            const dedupeKey = cleanedSdp ?? JSON.stringify(normalized);
-
-            if (normalized && dedupeKey && dedupeKey !== liveLastSignalRef.current[id]) {
-              liveLastSignalRef.current[id] = dedupeKey;
-              if (liveConnectedRef.current[id]) {
-                startLiveView(id);
-              } else {
-                const toSignal =
-                  cleanedSdp && typeof (normalized as unknown as { sdp?: unknown }).sdp === 'string'
-                    ? ({ ...(normalized as unknown as Record<string, unknown>), sdp: cleanedSdp } as unknown as SimplePeerSignalData)
-                    : normalized;
-                peer.signal(toSignal);
+        const normalizeOffer = (input: unknown): SimplePeerSignalData | null => {
+          if (!input) return null;
+          if (typeof input === 'string') {
+            const trimmed = input.trim();
+            if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+              try {
+                return JSON.parse(trimmed) as SimplePeerSignalData;
+              } catch {
+                return { type: 'offer', sdp: trimmed } as SimplePeerSignalData;
               }
             }
+            return { type: 'offer', sdp: trimmed } as SimplePeerSignalData;
           }
-
-          const candidates = await usersAPI.getSignal(id, 'candidate');
-          if (candidates && Array.isArray(candidates)) {
-            for (const cand of candidates as Array<{ candidate?: unknown }>) {
-              const raw = cand?.candidate;
-              if (!raw) continue;
-              const normalized = normalizeCandidate(raw);
-              if (!normalized) continue;
-              peer.signal(normalized);
+          if (typeof input === 'object') {
+            const obj = input as Record<string, unknown>;
+            if (typeof obj.type === 'string' && (typeof obj.sdp === 'string' || typeof obj.candidate === 'string' || typeof obj.candidate === 'object')) {
+              return obj as unknown as SimplePeerSignalData;
+            }
+            if (typeof obj.sdp === 'string') {
+              return { type: 'offer', sdp: obj.sdp } as SimplePeerSignalData;
             }
           }
-        } catch (e) {
-          void e;
+          return null;
+        };
+
+        const normalizeCandidate = (input: unknown): SimplePeerSignalData | null => {
+          if (!input) return null;
+          if (typeof input === 'string') {
+            try {
+              const parsed = JSON.parse(input) as unknown;
+              return normalizeCandidate(parsed);
+            } catch {
+              return null;
+            }
+          }
+          if (typeof input === 'object') {
+            const obj = input as Record<string, unknown>;
+            if (typeof obj.type === 'string') return obj as unknown as SimplePeerSignalData;
+            if (typeof obj.candidate === 'string') return { type: 'candidate', candidate: obj.candidate } as unknown as SimplePeerSignalData;
+            return { type: 'candidate', candidate: obj as unknown as RTCIceCandidateInit } as unknown as SimplePeerSignalData;
+          }
+          return null;
+        };
+
+        for (const id of activeLiveUserIds) {
+          const peer = livePeersRef.current[id];
+          if (!peer) continue;
+
+          try {
+            const offerData = await usersAPI.getSignal(id, 'offer');
+            if (offerData) {
+              const normalized = normalizeOffer(offerData);
+              const cleanedSdp =
+                normalized && typeof (normalized as unknown as { sdp?: unknown }).sdp === 'string'
+                  ? sanitizeSdp((normalized as unknown as { sdp: string }).sdp)
+                  : null;
+              const dedupeKey = cleanedSdp ?? JSON.stringify(normalized);
+
+              if (normalized && dedupeKey && dedupeKey !== liveLastSignalRef.current[id]) {
+                liveLastSignalRef.current[id] = dedupeKey;
+                if (liveConnectedRef.current[id]) {
+                  startLiveView(id);
+                } else {
+                  const toSignal =
+                    cleanedSdp && typeof (normalized as unknown as { sdp?: unknown }).sdp === 'string'
+                      ? ({ ...(normalized as unknown as Record<string, unknown>), sdp: cleanedSdp } as unknown as SimplePeerSignalData)
+                      : normalized;
+                  peer.signal(toSignal);
+                }
+              }
+            }
+
+            const candidates = await usersAPI.getSignal(id, 'candidate');
+            if (candidates && Array.isArray(candidates)) {
+              for (const cand of candidates as Array<{ candidate?: unknown }>) {
+                const raw = cand?.candidate;
+                if (!raw) continue;
+                const normalized = normalizeCandidate(raw);
+                if (!normalized) continue;
+                peer.signal(normalized);
+              }
+            }
+          } catch (e) {
+            void e;
+          }
         }
+      } finally {
+        signalLockRef.current = false;
       }
     }, 2000);
 
@@ -1410,6 +1420,10 @@ export default function TeamAvailability() {
                           <video 
                             ref={(el) => {
                               liveVideosRef.current[presence.user_id] = el;
+                              if (el && liveStreamsRef.current[presence.user_id] && el.srcObject !== liveStreamsRef.current[presence.user_id]) {
+                                el.srcObject = liveStreamsRef.current[presence.user_id];
+                                el.play().catch(() => {});
+                              }
                             }}
                             autoPlay 
                             playsInline 

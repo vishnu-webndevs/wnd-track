@@ -36,7 +36,7 @@ class VoiceController extends Controller
             ], 422);
         }
 
-        $sessionId = Str::uuid()->toString();
+        $sessionId = $request->input('session_id') ?: Str::uuid()->toString();
 
         try {
             broadcast(new CallIncoming($sessionId, $caller->id, $caller->name, $recipientId, $type))->toOthers();
