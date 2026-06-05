@@ -131,6 +131,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Timesheets and Monitoring Protected by 2FA for Admins
     Route::middleware(AdminTwoFactorMiddleware::class)->group(function () {
+        Route::get('/team/idle-history/{user}', [TeamAvailabilityController::class, 'idleHistory']);
         Route::get('/users/{user}/time-logs', [UserController::class, 'getTimeLogs']);
         Route::post('/users/{user}/time-logs', [UserController::class, 'storeTimeLog']);
         Route::put('/users/{user}/time-logs/{timeLog}', [UserController::class, 'updateTimeLogAdmin']);

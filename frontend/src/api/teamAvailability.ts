@@ -17,6 +17,12 @@ export interface UpdateStatusResponse {
   data: UserPresence;
 }
 
+export interface IdleHistoryEntry {
+  date: string;
+  idle_minutes: number;
+  streaks: number;
+}
+
 export const teamAvailabilityAPI = {
   getTeamAvailability: async (filters: PresenceFilters = {}): Promise<TeamAvailabilityResponse> => {
     const response = await api.get('/team/availability', { params: filters });
@@ -30,6 +36,11 @@ export const teamAvailabilityAPI = {
 
   updateStatus: async (status: 'available' | 'offline'): Promise<UpdateStatusResponse> => {
     const response = await api.post('/team/status', { status });
+    return response.data;
+  },
+
+  getIdleHistory: async (userId: number, days: number = 14): Promise<{ success: boolean; data: IdleHistoryEntry[] }> => {
+    const response = await api.get(`/team/idle-history/${userId}`, { params: { days } });
     return response.data;
   },
 };

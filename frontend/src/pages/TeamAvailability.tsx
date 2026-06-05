@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTeamPresence } from '../hooks/useTeamPresence';
 import { projectsAPI } from '../api/projects';
+import { teamAvailabilityAPI, type IdleHistoryEntry } from '../api/teamAvailability';
 import { usersAPI } from '../api/users';
 import { chatAPI } from '../api/chat';
 import { meetingsAPI } from '../api/meetings';
@@ -547,6 +548,10 @@ export default function TeamAvailability() {
   const [meetingTargetUserId, setMeetingTargetUserId] = useState<number | null>(null);
 
   const [isBroadcastModalOpen, setIsBroadcastModalOpen] = useState(false);
+  const [idleHistoryUserId, setIdleHistoryUserId] = useState<number | null>(null);
+  const [idleHistoryUserName, setIdleHistoryUserName] = useState('');
+  const [idleHistory, setIdleHistory] = useState<IdleHistoryEntry[] | null>(null);
+  const [idleHistoryLoading, setIdleHistoryLoading] = useState(false);
 
   const liveVideosRef = useRef<Record<number, HTMLVideoElement | null>>({});
   const liveStreamsRef = useRef<Record<number, MediaStream | null>>({});
@@ -917,6 +922,26 @@ export default function TeamAvailability() {
 
   const handleCallClick = (userId: number, userName: string) => {
     useVoiceStore.getState().initiateCall(userId, userName);
+  };
+
+  const openIdleHistory = async (userId: number, userName: string) => {
+    setIdleHistoryUserId(userId);
+    setIdleHistoryUserName(userName);
+    setIdleHistory(null);
+    setIdleHistoryLoading(true);
+    try {
+      const res = await teamAvailabilityAPI.getIdleHistory(userId, 14);
+      if (res.success) {
+        setIdleHistory(res.data);
+      } else {
+        setIdleHistory([]);
+      }
+    } catch (e) {
+      void e;
+      setIdleHistory([]);
+    } finally {
+      setIdleHistoryLoading(false);
+    }
   };
 
   // Compute live presence metrics
@@ -1313,17 +1338,6 @@ export default function TeamAvailability() {
                           </div>
                         </div>
 
-                        {showIdleToday && (
-                          <div className="flex items-center justify-between bg-amber-50/40 dark:bg-amber-950/10 px-3 py-1.5 rounded-lg border border-amber-100/40 dark:border-amber-900/10">
-                            <div className="flex items-center gap-1 text-xs text-amber-700 dark:text-amber-300 font-medium">
-                              <ShieldAlert className="w-3.5 h-3.5" />
-                              No-activity (today)
-                            </div>
-                            <div className="text-xs font-bold text-amber-800 dark:text-amber-200">
-                              {idleMinutesToday} min{idleStreaksToday > 0 ? ` • ${idleStreaksToday} streaks` : ''}
-                            </div>
-                          </div>
-                        )}
                       </div>
                     )}
 
@@ -1378,6 +1392,25 @@ export default function TeamAvailability() {
                           </p>
                         )}
                       </div>
+                    )}
+
+                    {showIdleToday && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openIdleHistory(presence.user_id, presence.user?.name || '');
+                        }}
+                        className="w-full flex items-center justify-between bg-amber-50/40 dark:bg-amber-950/10 px-3 py-1.5 rounded-lg border border-amber-100/40 dark:border-amber-900/10 hover:bg-amber-50/60 dark:hover:bg-amber-950/20 transition"
+                      >
+                        <div className="flex items-center gap-1 text-xs text-amber-700 dark:text-amber-300 font-medium">
+                          <ShieldAlert className="w-3.5 h-3.5" />
+                          No-activity (today)
+                        </div>
+                        <div className="text-xs font-bold text-amber-800 dark:text-amber-200">
+                          {idleMinutesToday} min{idleStreaksToday > 0 ? ` • ${idleStreaksToday} streaks` : ''}
+                        </div>
+                      </button>
                     )}
                   </div>
                 </div>
@@ -1481,6 +1514,64 @@ export default function TeamAvailability() {
           setSelectedUserIds([]);
         }}
       />
+
+      {idleHistoryUserId && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => {
+            setIdleHistoryUserId(null);
+            setIdleHistoryUserName('');
+            setIdleHistory(null);
+          }}
+        >
+          <div
+            className="w-full max-w-lg bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-4 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
+              <div className="font-extrabold text-gray-950 dark:text-white">
+                No-activity history • {idleHistoryUserName || `User ${idleHistoryUserId}`}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIdleHistoryUserId(null);
+                  setIdleHistoryUserName('');
+                  setIdleHistory(null);
+                }}
+                className="text-gray-500 hover:text-gray-900 dark:hover:text-white px-2 py-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="p-4">
+              {idleHistoryLoading ? (
+                <div className="text-sm text-gray-500 dark:text-gray-400">Loading...</div>
+              ) : !idleHistory || idleHistory.length === 0 ? (
+                <div className="text-sm text-gray-500 dark:text-gray-400">No data</div>
+              ) : (
+                <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+                  {idleHistory
+                    .slice()
+                    .reverse()
+                    .map((d) => (
+                      <div
+                        key={d.date}
+                        className="flex items-center justify-between px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/30"
+                      >
+                        <div className="text-sm font-bold text-gray-900 dark:text-white">{d.date}</div>
+                        <div className="text-sm font-bold text-amber-800 dark:text-amber-200">
+                          {d.idle_minutes} min{d.streaks > 0 ? ` • ${d.streaks} streaks` : ''}
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
