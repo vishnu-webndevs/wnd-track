@@ -94,32 +94,53 @@ class PresenceService
      */
     public function getTeamStatus(array $filters = []): Collection
     {
-        $query = UserPresence::with(['user', 'currentProject', 'currentTask']);
+        $usersQuery = User::with(['presence.currentProject', 'presence.currentTask']);
 
-        // Apply filters
-        if (!empty($filters['status'])) {
-            if ($filters['status'] === 'internet_issue') {
-                $query->where('status', '!=', 'offline')
-                      ->where('internet_connected', false);
-            } else {
-                $query->where('status', $filters['status']);
-            }
-        }
-        if (!empty($filters['project_id'])) {
-            $query->where('current_project_id', $filters['project_id']);
-        }
         if (!empty($filters['department'])) {
-            $query->whereHas('user', function ($q) use ($filters) {
-                $q->where('department', $filters['department']);
-            });
+            $usersQuery->where('department', $filters['department']);
         }
         if (!empty($filters['search'])) {
-            $query->whereHas('user', function ($q) use ($filters) {
-                $q->where('name', 'like', '%' . $filters['search'] . '%');
+            $usersQuery->where('name', 'like', '%' . $filters['search'] . '%');
+        }
+
+        $users = $usersQuery->get();
+
+        $presences = $users->map(function ($user) {
+            if ($user->presence) {
+                $p = $user->presence;
+                $p->setRelation('user', $user);
+                return $p;
+            }
+
+            // Create a default offline presence object for users without a presence record
+            $p = new UserPresence([
+                'user_id' => $user->id,
+                'status' => 'offline',
+                'internet_connected' => false,
+            ]);
+            $p->setRelation('user', $user);
+            $p->setRelation('currentProject', null);
+            $p->setRelation('currentTask', null);
+            return $p;
+        });
+
+        // Apply presence-specific filters after creating default objects
+        if (!empty($filters['status'])) {
+            $presences = $presences->filter(function ($p) use ($filters) {
+                if ($filters['status'] === 'internet_issue') {
+                    return $p->status !== 'offline' && !$p->internet_connected;
+                }
+                return $p->status === $filters['status'];
             });
         }
 
-        return $query->get();
+        if (!empty($filters['project_id'])) {
+            $presences = $presences->filter(function ($p) use ($filters) {
+                return (string) $p->current_project_id === (string) $filters['project_id'];
+            });
+        }
+
+        return $presences->values();
     }
 
     /**

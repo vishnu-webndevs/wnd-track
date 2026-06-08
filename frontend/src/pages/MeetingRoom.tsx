@@ -11,6 +11,168 @@ import { useAuthStore } from '../stores/authStore';
 import { getEcho } from '../lib/echo';
 import type { Meeting, MeetingMessage, MeetingParticipant } from '../types/meetings';
 
+function useActiveSpeaker(stream: MediaStream | null, enabled: boolean = true) {
+  const [isSpeaking, setIsSpeaking] = useState(false);
+
+  useEffect(() => {
+    if (!stream || !enabled) {
+      setIsSpeaking(false);
+      return;
+    }
+
+    const audioTracks = stream.getAudioTracks();
+    if (audioTracks.length === 0) {
+      setIsSpeaking(false);
+      return;
+    }
+
+    try {
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.2;
+
+      const source = audioContext.createMediaStreamSource(new MediaStream([audioTracks[0]]));
+      source.connect(analyser);
+
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      let animationFrame: number;
+      let lastSpeakTime = 0;
+
+      const checkAudioLevel = () => {
+        analyser.getByteFrequencyData(dataArray);
+        
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) {
+          sum += dataArray[i];
+        }
+        const average = sum / dataArray.length;
+        
+        if (average > 10) {
+          lastSpeakTime = Date.now();
+          setIsSpeaking(true);
+        } else {
+          if (Date.now() - lastSpeakTime > 500) {
+            setIsSpeaking(false);
+          }
+        }
+        animationFrame = requestAnimationFrame(checkAudioLevel);
+      };
+
+      checkAudioLevel();
+
+      return () => {
+        cancelAnimationFrame(animationFrame);
+        source.disconnect();
+        analyser.disconnect();
+        if (audioContext.state !== 'closed') {
+          audioContext.close().catch(() => {});
+        }
+      };
+    } catch (err) {
+      return () => {};
+    }
+  }, [stream, enabled]);
+
+  return isSpeaking;
+}
+
+function RemoteParticipantTile({
+  member,
+  remoteStream,
+  remoteVideoOn,
+  remoteVideoActive,
+  peerMicEnabled,
+  toggleFullscreen,
+  applySpeakerToElement,
+  setAudioBlocked
+}: {
+  member: any;
+  remoteStream: MediaStream | undefined;
+  remoteVideoOn: boolean;
+  remoteVideoActive: boolean;
+  peerMicEnabled: boolean;
+  toggleFullscreen: (e: any) => void;
+  applySpeakerToElement: (el: any) => void;
+  setAudioBlocked: (v: boolean) => void;
+}) {
+  const videoTrack = remoteStream?.getVideoTracks()[0];
+  const hasVideo = remoteVideoOn && remoteVideoActive && !!videoTrack && videoTrack.readyState === 'live';
+  const isSpeaking = useActiveSpeaker(remoteStream, peerMicEnabled);
+
+  return (
+    <div 
+      className={`aspect-video bg-gray-950 border rounded-2xl relative overflow-hidden flex flex-col items-center justify-center shadow-lg transition duration-300 ${isSpeaking ? 'border-indigo-500 shadow-indigo-500/20' : 'border-gray-800 hover:border-indigo-500/30'}`}
+    >
+      <audio
+        autoPlay
+        playsInline
+        style={{ position: 'fixed', top: '-9999px', left: '-9999px' }}
+        ref={(el) => {
+          if (!el || !remoteStream) return;
+          if (el.srcObject !== remoteStream) {
+            el.srcObject = remoteStream;
+            el.muted = false;
+            el.volume = 1;
+          }
+          void applySpeakerToElement(el);
+          el.play().catch(err => {
+            void err;
+            setAudioBlocked(true);
+          });
+        }}
+      />
+      <video
+        autoPlay
+        playsInline 
+        onDoubleClick={toggleFullscreen}
+        className="w-full h-full object-contain rounded-2xl cursor-pointer"
+        ref={(el) => {
+          if (!el) return;
+          if (!remoteVideoOn) {
+            if (el.srcObject) {
+              el.srcObject = null;
+            }
+            return;
+          }
+          el.muted = true;
+          el.volume = 0;
+          if (remoteStream && el.srcObject !== remoteStream) {
+            el.srcObject = remoteStream;
+          }
+          el.play().catch(err => {
+            void err;
+            setAudioBlocked(true);
+          });
+        }}
+      />
+      {!hasVideo && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-950 z-10">
+          <div className={`w-16 h-16 rounded-full flex items-center justify-center text-white text-xl font-bold border transition-colors ${isSpeaking ? 'bg-indigo-600 border-indigo-400' : 'bg-gray-800 border-gray-700'}`}>
+            {member.name.charAt(0).toUpperCase()}
+          </div>
+        </div>
+      )}
+
+      <div className="absolute bottom-3 left-3 bg-gray-900/80 backdrop-blur px-2.5 py-1 rounded-lg border border-gray-850 flex items-center gap-2 text-xs text-white font-semibold">
+        <span>{member.name}</span>
+        {!peerMicEnabled && <MicOff className="w-3.5 h-3.5 text-red-500" />}
+        {member.role === 'host' && (
+          <span className="text-[9px] bg-indigo-500/20 text-indigo-400 border border-indigo-500/35 px-1 rounded font-bold">
+            Host
+          </span>
+        )}
+      </div>
+
+      {hasVideo && (
+        <button onClick={toggleFullscreen} className="absolute top-3 right-3 bg-gray-900/80 backdrop-blur p-1.5 rounded-lg border border-gray-850 hover:bg-gray-800 transition z-10 text-gray-300 hover:text-white" title="Fullscreen / Zoom">
+          <Maximize className="w-3.5 h-3.5" />
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function MeetingRoom() {
   const { id } = useParams<{ id: string }>();
   const meetingId = Number(id);
@@ -29,6 +191,15 @@ export default function MeetingRoom() {
   const [cameraActive, setCameraActive] = useState(false);
   const [screenSharing, setScreenSharing] = useState(false);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  
+  const isSpeakingLocal = useActiveSpeaker(localStream, micActive);
+
+  // Use a ref to store current media state to avoid stale closures in Echo event listeners
+  const mediaStateRef = useRef({ videoEnabled: true, micEnabled: true });
+  useEffect(() => {
+    mediaStateRef.current = { videoEnabled: cameraActive || screenSharing, micEnabled: micActive };
+  }, [cameraActive, screenSharing, micActive]);
+
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   
   const [audioBlocked, setAudioBlocked] = useState(false);
@@ -36,10 +207,13 @@ export default function MeetingRoom() {
   const [audioInputs, setAudioInputs] = useState<MediaDeviceInfo[]>([]);
   const [videoInputs, setVideoInputs] = useState<MediaDeviceInfo[]>([]);
   const [audioOutputs, setAudioOutputs] = useState<MediaDeviceInfo[]>([]);
+  
   const [selectedMicId, setSelectedMicId] = useState<string>(() => localStorage.getItem('tt-mic-device') || '');
   const [selectedCamId, setSelectedCamId] = useState<string>(() => localStorage.getItem('tt-cam-device') || '');
   const [selectedSpeakerId, setSelectedSpeakerId] = useState<string>(() => localStorage.getItem('tt-speaker-device') || '');
+  
   const [peerVideoEnabled, setPeerVideoEnabled] = useState<Record<number, boolean>>({});
+  const [peerMicEnabled, setPeerMicEnabled] = useState<Record<number, boolean>>({});
   const [peerVideoActive, setPeerVideoActive] = useState<Record<number, boolean>>({});
 
   // WebRTC Mesh States
@@ -130,7 +304,7 @@ export default function MeetingRoom() {
 
   useEffect(() => {
     broadcastMediaState();
-  }, [cameraActive, screenSharing]);
+  }, [cameraActive, screenSharing, micActive]);
 
   const refreshMediaDevices = useCallback(async () => {
     if (!('mediaDevices' in navigator) || !navigator.mediaDevices?.enumerateDevices) return;
@@ -373,21 +547,24 @@ export default function MeetingRoom() {
     return pc;
   };
 
-  const broadcastMediaState = (overrides?: { videoEnabled?: boolean }) => {
+  const broadcastMediaState = (overrides?: { videoEnabled?: boolean; micEnabled?: boolean }) => {
     const channel = presenceChannelRef.current;
     if (!channel) return;
     const myId = Number(user?.id ?? 0);
     if (!myId) return;
 
-    const videoEnabled = overrides?.videoEnabled ?? (cameraActive || screenSharing);
+    const videoEnabled = overrides?.videoEnabled ?? mediaStateRef.current.videoEnabled;
+    const micEnabled = overrides?.micEnabled ?? mediaStateRef.current.micEnabled;
 
     Object.keys(pcsRef.current).forEach((peerIdStr) => {
       const peerId = Number(peerIdStr);
       if (!Number.isFinite(peerId) || !peerId) return;
+      
+      console.log(`[MeetingRoom] Sending media update to ${peerId}:`, { videoEnabled, micEnabled });
       channel.whisper('meeting-signal', {
         to: peerId,
         from: myId,
-        media: { videoEnabled }
+        media: { videoEnabled, micEnabled }
       });
     });
   };
@@ -639,7 +816,7 @@ export default function MeetingRoom() {
       };
 
       // Listen to signaling whisper
-      presenceChannel.listenForWhisper('meeting-signal', async (data: { to: number; from: number; offer?: any; answer?: any; candidates?: any; candidate?: any; renegotiate?: boolean; media?: { videoEnabled?: boolean } }) => {
+      presenceChannel.listenForWhisper('meeting-signal', async (data: { to: number; from: number; offer?: any; answer?: any; candidates?: any; candidate?: any; renegotiate?: boolean; media?: { videoEnabled?: boolean; micEnabled?: boolean } }) => {
         if (Number(data.to) !== Number(user?.id)) return;
 
         const peerId = data.from;
@@ -650,8 +827,14 @@ export default function MeetingRoom() {
         }
 
         try {
-          if (data.media && typeof data.media.videoEnabled === 'boolean') {
-            setPeerVideoEnabled(prev => ({ ...prev, [peerId]: data.media!.videoEnabled! }));
+          if (data.media) {
+            console.log(`[MeetingRoom] Received media update from ${peerId}:`, data.media);
+            if (typeof data.media.videoEnabled === 'boolean') {
+              setPeerVideoEnabled(prev => ({ ...prev, [peerId]: data.media!.videoEnabled! }));
+            }
+            if (typeof data.media.micEnabled === 'boolean') {
+              setPeerMicEnabled(prev => ({ ...prev, [peerId]: data.media!.micEnabled! }));
+            }
           }
 
           if (data.renegotiate) {
@@ -1181,7 +1364,7 @@ export default function MeetingRoom() {
         <div className="flex-1 my-2 sm:my-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 sm:gap-6 overflow-y-auto min-h-0 p-1 sm:p-2 items-center justify-center content-start sm:content-center">
           
           {/* Local participant feed */}
-          <div className="aspect-video bg-gray-950 border border-gray-800 rounded-2xl relative overflow-hidden flex flex-col items-center justify-center shadow-lg group hover:border-indigo-500/50 transition duration-300">
+          <div className={`aspect-video bg-gray-950 border rounded-2xl relative overflow-hidden flex flex-col items-center justify-center shadow-lg group transition duration-300 ${isSpeakingLocal ? 'border-indigo-500 shadow-indigo-500/20' : 'border-gray-800 hover:border-indigo-500/50'}`}>
             {(cameraActive || screenSharing) ? (
               <video 
                 ref={localVideoRef} 
@@ -1191,7 +1374,7 @@ export default function MeetingRoom() {
                 className={`w-full h-full rounded-2xl ${screenSharing ? 'object-contain' : 'object-cover'}`}
               />
             ) : (
-              <div className="w-16 h-16 rounded-full bg-indigo-650 flex items-center justify-center text-white text-xl font-black">
+              <div className={`w-16 h-16 rounded-full flex items-center justify-center text-white text-xl font-black border transition-colors ${isSpeakingLocal ? 'bg-indigo-600 border-indigo-400' : 'bg-indigo-650 border-transparent'}`}>
                 {user?.name.charAt(0).toUpperCase()}
               </div>
             )}
@@ -1207,80 +1390,20 @@ export default function MeetingRoom() {
             const remoteStream = remoteStreams[member.id];
             const remoteVideoOn = peerVideoEnabled[member.id] ?? true;
             const remoteVideoActive = peerVideoActive[member.id] ?? false;
-            const videoTrack = remoteStream?.getVideoTracks()[0];
-            const hasVideo = remoteVideoOn && remoteVideoActive && !!videoTrack && videoTrack.readyState === 'live';
+            const peerMicOn = peerMicEnabled[member.id] ?? true;
             
             return (
-              <div 
+              <RemoteParticipantTile 
                 key={member.id}
-                className="aspect-video bg-gray-950 border border-gray-800 rounded-2xl relative overflow-hidden flex flex-col items-center justify-center shadow-lg hover:border-indigo-500/30 transition duration-300"
-              >
-                <audio
-                  autoPlay
-                  playsInline
-                  style={{ position: 'fixed', top: '-9999px', left: '-9999px' }}
-                  ref={(el) => {
-                    if (!el || !remoteStream) return;
-                    if (el.srcObject !== remoteStream) {
-                      el.srcObject = remoteStream;
-                      el.muted = false;
-                      el.volume = 1;
-                    }
-                    void applySpeakerToElement(el);
-                    el.play().catch(err => {
-                      void err;
-                      setAudioBlocked(true);
-                    });
-                  }}
-                />
-                <video
-                  autoPlay
-                  playsInline 
-                  onDoubleClick={toggleFullscreen}
-                  className="w-full h-full object-contain rounded-2xl cursor-pointer"
-                  ref={(el) => {
-                    if (!el) return;
-                    if (!remoteVideoOn) {
-                      if (el.srcObject) {
-                        el.srcObject = null;
-                      }
-                      return;
-                    }
-                    el.muted = true;
-                    el.volume = 0;
-                    if (remoteStream && el.srcObject !== remoteStream) {
-                      el.srcObject = remoteStream;
-                    }
-                    el.play().catch(err => {
-                      void err;
-                      setAudioBlocked(true);
-                    });
-                  }}
-                />
-                {!hasVideo && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-gray-950 z-10">
-                    <div className="w-16 h-16 rounded-full bg-gray-800 flex items-center justify-center text-white text-xl font-bold border border-gray-700">
-                      {member.name.charAt(0).toUpperCase()}
-                    </div>
-                  </div>
-                )}
-
-
-                <div className="absolute bottom-3 left-3 bg-gray-900/80 backdrop-blur px-2.5 py-1 rounded-lg border border-gray-850 flex items-center gap-2 text-xs text-white font-semibold">
-                  <span>{member.name}</span>
-                  {member.role === 'host' && (
-                    <span className="text-[9px] bg-indigo-500/20 text-indigo-400 border border-indigo-500/35 px-1 rounded font-bold">
-                      Host
-                    </span>
-                  )}
-                </div>
-
-                {hasVideo && (
-                  <button onClick={toggleFullscreen} className="absolute top-3 right-3 bg-gray-900/80 backdrop-blur p-1.5 rounded-lg border border-gray-850 hover:bg-gray-800 transition z-10 text-gray-300 hover:text-white" title="Fullscreen / Zoom">
-                    <Maximize className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
+                member={member}
+                remoteStream={remoteStream}
+                remoteVideoOn={remoteVideoOn}
+                remoteVideoActive={remoteVideoActive}
+                peerMicEnabled={peerMicOn}
+                toggleFullscreen={toggleFullscreen}
+                applySpeakerToElement={applySpeakerToElement}
+                setAudioBlocked={setAudioBlocked}
+              />
             );
           })}
 
@@ -1309,7 +1432,11 @@ export default function MeetingRoom() {
         <div className="bg-gray-900/80 backdrop-blur border border-gray-850 p-2 sm:p-4 rounded-xl flex flex-wrap items-center justify-center sm:justify-between gap-3 sm:gap-4 z-10 shrink-0 mt-auto">
           <div className="flex gap-2">
             <button
-              onClick={() => setMicActive(prev => !prev)}
+              onClick={() => {
+                const newMic = !micActive;
+                setMicActive(newMic);
+                broadcastMediaState({ micEnabled: newMic });
+              }}
               className={`p-2.5 sm:p-3 rounded-xl transition font-semibold border ${
                 micActive 
                   ? 'bg-gray-800 hover:bg-gray-700 text-white border-gray-700' 
@@ -1321,7 +1448,14 @@ export default function MeetingRoom() {
             </button>
 
             <button
-              onClick={() => setCameraActive(prev => !prev)}
+              onClick={() => {
+                if (!cameraActive) {
+                  requestDevicePermissions();
+                }
+                const newCam = !cameraActive;
+                setCameraActive(newCam);
+                broadcastMediaState({ videoEnabled: newCam || screenSharing });
+              }}
               className={`p-2.5 sm:p-3 rounded-xl transition font-semibold border ${
                 cameraActive 
                   ? 'bg-gray-800 hover:bg-gray-700 text-white border-gray-700' 

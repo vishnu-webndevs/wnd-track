@@ -305,6 +305,13 @@ export default function Layout({ children }: LayoutProps) {
         
         // Remove tracker state
         localStorage.removeItem('tt-tracker');
+
+        try {
+          // Explicitly mark offline immediately instead of waiting for 3-minute heartbeat timeout
+          await teamAvailabilityAPI.updateStatus('offline');
+        } catch (e) {
+          void e;
+        }
         
         // Tell main process it's safe to close
         ipcRenderer.send('app-closed-confirmed');
