@@ -60,6 +60,10 @@ uIOhook.on('mousemove', (e) => {
 
 uIOhook.start();
 
+const iconPath = app.isPackaged
+  ? path.join(__dirname, '../dist/tracker_logo.png')
+  : path.join(__dirname, '../public/tracker_logo.png');
+
 function createWindow() {
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width, height } = primaryDisplay.workAreaSize;
@@ -74,7 +78,7 @@ function createWindow() {
       contextIsolation: false, // For simple migration, though strictly less secure. Better to use preload in future.
       // preload: path.join(__dirname, 'preload.js'),
     },
-    icon: path.join(__dirname, '../public/tracker_logo.png')
+    icon: iconPath
   });
 
   mainWindow = win;
@@ -192,7 +196,7 @@ app.whenReady().then(() => {
       const notification = new Notification({
         title,
         body,
-        icon: path.join(__dirname, '../public/tracker_logo.png'),
+        icon: iconPath,
         silent: false
       });
       

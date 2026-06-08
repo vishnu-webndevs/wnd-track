@@ -165,7 +165,7 @@ function ChatDrawer({ isOpen, userId, userName, onClose }: { isOpen: boolean; us
   };
 
   return (
-    <div className="fixed inset-y-0 right-0 z-50 w-full max-w-md bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 shadow-2xl flex flex-col transform transition-transform duration-300 animate-slide-in">
+    <div className="fixed bottom-6 right-6 z-50 w-full max-w-sm h-[500px] max-h-[80vh] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col transform transition-transform duration-300 animate-slide-in overflow-hidden">
       {/* Header */}
       <div className="p-4 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 flex items-center justify-between">
         <div>

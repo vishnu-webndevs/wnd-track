@@ -101,6 +101,12 @@ export default function Chat() {
     }
   }, [targetUserId, conversations]);
 
+  useEffect(() => {
+    return () => {
+      setActiveConversationId(null);
+    };
+  }, [setActiveConversationId]);
+
   // Scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

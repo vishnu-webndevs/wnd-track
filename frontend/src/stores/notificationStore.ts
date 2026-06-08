@@ -19,6 +19,7 @@ interface NotificationState {
   fetchUnreadCount: () => Promise<void>;
   markRead: (id: number) => Promise<void>;
   markAllRead: () => Promise<void>;
+  markChatNotificationsRead: (conversationId: number) => void;
 }
 
 export const useNotificationStore = create<NotificationState>()((set, get) => ({
@@ -107,5 +108,17 @@ export const useNotificationStore = create<NotificationState>()((set, get) => ({
     } catch {
       // If it fails, we could optionally rollback or refetch, but silent fail is fine for now
     }
+  },
+
+  markChatNotificationsRead: (conversationId) => {
+    set((state) => {
+      const remaining = state.notifications.filter(
+        (n) => !(n.type === 'chat_message' && n.data?.conversation_id === conversationId)
+      );
+      return {
+        notifications: remaining,
+        unreadCount: Math.max(0, state.unreadCount - (state.notifications.length - remaining.length)),
+      };
+    });
   },
 }));

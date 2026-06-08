@@ -54,6 +54,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user/live-status', [UserController::class, 'checkLiveStatus']);
     Route::put('/settings/telegram-worklog', [UserController::class, 'updateTelegramWorklogSetting']);
     Route::get('/settings/telegram-worklog', [UserController::class, 'getTelegramWorklogSetting']);
+    
+    // Sessions
+    Route::get('/sessions', [\App\Http\Controllers\SessionController::class, 'index']);
+    Route::delete('/sessions/{id}', [\App\Http\Controllers\SessionController::class, 'revoke']);
 
     // 2FA Routes
     Route::post('/2fa/send', [TwoFactorController::class, 'sendOtp']);

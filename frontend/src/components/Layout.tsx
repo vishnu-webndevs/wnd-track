@@ -24,12 +24,14 @@ import { useNotifications } from '../hooks/useNotifications';
 import { useChatStore } from '../stores/chatStore';
 import VoiceCallBar from './VoiceCallBar';
 import JoinMeetingPopup from './JoinMeetingPopup';
+import { useGlobalTrackerActivity } from '../hooks/useGlobalTrackerActivity';
 
 interface LayoutProps {
   children: React.ReactNode;
 }
 
 export default function Layout({ children }: LayoutProps) {
+  useGlobalTrackerActivity();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { user, logout } = useAuthStore();
   const location = useLocation();
@@ -380,14 +382,20 @@ export default function Layout({ children }: LayoutProps) {
             </nav>
           </div>
           <div className="flex-shrink-0 flex border-t border-gray-200 p-4">
-            <div className="flex items-center">
+            <div className="flex items-center flex-shrink-0 w-full">
               <div className="flex-shrink-0">
                 <User className="h-8 w-8 text-gray-400" />
               </div>
-              <div className="ml-3">
+              <div className="ml-3 flex-1">
                 <p className="text-sm font-medium text-gray-700">{user?.name}</p>
                 <p className="text-xs text-gray-500 capitalize">{user?.role}</p>
               </div>
+              <button
+                onClick={handleLogout}
+                className="ml-2 flex-shrink-0 bg-white rounded-full p-1 text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+              >
+                <LogOut className="h-5 w-5" />
+              </button>
             </div>
           </div>
         </div>

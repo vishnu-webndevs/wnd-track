@@ -109,10 +109,11 @@ class NotificationService
         ?int $senderId = null,
         ?string $icon = null
     ): Notification {
-        $adminIds = User::where('role', 'admin')
-            ->where('status', 'active')
-            ->pluck('id')
-            ->toArray();
+        $query = User::where('role', 'admin')->where('status', 'active');
+        if ($senderId) {
+            $query->where('id', '!=', $senderId);
+        }
+        $adminIds = $query->pluck('id')->toArray();
 
         return $this->send($type, $category, $title, $message, $data, $senderId, $adminIds, $icon);
     }
@@ -129,9 +130,11 @@ class NotificationService
         ?int $senderId = null,
         ?string $icon = null
     ): Notification {
-        $userIds = User::where('status', 'active')
-            ->pluck('id')
-            ->toArray();
+        $query = User::where('status', 'active');
+        if ($senderId) {
+            $query->where('id', '!=', $senderId);
+        }
+        $userIds = $query->pluck('id')->toArray();
 
         return $this->send($type, $category, $title, $message, $data, $senderId, $userIds, $icon);
     }

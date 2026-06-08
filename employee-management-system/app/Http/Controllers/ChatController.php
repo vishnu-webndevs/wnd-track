@@ -437,6 +437,23 @@ class ChatController extends Controller
                 Log::warning('Failed to broadcast message read receipt: ' . $e->getMessage());
             }
         }
+
+        // Mark related notifications as read
+        $unreadNotifications = \App\Models\Notification::whereHas('recipientRecords', function ($q) use ($userId) {
+                $q->where('user_id', $userId)->where('is_read', false);
+            })
+            ->where('type', 'chat_message')
+            ->where('data->conversation_id', $conversation->id)
+            ->get();
+
+        foreach ($unreadNotifications as $notification) {
+            $notification->recipientRecords()
+                ->where('user_id', $userId)
+                ->update([
+                    'is_read' => true,
+                    'read_at' => $now,
+                ]);
+        }
     }
 
     /**

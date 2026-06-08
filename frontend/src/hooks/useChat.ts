@@ -51,6 +51,9 @@ export function useChat(conversationId: number | null) {
     return () => {
       if (channelRef.current && echo) {
         try {
+          channelRef.current.stopListening('.new.chat.message');
+          channelRef.current.stopListening('.message.read');
+          channelRef.current.stopListening('.user.typing');
           echo.leave(`conversation.${conversationId}`);
         } catch {
           // ignore

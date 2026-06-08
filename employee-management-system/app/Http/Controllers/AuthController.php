@@ -51,7 +51,11 @@ class AuthController extends Controller
             ]);
         }
 
-        $token = $user->createToken('auth-token')->plainTextToken;
+        $tokenName = $request->userAgent() ?: 'auth-token';
+        $tokenResult = $user->createToken($tokenName);
+        $tokenResult->accessToken->ip_address = $request->ip();
+        $tokenResult->accessToken->save();
+        $token = $tokenResult->plainTextToken;
 
         Auth::login($user);
 
@@ -168,7 +172,11 @@ class AuthController extends Controller
             'hire_date' => $request->hire_date,
         ]);
 
-        $token = $user->createToken('auth-token')->plainTextToken;
+        $tokenName = $request->userAgent() ?: 'auth-token';
+        $tokenResult = $user->createToken($tokenName);
+        $tokenResult->accessToken->ip_address = $request->ip();
+        $tokenResult->accessToken->save();
+        $token = $tokenResult->plainTextToken;
 
         Auth::login($user);
 

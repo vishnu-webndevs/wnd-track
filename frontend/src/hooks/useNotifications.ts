@@ -94,6 +94,22 @@ export function useNotifications() {
       const channel = echo.private(channelName);
 
       channel.listen('.notification.created', (data: NotificationData) => {
+        // Check if the notification is for the active conversation
+        const activeConversationId = useChatStore.getState().activeConversationId;
+        const isChatPage = window.location.hash.startsWith('#/chat');
+        const isCurrentChat = isChatPage && data.type === 'chat_message' && data.data && Number(data.data.conversation_id) === Number(activeConversationId);
+
+        if (isCurrentChat) {
+          // If the user is already in this chat, mark the notification as read immediately
+          // so it doesn't pile up in the unread count
+          if (data.id) {
+            import('../api/notifications').then(({ notificationsAPI }) => {
+              notificationsAPI.markRead(data.id).catch(() => void 0);
+            });
+          }
+          return; // Do not process further (no toast, no desktop popup, no unread increment)
+        }
+
         // Add to store
         addNotification({ ...data, is_read: false });
         incrementUnreadCount();
@@ -139,10 +155,6 @@ export function useNotifications() {
           },
         });
 
-        // Check if the notification is for the active conversation
-        const activeConversationId = useChatStore.getState().activeConversationId;
-        const isCurrentChat = data.type === 'chat_message' && data.data && Number(data.data.conversation_id) === Number(activeConversationId);
-
         // If meeting started, trigger global popup invite
         if (data.type === 'meeting_started' && data.data && data.data.meeting_id) {
           useMeetingInviteStore.getState().setInvite({
@@ -152,10 +164,8 @@ export function useNotifications() {
           });
         }
 
-        // Trigger desktop notification only if not currently in this chat
-        if (!isCurrentChat) {
-          triggerDesktopNotification(data);
-        }
+        // Trigger desktop notification
+        triggerDesktopNotification(data);
       });
 
       channel.listen('.call.incoming', (data: { session_id: string; caller_id: number; caller_name: string; type: string }) => {
@@ -204,6 +214,12 @@ export function useNotifications() {
     return () => {
       if (channelRef.current) {
         try {
+          channelRef.current.stopListening('.notification.created');
+          channelRef.current.stopListening('.call.incoming');
+          channelRef.current.stopListening('.conversation.deleted');
+          channelRef.current.stopListening('.chat.cleared');
+          channelRef.current.stopListening('.participant.added');
+          channelRef.current.stopListening('.participant.removed');
           const echo = getEcho();
           echo.leave(`notifications.${user.id}`);
         } catch {

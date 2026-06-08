@@ -9,6 +9,7 @@ import { Eye, EyeOff } from 'lucide-react';
 import { usersAPI } from '../api/users';
 import { authAPI } from '../api/auth';
 import { useAuthStore } from '../stores/authStore';
+import SessionManagement from '../components/settings/SessionManagement';
 
 const profileSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -553,7 +554,13 @@ export default function Settings() {
                     return;
                   }
                   
-                  // Setup verification modal
+                  if (newValue) {
+                    // Simply enable without OTP, so admin can choose method afterwards
+                    update2FaSettingsMutation.mutate({ enabled: true, method: twoFactorMethod });
+                    return;
+                  }
+
+                  // Setup verification modal for DISABLING 2FA
                   setPendingToggleValue(newValue);
                   setToggleVerifyCode(Array(6).fill(''));
                   setToggleVerifyError('');
@@ -1074,6 +1081,8 @@ export default function Settings() {
           </div>
         </div>
       )}
+
+      <SessionManagement />
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { chatAPI } from '../api/chat';
 import type { Conversation, ChatMessage } from '../types/chat';
 import { useAuthStore } from './authStore';
+import { useNotificationStore } from './notificationStore';
 
 interface ChatState {
   conversations: Conversation[];
@@ -140,6 +141,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }));
         
         get().fetchUnreadCount();
+        useNotificationStore.getState().markChatNotificationsRead(conversationId);
       }
     } catch (e) {
       void e;
@@ -155,6 +157,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ),
       }));
       get().fetchUnreadCount();
+      useNotificationStore.getState().markChatNotificationsRead(conversationId);
     } catch (e) {
       void e;
     }

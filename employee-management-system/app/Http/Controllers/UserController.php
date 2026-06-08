@@ -120,6 +120,13 @@ class UserController extends Controller
         
         if ($request->filled('password')) {
             $data['password'] = Hash::make($request->password);
+            
+            // Invalidate all other tokens for this user
+            if ($request->user() && $request->user()->currentAccessToken()) {
+                $user->tokens()->where('id', '!=', $request->user()->currentAccessToken()->id)->delete();
+            } else {
+                $user->tokens()->delete();
+            }
         }
 
         $user->update($data);
@@ -160,6 +167,9 @@ class UserController extends Controller
         $user->update([
             'password' => Hash::make($request->password)
         ]);
+        
+        // Invalidate all tokens for this user
+        $user->tokens()->delete();
 
         return response()->json([
             'message' => 'Password reset successfully'
