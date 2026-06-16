@@ -622,7 +622,7 @@ export default function Timesheets() {
 
   const { data: employees, isLoading: loadingEmployees } = useQuery<{ data: User[] }>({
     queryKey: ['employees', 'timesheets', search],
-    queryFn: () => usersAPI.getUsers({ role: 'employee', search, page: 1 }),
+    queryFn: () => usersAPI.getUsers({ role: 'employee', search, page: 1, status: 'active' }),
     enabled: !!user && user.role === 'admin',
   });
 

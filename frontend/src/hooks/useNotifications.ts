@@ -3,7 +3,6 @@ import { getEcho, disconnectEcho } from '../lib/echo';
 import { useNotificationStore } from '../stores/notificationStore';
 import { useAuthStore } from '../stores/authStore';
 import type { NotificationData } from '../types/notifications';
-import { useVoiceStore } from '../stores/voiceStore';
 import { useChatStore } from '../stores/chatStore';
 import { useMeetingInviteStore } from '../stores/meetingInviteStore';
 import { toast } from 'sonner';
@@ -168,16 +167,6 @@ export function useNotifications() {
         triggerDesktopNotification(data);
       });
 
-      channel.listen('.call.incoming', (data: { session_id: string; caller_id: number; caller_name: string; type: string }) => {
-        useVoiceStore.getState().receiveCall(data.session_id, data.caller_id, data.caller_name);
-        
-        triggerDesktopNotification({
-          title: 'Incoming Call',
-          message: `${data.caller_name} is calling you...`,
-          type: 'system',
-        });
-      });
-
       // Handle chat management events
       channel.listen('.conversation.deleted', (data: { conversationId: number }) => {
         useChatStore.getState().removeConversation(data.conversationId);
@@ -215,7 +204,6 @@ export function useNotifications() {
       if (channelRef.current) {
         try {
           channelRef.current.stopListening('.notification.created');
-          channelRef.current.stopListening('.call.incoming');
           channelRef.current.stopListening('.conversation.deleted');
           channelRef.current.stopListening('.chat.cleared');
           channelRef.current.stopListening('.participant.added');

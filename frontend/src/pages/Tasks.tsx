@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Search, Edit, Trash2, CheckSquare, Eye } from 'lucide-react';
 import { tasksAPI } from '../api/tasks';
 import { projectsAPI } from '../api/projects';
@@ -59,7 +59,7 @@ export default function Tasks() {
   const [viewMode, setViewMode] = useState<'board' | 'table'>('board');
   const queryClient = useQueryClient();
 
-  const { data: tasks, isLoading } = useQuery<{ data: Task[]; current_page: number; last_page: number }>({
+  const { data: tasks, isLoading: isTableLoading } = useQuery<{ data: Task[]; current_page: number; last_page: number }>({
     queryKey: ['tasks', searchTerm, statusFilter, priorityFilter, projectFilter, assignedFilter, page],
     queryFn: () => tasksAPI.getTasks({
       search: searchTerm,
@@ -70,7 +70,66 @@ export default function Tasks() {
       page,
       per_page: 10, // Table view pagination
     }),
+    enabled: viewMode === 'table',
   });
+
+  const boardStatuses = useMemo(() => {
+    if (statusFilter === '') {
+      return ['pending', 'in_progress', 'cancelled'];
+    }
+    return [statusFilter];
+  }, [statusFilter]);
+
+  const boardQueries = useQueries({
+    queries: boardStatuses.map((status) => ({
+      queryKey: ['tasks-board', status, searchTerm, priorityFilter, projectFilter, assignedFilter, page],
+      queryFn: () => tasksAPI.getTasks({
+        search: searchTerm,
+        status: status as any,
+        priority: priorityFilter as any,
+        project_id: projectFilter,
+        assigned_to: assignedFilter,
+        page,
+        per_page: 10,
+      }),
+      enabled: viewMode === 'board',
+    })),
+  });
+
+  const isBoardLoading = viewMode === 'board' && boardQueries.some((q) => q.isLoading);
+  const isLoading = viewMode === 'table' ? isTableLoading : isBoardLoading;
+
+  const boardData = useMemo(() => {
+    const data: Record<string, { data: Task[]; current_page: number; last_page: number }> = {};
+    boardStatuses.forEach((status, index) => {
+      const qData = boardQueries[index]?.data;
+      if (qData) {
+        data[status] = qData;
+      } else {
+        data[status] = { data: [], current_page: page, last_page: 1 };
+      }
+    });
+    return data;
+  }, [boardStatuses, boardQueries, page]);
+
+  const lastPage = useMemo(() => {
+    if (viewMode === 'table') {
+      return tasks?.last_page ?? 1;
+    }
+    const pages = boardQueries.map((q) => q.data?.last_page ?? 1);
+    return Math.max(1, ...pages);
+  }, [viewMode, tasks, boardQueries]);
+
+  const currentPage = useMemo(() => {
+    if (viewMode === 'table') {
+      return tasks?.current_page ?? page;
+    }
+    return page;
+  }, [viewMode, tasks, page]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchTerm, statusFilter, priorityFilter, projectFilter, assignedFilter, viewMode]);
 
   const { data: projects } = useQuery<{ data: Project[] }>({
     queryKey: ['projects', 'for-tasks'],
@@ -81,7 +140,7 @@ export default function Tasks() {
 
   const { data: users } = useQuery<{ data: User[] }>({
     queryKey: ['users', 'for-tasks'],
-    queryFn: () => usersAPI.getUsers({ per_page: 1000 }), // All for dropdown
+    queryFn: () => usersAPI.getUsers({ per_page: 1000, status: 'active' }), // All active for dropdown
     enabled: isAdmin,
   });
 
@@ -164,6 +223,7 @@ export default function Tasks() {
       setIsCreateOpen(false);
       createForm.reset();
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['tasks-board'] });
     },
     onError: (error: unknown) => {
       const err = error as AxiosError<{ message?: string; errors?: Record<string, string[]> }>;
@@ -178,6 +238,7 @@ export default function Tasks() {
       setIsEditOpen(false);
       setSelectedTask(null);
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['tasks-board'] });
     },
     onError: (error: unknown) => {
       const err = error as AxiosError<{ message?: string }>;
@@ -189,17 +250,18 @@ export default function Tasks() {
 
   const handleReorderDrop = async (
     draggedId: number,
+    fromStatus: string,
     targetStatus: typeof statusOptions[number],
     newOrder: number[]
   ) => {
     try {
-      const draggedTask = (tasks as { data: Task[] } | undefined)?.data.find((t) => t.id === draggedId);
-      if (draggedTask && draggedTask.status !== targetStatus) {
+      if (fromStatus && fromStatus !== targetStatus) {
         await tasksAPI.updateStatus(draggedId, targetStatus);
       }
       await tasksAPI.reorder(targetStatus, newOrder);
       toast.success('Tasks reordered');
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['tasks-board'] });
     } catch {
       toast.error('Failed to reorder tasks');
     }
@@ -210,6 +272,7 @@ export default function Tasks() {
     onSuccess: () => {
       toast.success('Task deleted');
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['tasks-board'] });
     },
     onError: (error: unknown) => {
       const err = error as AxiosError<{ message?: string }>;
@@ -276,7 +339,7 @@ export default function Tasks() {
             >
               <option value="">All Status</option>
               {statusOptions.map((s) => (
-                <option key={s} value={s}>{s}</option>
+                <option key={s} value={s}>{s === 'completed' ? 'Archive (Completed)' : s.replace('_', ' ')}</option>
               ))}
             </select>
             <select
@@ -409,19 +472,20 @@ export default function Tasks() {
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-          {statusOptions.map((status) => {
-            const list = (tasks as { data: Task[] } | undefined)?.data?.filter((t) => t.status === status) ?? [];
+        <div className={`grid grid-cols-1 ${boardStatuses.length === 1 ? 'md:grid-cols-1 max-w-xl mx-auto' : boardStatuses.length === 3 ? 'md:grid-cols-3' : 'md:grid-cols-2 xl:grid-cols-4'} gap-4`}>
+          {boardStatuses.map((status) => {
+            const list = boardData[status]?.data ?? [];
             return (
               <div
                 key={status}
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => {
                   const draggedId = Number(e.dataTransfer.getData('text/plain'));
+                  const fromStatus = e.dataTransfer.getData('fromStatus');
                   if (!draggedId) return;
                   const listIds = list.map((t) => t.id);
                   const newOrder = [...listIds.filter((id) => id !== draggedId), draggedId];
-                  handleReorderDrop(draggedId, status, newOrder);
+                  handleReorderDrop(draggedId, fromStatus, status as any, newOrder);
                 }}
                 className="bg-white shadow rounded-lg p-3"
               >
@@ -449,6 +513,7 @@ export default function Tasks() {
                           e.preventDefault();
                           e.stopPropagation();
                           const draggedId = Number(e.dataTransfer.getData('text/plain'));
+                          const fromStatus = e.dataTransfer.getData('fromStatus');
                           if (!draggedId || draggedId === task.id) return;
                           const listIds = list.map((t) => t.id);
                           const filtered = listIds.filter((id) => id !== draggedId);
@@ -458,7 +523,7 @@ export default function Tasks() {
                             draggedId,
                             ...filtered.slice(insertIndex),
                           ];
-                          handleReorderDrop(draggedId, status, newOrder);
+                          handleReorderDrop(draggedId, fromStatus, status as any, newOrder);
                         }}
                       >
                         <div className="flex items-start justify-between">
@@ -520,17 +585,17 @@ export default function Tasks() {
       <div className="flex items-center justify-between">
         <button
           className="px-3 py-1 rounded border text-sm disabled:opacity-50"
-          disabled={!tasks || (tasks as { current_page: number }).current_page <= 1}
+          disabled={currentPage <= 1}
           onClick={() => setPage((p) => Math.max(1, p - 1))}
         >
           Previous
         </button>
         <div className="text-sm text-gray-600">
-          Page {(tasks as { current_page: number } | undefined)?.current_page ?? page} of {(tasks as { last_page: number } | undefined)?.last_page ?? 1}
+          Page {currentPage} of {lastPage}
         </div>
         <button
           className="px-3 py-1 rounded border text-sm disabled:opacity-50"
-          disabled={!tasks || (tasks as { current_page: number; last_page: number }).current_page >= (tasks as { current_page: number; last_page: number }).last_page}
+          disabled={currentPage >= lastPage}
           onClick={() => setPage((p) => p + 1)}
         >
           Next

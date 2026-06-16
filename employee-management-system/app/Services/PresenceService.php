@@ -94,7 +94,7 @@ class PresenceService
      */
     public function getTeamStatus(array $filters = []): Collection
     {
-        $usersQuery = User::with(['presence.currentProject', 'presence.currentTask']);
+        $usersQuery = User::where('status', 'active')->with(['presence.currentProject', 'presence.currentTask']);
 
         if (!empty($filters['department'])) {
             $usersQuery->where('department', $filters['department']);

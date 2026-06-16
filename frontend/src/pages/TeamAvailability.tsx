@@ -8,9 +8,8 @@ import { chatAPI } from '../api/chat';
 import { meetingsAPI } from '../api/meetings';
 import { voiceAPI } from '../api/voice';
 import { notificationsAPI } from '../api/notifications';
-import { useChatStore } from '../stores/chatStore';
-import { useVoiceStore } from '../stores/voiceStore';
 import { useAuthStore } from '../stores/authStore';
+import { useChatStore } from '../stores/chatStore';
 import { useChat } from '../hooks/useChat';
 import type { Project, User } from '../types';
 import type { PresenceFilters, UserPresence } from '../types/presence';
@@ -23,7 +22,6 @@ import {
   Wifi, 
   WifiOff, 
   MessageSquare, 
-  Phone, 
   RefreshCw, 
   Pause, 
   UserCheck,
@@ -920,9 +918,6 @@ export default function TeamAvailability() {
     setIsMeetingModalOpen(true);
   };
 
-  const handleCallClick = (userId: number, userName: string) => {
-    useVoiceStore.getState().initiateCall(userId, userName);
-  };
 
   const openIdleHistory = async (userId: number, userName: string) => {
     setIdleHistoryUserId(userId);
@@ -1425,18 +1420,6 @@ export default function TeamAvailability() {
                     Chat
                   </button>
 
-                  <button
-                    onClick={() => handleCallClick(presence.user_id, presence.user.name)}
-                    disabled={!isOnline}
-                    className={`flex-1 min-w-[70px] flex items-center justify-center gap-1 px-2.5 py-2 text-xs font-bold rounded-lg border transition ${
-                      isOnline
-                        ? 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-750 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
-                        : 'bg-gray-100 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-400 dark:text-gray-600 cursor-not-allowed'
-                    }`}
-                  >
-                    <Phone className="w-3.5 h-3.5 text-green-500" />
-                    Call
-                  </button>
 
                   <button
                     onClick={() => handleMeetingClick(presence.user_id)}

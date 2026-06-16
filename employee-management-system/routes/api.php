@@ -117,6 +117,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/meetings/{id}/respond', [MeetingController::class, 'respond']);
     Route::get('/meetings/{id}/messages', [MeetingController::class, 'messages']);
     Route::post('/meetings/{id}/messages', [MeetingController::class, 'sendMessage']);
+    Route::post('/meetings/{id}/invite', [MeetingController::class, 'invite']);
+    Route::post('/meetings/{id}/extend', [MeetingController::class, 'extend']);
 
     // Dashboard
     Route::get('/dashboard', [DashboardController::class, 'index']);

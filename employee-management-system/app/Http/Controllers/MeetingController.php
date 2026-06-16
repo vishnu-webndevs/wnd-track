@@ -619,4 +619,129 @@ class MeetingController extends Controller
             'message' => 'Meeting cancelled successfully.',
         ]);
     }
+
+    /**
+     * Invite participants during the meeting.
+     */
+    public function invite(Request $request, $id): JsonResponse
+    {
+        $request->validate([
+            'participants' => 'required|array',
+            'participants.*' => 'required|exists:users,id',
+        ]);
+
+        $user = $request->user();
+        $meeting = Meeting::findOrFail($id);
+
+        $hostOrAdmin = MeetingParticipant::where('meeting_id', $meeting->id)
+            ->where('user_id', $user->id)
+            ->where(function($q) {
+                $q->where('role', 'host')->orWhereHas('user', function($uq) {
+                    $uq->where('role', 'admin');
+                });
+            })
+            ->exists();
+
+        if (!$hostOrAdmin && !$user->isAdmin()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized to invite users.',
+            ], 403);
+        }
+
+        $participantIds = array_unique($request->input('participants'));
+        
+        $added = [];
+        foreach ($participantIds as $participantId) {
+            // Check if already participant
+            $exists = MeetingParticipant::where('meeting_id', $meeting->id)
+                ->where('user_id', $participantId)
+                ->exists();
+                
+            if (!$exists) {
+                MeetingParticipant::create([
+                    'meeting_id' => $meeting->id,
+                    'user_id' => $participantId,
+                    'role' => 'participant',
+                    'status' => 'invited',
+                ]);
+                $added[] = $participantId;
+            }
+        }
+
+        // Broadcaster / Notifier
+        $meeting->load(['creator', 'participants']);
+        
+        // Broadcast MeetingStarted Event so invited user gets popup immediately
+        try {
+            broadcast(new MeetingStarted($meeting))->toOthers();
+        } catch (\Exception $e) {
+            Log::warning('Failed to broadcast MeetingStarted: ' . $e->getMessage());
+        }
+
+        foreach ($added as $addedId) {
+            $this->notificationService->sendToUser(
+                $addedId,
+                'meeting_started',
+                'meeting',
+                'You are invited to a live meeting!',
+                "You have been invited to '{$meeting->title}' by {$user->name}. Click to join now.",
+                ['meeting_id' => $meeting->id, 'action' => 'join'],
+                $user->id
+            );
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Participants invited successfully.',
+            'data' => $meeting,
+        ]);
+    }
+
+    /**
+     * Extend meeting duration.
+     */
+    public function extend(Request $request, $id): JsonResponse
+    {
+        $request->validate([
+            'minutes' => 'required|integer|min:5|max:120',
+        ]);
+
+        $user = $request->user();
+        $meeting = Meeting::findOrFail($id);
+
+        $hostOrAdmin = MeetingParticipant::where('meeting_id', $meeting->id)
+            ->where('user_id', $user->id)
+            ->where(function($q) {
+                $q->where('role', 'host')->orWhereHas('user', function($uq) {
+                    $uq->where('role', 'admin');
+                });
+            })
+            ->exists();
+
+        if (!$hostOrAdmin && !$user->isAdmin()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only the host or admin can extend the meeting.',
+            ], 403);
+        }
+
+        $newDuration = $meeting->duration_minutes + (int) $request->input('minutes');
+        $meeting->update([
+            'duration_minutes' => $newDuration,
+        ]);
+
+        // Broadcast meeting update to others so they receive updated duration
+        try {
+            broadcast(new MeetingStarted($meeting));
+        } catch (\Exception $e) {
+            Log::warning('Failed to broadcast meeting extension: ' . $e->getMessage());
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => "Meeting duration extended by {$request->minutes} minutes.",
+            'data' => $meeting,
+        ]);
+    }
 }

@@ -22,8 +22,9 @@ import { authAPI } from '../api/auth';
 import NotificationBell from './NotificationBell';
 import { useNotifications } from '../hooks/useNotifications';
 import { useChatStore } from '../stores/chatStore';
-import VoiceCallBar from './VoiceCallBar';
 import JoinMeetingPopup from './JoinMeetingPopup';
+import MeetingBackgroundBar from './MeetingBackgroundBar';
+import { useMeetingStore } from '../stores/meetingStore';
 import { useGlobalTrackerActivity } from '../hooks/useGlobalTrackerActivity';
 
 interface LayoutProps {
@@ -37,6 +38,21 @@ export default function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const { totalUnreadCount, fetchUnreadCount } = useChatStore();
+
+  const [showNavBlockerModal, setShowNavBlockerModal] = useState(false);
+  const [pendingNavHref, setPendingNavHref] = useState<string | null>(null);
+
+  const { durationLimitReached, extendMeeting, endRoom, dismissDurationWarning } = useMeetingStore();
+
+  const handleLinkClick = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
+    const activeMeeting = useMeetingStore.getState().meeting;
+    const isMinimized = useMeetingStore.getState().minimized;
+    if (activeMeeting && !isMinimized && location.pathname.startsWith('/meeting-room/')) {
+      e.preventDefault();
+      setPendingNavHref(href);
+      setShowNavBlockerModal(true);
+    }
+  };
 
   // Initialize real-time notifications
   useNotifications();
@@ -353,7 +369,10 @@ export default function Layout({ children }: LayoutProps) {
                       ? 'bg-indigo-100 text-indigo-900'
                       : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                   } group flex items-center w-full px-2 py-2 text-base font-medium rounded-md`}
-                  onClick={() => setSidebarOpen(false)}
+                  onClick={(e) => {
+                    handleLinkClick(e, item.href);
+                    if (!showNavBlockerModal) setSidebarOpen(false);
+                  }}
                 >
                   <item.icon className="mr-4 h-6 w-6" />
                   <span className="flex-1 text-left">{item.name}</span>
@@ -378,7 +397,10 @@ export default function Layout({ children }: LayoutProps) {
                           ? 'bg-indigo-100 text-indigo-900'
                           : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                       } group flex items-center px-2 py-2 text-base font-medium rounded-md`}
-                      onClick={() => setSidebarOpen(false)}
+                      onClick={(e) => {
+                        handleLinkClick(e, item.href);
+                        if (!showNavBlockerModal) setSidebarOpen(false);
+                      }}
                     >
                       <item.icon className="mr-4 h-6 w-6" />
                       {item.name}
@@ -426,6 +448,7 @@ export default function Layout({ children }: LayoutProps) {
                         ? 'bg-indigo-100 text-indigo-900'
                         : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                     } group flex items-center w-full px-2 py-2 text-sm font-medium rounded-md`}
+                    onClick={(e) => handleLinkClick(e, item.href)}
                   >
                     <item.icon className="mr-3 h-5 w-5" />
                     <span className="flex-1 text-left">{item.name}</span>
@@ -450,6 +473,7 @@ export default function Layout({ children }: LayoutProps) {
                             ? 'bg-indigo-100 text-indigo-900'
                             : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                         } group flex items-center px-2 py-2 text-sm font-medium rounded-md`}
+                        onClick={(e) => handleLinkClick(e, item.href)}
                       >
                         <item.icon className="mr-3 h-5 w-5" />
                         {item.name}
@@ -511,9 +535,92 @@ export default function Layout({ children }: LayoutProps) {
             </div>
           </div>
         </main>
-        <VoiceCallBar />
         <JoinMeetingPopup />
+        <MeetingBackgroundBar />
       </div>
+
+      {showNavBlockerModal && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/65 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md bg-gray-950 border border-gray-800 rounded-2xl shadow-2xl overflow-hidden p-6 text-center text-white">
+            <h3 className="text-base font-black mb-2 text-indigo-400">Active Meeting Room</h3>
+            <p className="text-sm text-gray-300 mb-6 leading-relaxed">
+              You are currently in a meeting. Do you want to leave the meeting or stay on this page?
+            </p>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => {
+                  setShowNavBlockerModal(false);
+                  const mStore = useMeetingStore.getState();
+                  mStore.setMinimized(true);
+                  if (pendingNavHref) navigate(pendingNavHref);
+                }}
+                className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 font-extrabold text-xs transition border border-indigo-500/30 shadow-lg"
+              >
+                Keep in Background
+              </button>
+              <button
+                onClick={() => {
+                  setShowNavBlockerModal(false);
+                  const mStore = useMeetingStore.getState();
+                  mStore.leaveRoom();
+                  if (pendingNavHref) navigate(pendingNavHref);
+                }}
+                className="w-full py-2.5 rounded-xl bg-red-655 hover:bg-red-700 font-extrabold text-xs transition shadow-lg"
+              >
+                Leave Meeting
+              </button>
+              <button
+                onClick={() => {
+                  setShowNavBlockerModal(false);
+                  setPendingNavHref(null);
+                }}
+                className="w-full py-2.5 rounded-xl bg-gray-850 hover:bg-gray-800 font-extrabold text-xs text-gray-300 border border-gray-800 transition"
+              >
+                Stay on Page
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {durationLimitReached && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/65 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md bg-gray-950 border border-gray-800 rounded-2xl shadow-2xl overflow-hidden p-6 text-center text-white">
+            <h3 className="text-base font-black mb-2 text-indigo-400">Meeting Duration Reached</h3>
+            <p className="text-sm text-gray-300 mb-6 leading-relaxed">
+              Would you like to end the meeting or extend the meeting time?
+            </p>
+            <div className="flex flex-col gap-2">
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => extendMeeting(15)}
+                  className="py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 font-extrabold text-xs transition border border-indigo-500/30"
+                >
+                  Extend by 15 mins
+                </button>
+                <button
+                  onClick={() => extendMeeting(30)}
+                  className="py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 font-extrabold text-xs transition border border-indigo-500/30"
+                >
+                  Extend by 30 mins
+                </button>
+              </div>
+              <button
+                onClick={() => endRoom()}
+                className="w-full py-2.5 rounded-xl bg-red-655 hover:bg-red-700 font-extrabold text-xs transition shadow-lg"
+              >
+                End Meeting
+              </button>
+              <button
+                onClick={() => dismissDurationWarning()}
+                className="w-full py-2.5 rounded-xl bg-gray-850 hover:bg-gray-800 font-extrabold text-xs text-gray-300 border border-gray-800 transition"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -23,12 +23,10 @@ import {
   X,
   Building,
   Briefcase,
-  Phone,
   Trash2,
   Settings,
   Eraser
 } from 'lucide-react';
-import { useVoiceStore } from '../stores/voiceStore';
 
 export default function Chat() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -495,20 +493,6 @@ export default function Chat() {
                   </>
                 )}
 
-                {/* Call icon if online and direct */}
-                {activeConversation.type === 'direct' && activeRecipient && (
-                  <button
-                    disabled={activeRecipient.status === 'offline'}
-                    onClick={() => useVoiceStore.getState().initiateCall(activeRecipient.id, activeRecipient.name)}
-                    className={`p-2 rounded-lg border transition ${
-                      activeRecipient.status !== 'offline'
-                        ? 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 border-gray-200 dark:border-gray-700'
-                        : 'text-gray-300 dark:text-gray-700 border-gray-100 dark:border-gray-800/40 cursor-not-allowed'
-                    }`}
-                  >
-                    <Phone className="w-4 h-4" />
-                  </button>
-                )}
               </div>
             </div>
 

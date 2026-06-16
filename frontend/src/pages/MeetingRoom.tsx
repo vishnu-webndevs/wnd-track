@@ -5,11 +5,11 @@ import {
   MessageSquare, Loader2, ArrowLeft, ShieldAlert, Monitor, Maximize, Settings
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { meetingsAPI } from '../api/meetings';
-import { voiceAPI } from '../api/voice';
 import { useAuthStore } from '../stores/authStore';
-import { getEcho } from '../lib/echo';
-import type { Meeting, MeetingMessage, MeetingParticipant } from '../types/meetings';
+import { useMeetingStore } from '../stores/meetingStore';
+import { usersAPI } from '../api/users';
+import { meetingsAPI } from '../api/meetings';
+import type { User } from '../types';
 
 function useActiveSpeaker(stream: MediaStream | null, enabled: boolean = true) {
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -81,7 +81,6 @@ function RemoteParticipantTile({
   member,
   remoteStream,
   remoteVideoOn,
-  remoteVideoActive,
   peerMicEnabled,
   toggleFullscreen,
   applySpeakerToElement,
@@ -90,14 +89,13 @@ function RemoteParticipantTile({
   member: any;
   remoteStream: MediaStream | undefined;
   remoteVideoOn: boolean;
-  remoteVideoActive: boolean;
   peerMicEnabled: boolean;
   toggleFullscreen: (e: any) => void;
   applySpeakerToElement: (el: any) => void;
   setAudioBlocked: (v: boolean) => void;
 }) {
   const videoTrack = remoteStream?.getVideoTracks()[0];
-  const hasVideo = remoteVideoOn && remoteVideoActive && !!videoTrack && videoTrack.readyState === 'live';
+  const hasVideo = remoteVideoOn && !!videoTrack && videoTrack.readyState === 'live';
   const isSpeaking = useActiveSpeaker(remoteStream, peerMicEnabled);
 
   return (
@@ -179,96 +177,76 @@ export default function MeetingRoom() {
   const navigate = useNavigate();
   const { user } = useAuthStore();
 
-  const [meeting, setMeeting] = useState<Meeting | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [activeMembers, setActiveMembers] = useState<Array<{ id: number; name: string; role: string }>>([]);
-  const [meetingStartMs, setMeetingStartMs] = useState<number | null>(null);
-  const [meetingEndMs, setMeetingEndMs] = useState<number | null>(null);
-  const [meetingElapsedSec, setMeetingElapsedSec] = useState(0);
-  
-  // Media States
-  const [micActive, setMicActive] = useState(true);
-  const [cameraActive, setCameraActive] = useState(false);
-  const [screenSharing, setScreenSharing] = useState(false);
-  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  
-  const isSpeakingLocal = useActiveSpeaker(localStream, micActive);
+  const {
+    meeting,
+    localStream,
+    remoteStreams,
+    activeMembers,
+    micActive,
+    cameraActive,
+    screenSharing,
+    messages,
+    audioBlocked,
+    peerVideoEnabled,
+    peerMicEnabled,
+    recording,
+    recordingDuration,
+    meetingElapsedSec,
+    showDeviceSettings,
+    audioInputs,
+    videoInputs,
+    audioOutputs,
+    selectedMicId,
+    selectedCamId,
+    selectedSpeakerId,
+    initRoom,
+    leaveRoom,
+    endRoom,
+    toggleMic,
+    toggleCamera,
+    toggleScreenShare,
+    switchMicrophone,
+    switchCameraDevice,
+    switchSpeaker,
+    refreshDevices,
+    requestPermissions,
+    setAudioBlocked,
+    setShowDeviceSettings,
+    sendMessage,
+    startRecording,
+    stopRecording
+  } = useMeetingStore();
 
-  // Use a ref to store current media state to avoid stale closures in Echo event listeners
-  const mediaStateRef = useRef({ videoEnabled: true, micEnabled: true });
-  useEffect(() => {
-    mediaStateRef.current = { videoEnabled: cameraActive || screenSharing, micEnabled: micActive };
-  }, [cameraActive, screenSharing, micActive]);
+  const [loading, setLoading] = useState(true);
+  const [inviteUsers, setInviteUsers] = useState<User[]>([]);
+  const [selectedInviteIds, setSelectedInviteIds] = useState<number[]>([]);
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [inviting, setInviting] = useState(false);
 
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
-  
-  const [audioBlocked, setAudioBlocked] = useState(false);
-  const [showDeviceSettings, setShowDeviceSettings] = useState(false);
-  const [audioInputs, setAudioInputs] = useState<MediaDeviceInfo[]>([]);
-  const [videoInputs, setVideoInputs] = useState<MediaDeviceInfo[]>([]);
-  const [audioOutputs, setAudioOutputs] = useState<MediaDeviceInfo[]>([]);
-  
-  const [selectedMicId, setSelectedMicId] = useState<string>(() => localStorage.getItem('tt-mic-device') || '');
-  const [selectedCamId, setSelectedCamId] = useState<string>(() => localStorage.getItem('tt-cam-device') || '');
-  const [selectedSpeakerId, setSelectedSpeakerId] = useState<string>(() => localStorage.getItem('tt-speaker-device') || '');
-  
-  const [peerVideoEnabled, setPeerVideoEnabled] = useState<Record<number, boolean>>({});
-  const [peerMicEnabled, setPeerMicEnabled] = useState<Record<number, boolean>>({});
-  const [peerVideoActive, setPeerVideoActive] = useState<Record<number, boolean>>({});
-
-  // WebRTC Mesh States
-  const [remoteStreams, setRemoteStreams] = useState<Record<number, MediaStream>>({});
-  const pcsRef = useRef<Record<number, RTCPeerConnection>>({});
-  const videoTransceiversRef = useRef<Record<number, RTCRtpTransceiver>>({});
-  const localStreamRef = useRef<MediaStream | null>(null);
-  const screenStreamRef = useRef<MediaStream | null>(null);
-  const presenceChannelRef = useRef<any>(null);
-  const renegotiateTimerRef = useRef<number | null>(null);
-  const renegotiateAttemptRef = useRef<Record<number, number>>({});
 
   // Chat States
-  const [messages, setMessages] = useState<MeetingMessage[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [sendingMessage, setSendingMessage] = useState(false);
   const [showChat, setShowChat] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
-  // Fetch initial meeting details and messages
-  const loadMeetingAndChat = async () => {
-    try {
-      const detailRes = await meetingsAPI.getMeetingDetails(meetingId);
-      if (detailRes.success) {
-        const m = detailRes.data as Meeting;
-        setMeeting(m);
+  const isSpeakingLocal = useActiveSpeaker(localStream, micActive);
 
-        const startedAtMs = m.started_at ? Date.parse(m.started_at) : null;
-        const endedAtMs = m.ended_at ? Date.parse(m.ended_at) : null;
-        if (startedAtMs && Number.isFinite(startedAtMs)) {
-          setMeetingStartMs(startedAtMs);
-        } else {
-          setMeetingStartMs(Date.now());
-        }
-        if (endedAtMs && Number.isFinite(endedAtMs)) {
-          setMeetingEndMs(endedAtMs);
-        } else {
-          setMeetingEndMs(null);
-        }
-        
-        // Auto-join meeting room on backend
-        await meetingsAPI.joinMeeting(meetingId);
-      }
-
-      const messagesRes = await meetingsAPI.getMeetingMessages(meetingId);
-      if (messagesRes.success) {
-        setMessages(messagesRes.data);
-      }
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Access denied or meeting not found');
-      navigate('/meetings');
-    } finally {
-      setLoading(false);
+  // Initialize store and connections
+  useEffect(() => {
+    if (meetingId) {
+      setLoading(true);
+      initRoom(meetingId).finally(() => setLoading(false));
     }
-  };
+  }, [meetingId]);
+
+  // Navigate back to /meetings if meeting in store becomes null (e.g. host ended)
+  useEffect(() => {
+    if (!loading && !meeting) {
+      navigate('/meetings');
+    }
+  }, [meeting, loading]);
 
   const formatElapsed = (sec: number) => {
     const total = Math.max(0, Math.floor(sec));
@@ -279,20 +257,6 @@ export default function MeetingRoom() {
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
-  useEffect(() => {
-    if (!meetingStartMs) return;
-    if (meetingEndMs) {
-      setMeetingElapsedSec((meetingEndMs - meetingStartMs) / 1000);
-      return;
-    }
-
-    setMeetingElapsedSec((Date.now() - meetingStartMs) / 1000);
-    const t = window.setInterval(() => {
-      setMeetingElapsedSec((Date.now() - meetingStartMs) / 1000);
-    }, 1000);
-    return () => window.clearInterval(t);
-  }, [meetingStartMs, meetingEndMs]);
-
   // Scroll chat to bottom
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -302,354 +266,12 @@ export default function MeetingRoom() {
     scrollToBottom();
   }, [messages]);
 
+  // Sync local video tag safely
   useEffect(() => {
-    broadcastMediaState();
-  }, [cameraActive, screenSharing, micActive]);
-
-  const refreshMediaDevices = useCallback(async () => {
-    if (!('mediaDevices' in navigator) || !navigator.mediaDevices?.enumerateDevices) return;
-
-    try {
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      setAudioInputs(devices.filter(d => d.kind === 'audioinput'));
-      setVideoInputs(devices.filter(d => d.kind === 'videoinput'));
-      setAudioOutputs(devices.filter(d => d.kind === 'audiooutput'));
-    } catch (e) {
-      // ignore
+    if (localVideoRef.current && localStream) {
+      localVideoRef.current.srcObject = localStream;
     }
-  }, []);
-
-  const requestDevicePermissions = async () => {
-    if (!navigator.mediaDevices?.getUserMedia) return;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
-      stream.getTracks().forEach(t => t.stop());
-      await refreshMediaDevices();
-    } catch (e) {
-      toast.error('Permission denied.');
-    }
-  };
-
-  useEffect(() => {
-    refreshMediaDevices();
-    const handler = () => refreshMediaDevices();
-    navigator.mediaDevices?.addEventListener?.('devicechange', handler);
-    return () => navigator.mediaDevices?.removeEventListener?.('devicechange', handler);
-  }, [refreshMediaDevices]);
-
-  const applySpeakerToElement = async (el: HTMLMediaElement) => {
-    const deviceId = selectedSpeakerId || '';
-    const anyEl = el as any;
-    if (!deviceId) return;
-    if (typeof anyEl.setSinkId !== 'function') return;
-    try {
-      await anyEl.setSinkId(deviceId);
-    } catch (e) {
-      toast.error('Could not switch speaker output for this browser.');
-    }
-  };
-
-  const switchMicrophone = async (deviceId: string) => {
-    localStorage.setItem('tt-mic-device', deviceId);
-    setSelectedMicId(deviceId);
-
-    if (!navigator.mediaDevices?.getUserMedia) return;
-    try {
-      const constraints: MediaStreamConstraints = deviceId
-        ? { audio: { deviceId: { exact: deviceId } }, video: false }
-        : { audio: true, video: false };
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      const newTrack = stream.getAudioTracks()[0];
-      if (!newTrack) return;
-      newTrack.enabled = micActive;
-
-      const current = localStreamRef.current || new MediaStream();
-      const oldTracks = current.getAudioTracks();
-      oldTracks.forEach(t => {
-        current.removeTrack(t);
-        t.stop();
-      });
-      current.addTrack(newTrack);
-      localStreamRef.current = current;
-      setLocalStream(current);
-
-      Object.values(pcsRef.current).forEach(pc => {
-        const sender = pc.getSenders().find(s => s.track?.kind === 'audio');
-        if (sender) {
-          sender.replaceTrack(newTrack).catch(() => void 0);
-        } else {
-          pc.addTrack(newTrack, current);
-        }
-      });
-
-      scheduleRenegotiation();
-      refreshMediaDevices();
-    } catch (err: any) {
-      const errName = err?.name ? String(err.name) : '';
-      const secureHint = window.isSecureContext ? '' : ' (HTTPS/localhost required)';
-      const msg =
-        errName === 'NotAllowedError' || errName === 'SecurityError'
-          ? `Microphone access blocked${secureHint}.`
-          : `Could not switch microphone${secureHint}.`;
-      toast.error(msg);
-    }
-  };
-
-  const switchCameraDevice = async (deviceId: string) => {
-    localStorage.setItem('tt-cam-device', deviceId);
-    setSelectedCamId(deviceId);
-    if (cameraActive) {
-      setCameraActive(false);
-      setTimeout(() => setCameraActive(true), 0);
-    }
-    refreshMediaDevices();
-  };
-
-  const switchSpeaker = async (deviceId: string) => {
-    localStorage.setItem('tt-speaker-device', deviceId);
-    setSelectedSpeakerId(deviceId);
-    document.querySelectorAll('audio, video').forEach((el) => {
-      void applySpeakerToElement(el as HTMLMediaElement);
-    });
-    refreshMediaDevices();
-  };
-
-  const toggleFullscreen = (e: React.MouseEvent) => {
-    const videoElem = (e.currentTarget as HTMLElement).closest('.aspect-video')?.querySelector('video');
-    if (videoElem) {
-      if (document.fullscreenElement) {
-        document.exitFullscreen().catch(() => void 0);
-      } else {
-        videoElem.requestFullscreen().catch(() => void 0);
-      }
-    }
-  };
-
-  // WebRTC mesh connection helpers
-  const initiatePeerConnection = async (peerId: number, isInitiator: boolean, channel: any, meteredServers: RTCIceServer[] = []) => {
-    if (pcsRef.current[peerId]) {
-      return pcsRef.current[peerId];
-    }
-
-    const iceServers = [...meteredServers];
-
-    const pc = new RTCPeerConnection({ iceServers });
-
-    pcsRef.current[peerId] = pc;
-
-    // Add local audio tracks via addTrack (reliable, creates proper SDP m-lines with stream association)
-    const currentStream = localStreamRef.current;
-    let hasAudio = false;
-    if (currentStream && currentStream.getAudioTracks().length > 0) {
-      currentStream.getAudioTracks().forEach(track => {
-        pc.addTrack(track, currentStream);
-        hasAudio = true;
-      });
-    }
-
-    // CRITICAL: If this user has no mic, we MUST still add an audio transceiver.
-    // Otherwise, the SDP will have NO audio channel, and they won't be able to hear others!
-    if (!hasAudio) {
-      pc.addTransceiver('audio', { direction: 'sendrecv' });
-    }
-
-    // Add a video transceiver placeholder for future camera/screen share
-    videoTransceiversRef.current[peerId] = pc.addTransceiver('video', { direction: 'sendrecv' });
-
-    let candidateTimeout: any = null;
-    let candidateBatch: any[] = [];
-
-    pc.onicecandidate = (event) => {
-      if (event.candidate && channel) {
-        candidateBatch.push(event.candidate);
-        if (candidateTimeout) clearTimeout(candidateTimeout);
-        candidateTimeout = setTimeout(() => {
-          const batch = [...candidateBatch];
-          candidateBatch = [];
-          if (batch.length > 0) {
-            channel.whisper('meeting-signal', {
-              to: peerId,
-              from: user?.id,
-              candidates: batch
-            });
-          }
-        }, 100);
-      }
-    };
-
-    pc.ontrack = (event) => {
-      // Build or update the remote stream for this peer
-      setRemoteStreams(prev => {
-        // ALWAYS use our own local MediaStream so we can safely add tracks to it (remote streams are immutable in some browsers)
-        const existingStream = prev[peerId] || new MediaStream();
-        
-        if (!existingStream.getTracks().find(t => t.id === event.track.id)) {
-          existingStream.addTrack(event.track);
-        }
-
-        // Do NOT clone the stream, let the browser handle dynamic track additions to the existing instance
-        return {
-          ...prev,
-          [peerId]: existingStream
-        };
-      });
-
-      event.track.onended = () => {
-        if (event.track.kind === 'video') {
-          setPeerVideoActive(prev => ({ ...prev, [peerId]: false }));
-        }
-        setRemoteStreams(prev => ({ ...prev }));
-      };
-
-      event.track.onmute = () => {
-        if (event.track.kind === 'video') {
-          setPeerVideoActive(prev => ({ ...prev, [peerId]: false }));
-        }
-        setRemoteStreams(prev => ({ ...prev }));
-      };
-
-      event.track.onunmute = () => {
-        if (event.track.kind === 'video') {
-          setPeerVideoActive(prev => ({ ...prev, [peerId]: true }));
-        }
-        setRemoteStreams(prev => ({ ...prev }));
-      };
-
-      if (event.track.kind === 'video') {
-        setPeerVideoActive(prev => ({ ...prev, [peerId]: true }));
-      }
-    };
-
-    pc.oniceconnectionstatechange = () => {
-      if (pc.iceConnectionState === 'failed') {
-        pc.restartIce();
-      }
-    };
-
-    pc.onnegotiationneeded = async () => {
-      // Suppressed: we manually manage offers in the isInitiator block.
-    };
-
-    if (isInitiator && user?.id) {
-      try {
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        channel.whisper('meeting-signal', {
-          to: peerId,
-          from: user.id,
-          offer: offer
-        });
-      } catch (e) {
-        void e;
-      }
-    }
-
-    return pc;
-  };
-
-  const broadcastMediaState = (overrides?: { videoEnabled?: boolean; micEnabled?: boolean }) => {
-    const channel = presenceChannelRef.current;
-    if (!channel) return;
-    const myId = Number(user?.id ?? 0);
-    if (!myId) return;
-
-    const videoEnabled = overrides?.videoEnabled ?? mediaStateRef.current.videoEnabled;
-    const micEnabled = overrides?.micEnabled ?? mediaStateRef.current.micEnabled;
-
-    Object.keys(pcsRef.current).forEach((peerIdStr) => {
-      const peerId = Number(peerIdStr);
-      if (!Number.isFinite(peerId) || !peerId) return;
-      
-      console.log(`[MeetingRoom] Sending media update to ${peerId}:`, { videoEnabled, micEnabled });
-      channel.whisper('meeting-signal', {
-        to: peerId,
-        from: myId,
-        media: { videoEnabled, micEnabled }
-      });
-    });
-  };
-
-  const renegotiate = async (peerId: number, forceInitiate: boolean = false) => {
-    const pc = pcsRef.current[peerId];
-    if (!pc || pc.signalingState === 'closed') return;
-    if (pc.signalingState !== 'stable') return;
-    
-    try {
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      presenceChannelRef.current?.whisper('meeting-signal', {
-        to: peerId,
-        from: user?.id,
-        offer: offer
-      });
-    } catch (e) {
-      void e;
-    }
-  };
-
-  const attemptRenegotiate = (peerId: number) => {
-    const pc = pcsRef.current[peerId];
-    if (!pc || pc.signalingState === 'closed') return;
-
-    if (pc.signalingState === 'stable') {
-      renegotiateAttemptRef.current[peerId] = 0;
-      void renegotiate(peerId);
-      return;
-    }
-
-    const tries = (renegotiateAttemptRef.current[peerId] || 0) + 1;
-    renegotiateAttemptRef.current[peerId] = tries;
-    if (tries > 12) {
-      renegotiateAttemptRef.current[peerId] = 0;
-      return;
-    }
-
-    window.setTimeout(() => attemptRenegotiate(peerId), 250);
-  };
-
-  const scheduleRenegotiation = () => {
-    if (renegotiateTimerRef.current) {
-      window.clearTimeout(renegotiateTimerRef.current);
-    }
-    renegotiateTimerRef.current = window.setTimeout(() => {
-      const myId = Number(user?.id ?? 0);
-      Object.keys(pcsRef.current).forEach((peerIdStr) => {
-        const peerId = Number(peerIdStr);
-        if (!Number.isFinite(peerId) || !peerId) return;
-
-        if (myId && myId < peerId) {
-          attemptRenegotiate(peerId);
-        } else {
-          presenceChannelRef.current?.whisper('meeting-signal', {
-            to: peerId,
-            from: user?.id,
-            renegotiate: true
-          });
-        }
-      });
-    }, 150);
-  };
-
-  const cleanupWebRTC = () => {
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach(track => track.stop());
-      localStreamRef.current = null;
-    }
-    if (screenStreamRef.current) {
-      screenStreamRef.current.getTracks().forEach(track => track.stop());
-      screenStreamRef.current = null;
-    }
-
-    Object.keys(pcsRef.current).forEach(peerId => {
-      const pc = pcsRef.current[Number(peerId)];
-      if (pc) {
-        pc.close();
-      }
-    });
-    pcsRef.current = {};
-    videoTransceiversRef.current = {};
-    setRemoteStreams({});
-  };
+  }, [cameraActive, screenSharing, localStream]);
 
   // Recover blocked audio
   useEffect(() => {
@@ -665,539 +287,64 @@ export default function MeetingRoom() {
     return () => window.removeEventListener('click', handleUserGesture);
   }, []);
 
-  // Sync local video tag safely
-  useEffect(() => {
-    if (localVideoRef.current && localStreamRef.current) {
-      localVideoRef.current.srcObject = localStreamRef.current;
-    }
-  }, [cameraActive, screenSharing, localStream]);
-
-  // Request local media and initialize network in sequence
-  useEffect(() => {
-    let isMounted = true;
-    let echoInstance: any = null;
-    let pChannel: any = null;
-    let privateChan: any = null;
-    let activeCameraStream: MediaStream | null = null;
-    
-    const initRoom = async () => {
-      // 1. Get microphone stream
-      try {
-        const constraints: MediaStreamConstraints = selectedMicId
-          ? { audio: { deviceId: { exact: selectedMicId } }, video: false }
-          : { audio: true, video: false };
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
-        if (isMounted) {
-          localStreamRef.current = stream;
-          setLocalStream(stream);
-        } else {
-          stream.getTracks().forEach(t => t.stop());
-        }
-      } catch (err: any) {
-        if (isMounted) {
-          const errName = err?.name ? String(err.name) : '';
-          const secureHint = window.isSecureContext ? '' : ' (HTTPS/localhost required)';
-          const msg =
-            errName === 'NotFoundError'
-              ? 'No microphone device found.'
-              : errName === 'NotAllowedError' || errName === 'SecurityError'
-                ? `Microphone access blocked${secureHint}. You can still listen.`
-                : `Could not access microphone${secureHint}. You can still listen.`;
-          toast.warning(msg);
-          const emptyStream = new MediaStream();
-          localStreamRef.current = emptyStream;
-          setLocalStream(emptyStream);
-        }
-      }
-
-      if (!isMounted) return;
-
-      // 2. Load API data
-      await loadMeetingAndChat();
-
-      if (!isMounted) return;
-
-      // Fetch Metered.ca TURN servers ONCE securely from backend
-      let meteredServers: RTCIceServer[] = [];
-      try {
-        const res = await voiceAPI.getIceServers();
-        if (res.success && Array.isArray(res.iceServers)) {
-          meteredServers = res.iceServers as unknown as RTCIceServer[];
-        }
-      } catch (err) {
-        void err;
-      }
-
-      if (!isMounted) return;
-      const echo = getEcho();
-      echoInstance = echo;
-      const presenceChannelName = `presence-meeting.${meetingId}`;
-      const userPrivateChannelName = `App.Models.User.${user?.id}`;
-
-      // Join meeting presence channel
-      const presenceChannel = echo.join(presenceChannelName);
-      presenceChannelRef.current = presenceChannel;
-      pChannel = presenceChannel;
-
-      presenceChannel
-        .here((usersList: Array<{ id: number; name: string; role: string }>) => {
-          setActiveMembers(usersList);
-          // Establish connections to existing members
-          usersList.forEach(async (member) => {
-            if (Number(member.id) !== Number(user?.id)) {
-              const isInitiator = Number(user?.id ?? 0) < Number(member.id);
-              await initiatePeerConnection(member.id, isInitiator, presenceChannel, meteredServers);
-            }
-          });
-          broadcastMediaState();
-        })
-        .joining(async (joiningUser: { id: number; name: string; role: string }) => {
-          setActiveMembers(prev => {
-            if (prev.some(u => u.id === joiningUser.id)) return prev;
-            return [...prev, joiningUser];
-          });
-          toast.info(`${joiningUser.name} joined the meeting room`);
-
-          // Establish connection to joining member
-          if (Number(joiningUser.id) !== Number(user?.id)) {
-            const isInitiator = Number(user?.id ?? 0) < Number(joiningUser.id);
-            await initiatePeerConnection(joiningUser.id, isInitiator, presenceChannel, meteredServers);
-          }
-          broadcastMediaState();
-        })
-        .leaving((leavingUser: { id: number; name: string; role: string }) => {
-          setActiveMembers(prev => prev.filter(u => u.id !== leavingUser.id));
-
-          // Clean up connection to leaving user
-          const pc = pcsRef.current[leavingUser.id];
-          if (pc) {
-            pc.close();
-            delete pcsRef.current[leavingUser.id];
-          }
-          if (videoTransceiversRef.current[leavingUser.id]) {
-            delete videoTransceiversRef.current[leavingUser.id];
-          }
-          setRemoteStreams(prev => {
-            const copy = { ...prev };
-            delete copy[leavingUser.id];
-            return copy;
-          });
-
-          toast.info(`${leavingUser.name} left the meeting room`);
-        })
-        .listen('.new.meeting.message', (e: { message: MeetingMessage }) => {
-          setMessages(prev => {
-            // Deduplicate: skip if this message was already added (e.g. from API response)
-            if (prev.some(m => m.id === e.message.id)) return prev;
-            return [...prev, e.message];
-          });
-        })
-        .listen('.meeting.ended', (e: { meeting: Meeting }) => {
-          const startedAtMs = e.meeting.started_at ? Date.parse(e.meeting.started_at) : meetingStartMs;
-          const endedAtMs = e.meeting.ended_at ? Date.parse(e.meeting.ended_at) : Date.now();
-          if (startedAtMs && Number.isFinite(startedAtMs) && Number.isFinite(endedAtMs)) {
-            setMeetingStartMs(startedAtMs);
-            setMeetingEndMs(endedAtMs);
-            const sec = (endedAtMs - startedAtMs) / 1000;
-            toast.warning(`Meeting ended • Duration ${formatElapsed(sec)}`);
-          } else {
-            toast.warning('The host has ended this meeting.');
-          }
-          setTimeout(() => navigate('/meetings'), 2000);
-        });
-
-      const pendingCandidates: Record<number, any[]> = {};
-
-      const sanitizeSdp = (sdp: string) => {
-        if (!sdp) return sdp;
-        const lines = sdp.split(/\r\n|\n/);
-        const rebuilt = lines.join('\r\n').trim();
-        return rebuilt ? `${rebuilt}\r\n` : rebuilt;
-      };
-
-      // Listen to signaling whisper
-      presenceChannel.listenForWhisper('meeting-signal', async (data: { to: number; from: number; offer?: any; answer?: any; candidates?: any; candidate?: any; renegotiate?: boolean; media?: { videoEnabled?: boolean; micEnabled?: boolean } }) => {
-        if (Number(data.to) !== Number(user?.id)) return;
-
-        const peerId = data.from;
-        let pc = pcsRef.current[peerId];
-        
-        if (!pc) {
-          pc = await initiatePeerConnection(peerId, false, presenceChannel, meteredServers);
-        }
-
-        try {
-          if (data.media) {
-            console.log(`[MeetingRoom] Received media update from ${peerId}:`, data.media);
-            if (typeof data.media.videoEnabled === 'boolean') {
-              setPeerVideoEnabled(prev => ({ ...prev, [peerId]: data.media!.videoEnabled! }));
-            }
-            if (typeof data.media.micEnabled === 'boolean') {
-              setPeerMicEnabled(prev => ({ ...prev, [peerId]: data.media!.micEnabled! }));
-            }
-          }
-
-          if (data.renegotiate) {
-            const myId = Number(user?.id ?? 0);
-            if (myId && myId < peerId) {
-              attemptRenegotiate(peerId);
-            }
-            return;
-          }
-
-          if (data.offer) {
-            if (data.offer.sdp) data.offer.sdp = sanitizeSdp(data.offer.sdp);
-            if (pc.signalingState !== 'stable') {
-              if (pc.signalingState === 'have-local-offer') {
-                try {
-                  await pc.setLocalDescription({ type: 'rollback' } as any);
-                } catch (e) {
-                  // ignore rollback failures
-                }
-              }
-            }
-            await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-            
-            // Process queued candidates
-            const queued = pendingCandidates[peerId] || [];
-            for (const c of queued) {
-              await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => void 0);
-            }
-            pendingCandidates[peerId] = [];
-
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-            presenceChannel.whisper('meeting-signal', {
-              to: peerId,
-              from: user?.id,
-              answer: answer
-            });
-          } else if (data.answer) {
-            if (data.answer.sdp) data.answer.sdp = sanitizeSdp(data.answer.sdp);
-
-            if (pc.signalingState === 'stable') {
-              return;
-            }
-
-            if (pc.remoteDescription?.type === 'answer') {
-              return;
-            }
-
-            const localType = pc.localDescription?.type;
-            if (pc.signalingState !== 'have-local-offer' || localType !== 'offer') {
-              return;
-            }
-
-            await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-            
-            // Process queued candidates
-            const queued = pendingCandidates[peerId] || [];
-            for (const c of queued) {
-              await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => void 0);
-            }
-            pendingCandidates[peerId] = [];
-          } else if (data.candidates) {
-            for (const cand of data.candidates) {
-              if (pc.remoteDescription) {
-                await pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => void 0);
-              } else {
-                if (!pendingCandidates[peerId]) pendingCandidates[peerId] = [];
-                pendingCandidates[peerId].push(cand);
-              }
-            }
-          } else if (data.candidate) {
-            const cand = data.candidate;
-            if (pc.remoteDescription) {
-              await pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => void 0);
-            } else {
-              if (!pendingCandidates[peerId]) pendingCandidates[peerId] = [];
-              pendingCandidates[peerId].push(cand);
-            }
-          }
-        } catch (err) {
-          void err;
-        }
-      });
-
-      // Listen to user private channel for Meeting Ended event
-      const privateChannel = echo.private(userPrivateChannelName);
-      privateChan = privateChannel;
-      privateChannel.listen('.meeting.ended', (e: { meeting: Meeting }) => {
-        if (e.meeting.id === meetingId) {
-          const startedAtMs = e.meeting.started_at ? Date.parse(e.meeting.started_at) : meetingStartMs;
-          const endedAtMs = e.meeting.ended_at ? Date.parse(e.meeting.ended_at) : Date.now();
-          if (startedAtMs && Number.isFinite(startedAtMs) && Number.isFinite(endedAtMs)) {
-            setMeetingStartMs(startedAtMs);
-            setMeetingEndMs(endedAtMs);
-            const sec = (endedAtMs - startedAtMs) / 1000;
-            toast.warning(`Meeting ended • Duration ${formatElapsed(sec)}`);
-          } else {
-            toast.warning('The host has ended this meeting.');
-          }
-          setTimeout(() => navigate('/meetings'), 2000);
-        }
-      });
-    };
-
-    initRoom();
-
-    return () => {
-      isMounted = false;
-      cleanupWebRTC();
-      if (echoInstance) {
-        if (pChannel) echoInstance.leave(`presence-meeting.${meetingId}`);
-        if (privateChan) privateChan.stopListening('.meeting.ended');
-      }
-    };
-  }, [meetingId, user?.id]);
-
-  // Sync mic toggle
-  useEffect(() => {
-    if (localStreamRef.current) {
-      localStreamRef.current.getAudioTracks().forEach(track => {
-        track.enabled = micActive;
-      });
-    }
-  }, [micActive, localStream]);
-
-  // Request camera stream when camera is toggled
-  useEffect(() => {
-    let activeCameraStream: MediaStream | null = null;
-    
-    if (cameraActive) {
-      if (screenSharing) {
-        stopScreenShare();
-      }
-
-      const constraints: MediaStreamConstraints = selectedCamId
-        ? { video: { width: 1280, height: 720, deviceId: { exact: selectedCamId } }, audio: false }
-        : { video: { width: 1280, height: 720 }, audio: false };
-      navigator.mediaDevices.getUserMedia(constraints)
-        .then(stream => {
-          activeCameraStream = stream;
-          const videoTrack = stream.getVideoTracks()[0];
-          
-          if (localStreamRef.current) {
-            localStreamRef.current.getVideoTracks().forEach(t => {
-              localStreamRef.current?.removeTrack(t);
-              t.stop();
-            });
-            localStreamRef.current.addTrack(videoTrack);
-          }
-
-          // Add/Replace track on all active connections
-          Object.entries(pcsRef.current).forEach(([peerId, pc]) => {
-            const pid = Number(peerId);
-            const transceiver = videoTransceiversRef.current[pid] || pc.getTransceivers().find(tr => tr.receiver.track.kind === 'video');
-            if (transceiver?.sender) {
-              try {
-                transceiver.direction = 'sendrecv';
-              } catch (e) {
-                // ignore
-              }
-              transceiver.sender.replaceTrack(videoTrack).catch(() => void 0);
-              if (pid && !videoTransceiversRef.current[pid]) {
-                videoTransceiversRef.current[pid] = transceiver;
-              }
-            }
-          });
-          scheduleRenegotiation();
-        })
-        .catch(err => {
-          void err;
-          const errName = err?.name ? String(err.name) : '';
-          const secureHint = window.isSecureContext ? '' : ' (HTTPS/localhost required)';
-          const msg =
-            errName === 'NotFoundError'
-              ? 'No camera device found.'
-              : errName === 'NotAllowedError' || errName === 'SecurityError'
-                ? `Camera access blocked${secureHint}.`
-                : `Could not access camera${secureHint}.`;
-          toast.error(msg);
-          setCameraActive(false);
-        });
-    } else {
-      if (localStreamRef.current) {
-        localStreamRef.current.getVideoTracks().forEach(track => {
-          localStreamRef.current?.removeTrack(track);
-          track.stop();
-        });
-      }
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = null;
-      }
-      
-      Object.entries(pcsRef.current).forEach(([peerId, pc]) => {
-        const pid = Number(peerId);
-        const transceiver = videoTransceiversRef.current[pid] || pc.getTransceivers().find(tr => tr.receiver.track.kind === 'video');
-        if (transceiver?.sender) {
-          try {
-            transceiver.direction = 'recvonly';
-          } catch (e) {
-            // ignore
-          }
-          transceiver.sender.replaceTrack(null).catch(() => void 0);
-          if (pid && !videoTransceiversRef.current[pid]) {
-            videoTransceiversRef.current[pid] = transceiver;
-          }
-        }
-      });
-      scheduleRenegotiation();
-    }
-
-    return () => {
-      if (activeCameraStream) {
-        activeCameraStream.getTracks().forEach(t => t.stop());
-      }
-    };
-  }, [cameraActive, selectedCamId, screenSharing]);
-
-  const toggleScreenShare = async () => {
-    if (screenSharing) {
-      stopScreenShare();
-    } else {
-      try {
-        if (cameraActive) {
-          setCameraActive(false);
-        }
-
-        const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
-        screenStreamRef.current = stream;
-        setScreenSharing(true);
-
-        const videoTrack = stream.getVideoTracks()[0];
-        videoTrack.onended = () => {
-          stopScreenShare();
-        };
-
-        if (localStreamRef.current) {
-          localStreamRef.current.getVideoTracks().forEach(t => {
-            localStreamRef.current?.removeTrack(t);
-            t.stop();
-          });
-          localStreamRef.current.addTrack(videoTrack);
-        }
-
-        Object.entries(pcsRef.current).forEach(([peerId, pc]) => {
-          const pid = Number(peerId);
-          const transceiver = videoTransceiversRef.current[pid] || pc.getTransceivers().find(tr => tr.receiver.track.kind === 'video');
-          if (transceiver?.sender) {
-            try {
-              transceiver.direction = 'sendrecv';
-            } catch (e) {
-              // ignore
-            }
-            transceiver.sender.replaceTrack(videoTrack).catch(() => void 0);
-            if (pid && !videoTransceiversRef.current[pid]) {
-              videoTransceiversRef.current[pid] = transceiver;
-            }
-          }
-        });
-        scheduleRenegotiation();
-      } catch (err) {
-        void err;
-        const e: any = err;
-        const errName = e?.name ? String(e.name) : '';
-        const secureHint = window.isSecureContext ? '' : ' (HTTPS/localhost required)';
-        const msg =
-          errName === 'NotAllowedError' || errName === 'SecurityError'
-            ? `Screen share blocked${secureHint}.`
-            : `Could not share screen${secureHint}.`;
-        toast.error(msg);
-        setScreenSharing(false);
+  const toggleFullscreen = (e: React.MouseEvent) => {
+    const videoElem = (e.currentTarget as HTMLElement).closest('.aspect-video')?.querySelector('video');
+    if (videoElem) {
+      if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => void 0);
+      } else {
+        videoElem.requestFullscreen().catch(() => void 0);
       }
     }
   };
-
-  const stopScreenShare = () => {
-    if (screenStreamRef.current) {
-      screenStreamRef.current.getTracks().forEach(track => track.stop());
-      screenStreamRef.current = null;
-    }
-    setScreenSharing(false);
-
-    if (localStreamRef.current) {
-      localStreamRef.current.getVideoTracks().forEach(track => {
-        localStreamRef.current?.removeTrack(track);
-        track.stop();
-      });
-    }
-
-    if (localVideoRef.current) {
-      localVideoRef.current.srcObject = null;
-    }
-
-    Object.entries(pcsRef.current).forEach(([peerId, pc]) => {
-      const pid = Number(peerId);
-      const transceiver = videoTransceiversRef.current[pid] || pc.getTransceivers().find(tr => tr.receiver.track.kind === 'video');
-      if (transceiver?.sender) {
-        try {
-          transceiver.direction = 'recvonly';
-        } catch (e) {
-          // ignore
-        }
-        transceiver.sender.replaceTrack(null).catch(() => void 0);
-        if (pid && !videoTransceiversRef.current[pid]) {
-          videoTransceiversRef.current[pid] = transceiver;
-        }
-      }
-    });
-    scheduleRenegotiation();
-  };
-
-
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMessage.trim() || sendingMessage) return;
 
     setSendingMessage(true);
+    await sendMessage(newMessage);
+    setNewMessage('');
+    setSendingMessage(false);
+  };
+
+  const fetchInviteUsers = async () => {
     try {
-      const res = await meetingsAPI.sendMeetingMessage(meetingId, newMessage);
+      const res = await usersAPI.getUsers({ status: 'active', per_page: 1000 });
+      const participantsIds = new Set(meeting?.participants.map(p => p.id) ?? []);
+      const eligible = res.data.filter((u: User) => u.id !== user?.id && !participantsIds.has(u.id));
+      setInviteUsers(eligible);
+    } catch (err) {
+      console.error('Failed to fetch eligible users to invite:', err);
+    }
+  };
+
+  const handleSendInvites = async () => {
+    if (selectedInviteIds.length === 0) return;
+    setInviting(true);
+    try {
+      const res = await meetingsAPI.inviteParticipants(meetingId, selectedInviteIds);
       if (res.success) {
-        setMessages(prev => {
-          if (prev.some(m => m.id === res.data.id)) return prev;
-          return [...prev, res.data];
-        });
-        setNewMessage('');
+        toast.success('Invitations sent successfully.');
+        setShowInviteModal(false);
+        setSelectedInviteIds([]);
       }
     } catch (err) {
-      toast.error('Failed to send message');
+      toast.error('Failed to send invitations.');
     } finally {
-      setSendingMessage(false);
+      setInviting(false);
     }
   };
 
-  const handleLeave = async () => {
+  const applySpeakerToElement = async (el: HTMLMediaElement) => {
+    const deviceId = selectedSpeakerId || '';
+    const anyEl = el as any;
+    if (!deviceId) return;
+    if (typeof anyEl.setSinkId !== 'function') return;
     try {
-      await meetingsAPI.leaveMeeting(meetingId);
-      cleanupWebRTC();
-      navigate('/meetings');
-    } catch (err) {
-      cleanupWebRTC();
-      navigate('/meetings');
-    }
-  };
-
-  const handleEndMeeting = async () => {
-    if (!window.confirm('Are you sure you want to end this meeting for all participants?')) return;
-    try {
-      const res = await meetingsAPI.endMeeting(meetingId);
-      if (res.success) {
-        const startedAtMs = res.data?.started_at ? Date.parse(res.data.started_at) : meetingStartMs;
-        const endedAtMs = res.data?.ended_at ? Date.parse(res.data.ended_at) : Date.now();
-        if (startedAtMs && Number.isFinite(startedAtMs) && Number.isFinite(endedAtMs)) {
-          setMeetingStartMs(startedAtMs);
-          setMeetingEndMs(endedAtMs);
-          const sec = (endedAtMs - startedAtMs) / 1000;
-          toast.success(`Meeting ended • Duration ${formatElapsed(sec)}`);
-        } else {
-          toast.success('Meeting ended for all');
-        }
-        navigate('/meetings');
-      }
-    } catch (err) {
-      toast.error('Failed to end meeting');
+      await anyEl.setSinkId(deviceId);
+    } catch (e) {
+      console.error('Could not switch speaker output for this browser.', e);
     }
   };
 
@@ -1256,13 +403,13 @@ export default function MeetingRoom() {
             <div className="p-4 space-y-4">
               <div className="flex gap-2">
                 <button
-                  onClick={() => requestDevicePermissions()}
-                  className="flex-1 px-3 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-white text-xs font-bold border border-gray-700 transition"
+                  onClick={() => requestPermissions()}
+                  className="flex-1 px-3 py-2 rounded-xl bg-gray-880 hover:bg-gray-700 text-white text-xs font-bold border border-gray-700 transition"
                 >
                   Grant Permissions
                 </button>
                 <button
-                  onClick={() => refreshMediaDevices()}
+                  onClick={() => refreshDevices()}
                   className="flex-1 px-3 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-white text-xs font-bold border border-gray-700 transition"
                 >
                   Refresh Devices
@@ -1327,6 +474,69 @@ export default function MeetingRoom() {
         </div>
       )}
 
+      {/* Invite Participants Modal */}
+      {showInviteModal && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md bg-gray-950 border border-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b border-gray-800 bg-gray-900/60">
+              <div className="flex items-center gap-2 text-white font-extrabold">
+                <Users className="w-4 h-4 text-indigo-400" />
+                Invite Participants
+              </div>
+              <button
+                onClick={() => setShowInviteModal(false)}
+                className="text-gray-400 hover:text-white px-2 py-1 rounded hover:bg-gray-800 transition"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="p-4 overflow-y-auto max-h-[300px] space-y-2.5">
+              {inviteUsers.length === 0 ? (
+                <p className="text-xs text-gray-500 text-center py-4">No active employees available to invite.</p>
+              ) : (
+                inviteUsers.map((u) => (
+                  <label key={u.id} className="flex items-center gap-3 p-2 hover:bg-gray-900 rounded-xl cursor-pointer transition">
+                    <input
+                      type="checkbox"
+                      checked={selectedInviteIds.includes(u.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedInviteIds(prev => [...prev, u.id]);
+                        } else {
+                          setSelectedInviteIds(prev => prev.filter(id => id !== u.id));
+                        }
+                      }}
+                      className="rounded border-gray-800 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <div className="text-left">
+                      <p className="text-xs font-bold text-white">{u.name}</p>
+                      <p className="text-[10px] text-gray-400 capitalize">{u.role} • {u.position || 'Employee'}</p>
+                    </div>
+                  </label>
+                ))
+              )}
+            </div>
+
+            <div className="p-4 border-t border-gray-800 flex justify-end gap-2 bg-gray-900/20">
+              <button
+                onClick={() => setShowInviteModal(false)}
+                className="px-4 py-2 rounded-xl bg-gray-900 hover:bg-gray-800 text-gray-400 hover:text-white text-xs font-bold transition border border-gray-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSendInvites}
+                disabled={selectedInviteIds.length === 0 || inviting}
+                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition disabled:opacity-40"
+              >
+                {inviting ? 'Inviting...' : 'Send Invitations'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main Video/Grid Area */}
       <div className="flex-1 flex flex-col p-2 sm:p-4 md:p-6 overflow-hidden min-h-0 bg-gray-900/60">
         
@@ -1334,7 +544,7 @@ export default function MeetingRoom() {
         <div className="flex justify-between items-center bg-gray-900/80 backdrop-blur border border-gray-800 p-2 sm:p-4 rounded-xl z-10 shrink-0">
           <div className="flex items-center gap-2 sm:gap-3">
             <button 
-              onClick={handleLeave}
+              onClick={leaveRoom}
               className="p-1.5 sm:p-2 hover:bg-gray-800 rounded-lg text-gray-400 hover:text-white transition"
             >
               <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -1348,11 +558,15 @@ export default function MeetingRoom() {
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {meetingStartMs && (
-              <span className="hidden sm:flex items-center gap-1 text-[10px] sm:text-xs bg-indigo-600/10 text-indigo-300 border border-indigo-500/25 px-2 sm:px-2.5 py-1 rounded-full font-bold">
-                {meetingEndMs ? 'Ended' : 'Live'} • {formatElapsed(meetingElapsedSec)}
+            {recording && (
+              <span className="flex items-center gap-1.5 text-[10px] sm:text-xs bg-red-500/10 text-red-400 border border-red-500/20 px-2 sm:px-2.5 py-1 rounded-full font-bold animate-pulse">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping"></span>
+                REC • {formatElapsed(recordingDuration)}
               </span>
             )}
+            <span className="hidden sm:flex items-center gap-1 text-[10px] sm:text-xs bg-indigo-600/10 text-indigo-300 border border-indigo-500/25 px-2 sm:px-2.5 py-1 rounded-full font-bold">
+              Duration: {meeting.duration_minutes}m • Elapsed: {formatElapsed(meetingElapsedSec)}
+            </span>
             <span className="hidden sm:flex items-center gap-1 text-[10px] sm:text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 sm:px-2.5 py-1 rounded-full font-bold">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
               SECURE
@@ -1389,7 +603,6 @@ export default function MeetingRoom() {
           {activeMembers.filter(m => Number(m.id) !== Number(user?.id)).map(member => {
             const remoteStream = remoteStreams[member.id];
             const remoteVideoOn = peerVideoEnabled[member.id] ?? true;
-            const remoteVideoActive = peerVideoActive[member.id] ?? false;
             const peerMicOn = peerMicEnabled[member.id] ?? true;
             
             return (
@@ -1398,7 +611,6 @@ export default function MeetingRoom() {
                 member={member}
                 remoteStream={remoteStream}
                 remoteVideoOn={remoteVideoOn}
-                remoteVideoActive={remoteVideoActive}
                 peerMicEnabled={peerMicOn}
                 toggleFullscreen={toggleFullscreen}
                 applySpeakerToElement={applySpeakerToElement}
@@ -1432,11 +644,7 @@ export default function MeetingRoom() {
         <div className="bg-gray-900/80 backdrop-blur border border-gray-850 p-2 sm:p-4 rounded-xl flex flex-wrap items-center justify-center sm:justify-between gap-3 sm:gap-4 z-10 shrink-0 mt-auto">
           <div className="flex gap-2">
             <button
-              onClick={() => {
-                const newMic = !micActive;
-                setMicActive(newMic);
-                broadcastMediaState({ micEnabled: newMic });
-              }}
+              onClick={toggleMic}
               className={`p-2.5 sm:p-3 rounded-xl transition font-semibold border ${
                 micActive 
                   ? 'bg-gray-800 hover:bg-gray-700 text-white border-gray-700' 
@@ -1448,14 +656,7 @@ export default function MeetingRoom() {
             </button>
 
             <button
-              onClick={() => {
-                if (!cameraActive) {
-                  requestDevicePermissions();
-                }
-                const newCam = !cameraActive;
-                setCameraActive(newCam);
-                broadcastMediaState({ videoEnabled: newCam || screenSharing });
-              }}
+              onClick={toggleCamera}
               className={`p-2.5 sm:p-3 rounded-xl transition font-semibold border ${
                 cameraActive 
                   ? 'bg-gray-800 hover:bg-gray-700 text-white border-gray-700' 
@@ -1481,6 +682,31 @@ export default function MeetingRoom() {
 
           <div className="flex flex-wrap justify-center gap-2">
             <button
+              onClick={() => {
+                fetchInviteUsers();
+                setShowInviteModal(true);
+              }}
+              className="flex items-center gap-1.5 px-3 sm:px-4 py-2 sm:py-2 rounded-xl text-[10px] sm:text-xs font-bold transition border bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700"
+              title="Invite Members"
+            >
+              <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              Invite
+            </button>
+
+            <button
+              onClick={recording ? stopRecording : startRecording}
+              className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-xl text-[10px] sm:text-xs font-bold transition border ${
+                recording 
+                  ? 'bg-red-500/20 border-red-500/35 text-red-400 hover:bg-red-500/30 animate-pulse' 
+                  : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'
+              }`}
+              title={recording ? 'Stop Recording' : 'Record Meeting'}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${recording ? 'bg-red-500 animate-ping' : 'bg-gray-400'}`}></span>
+              {recording ? 'Stop Rec' : 'Record'}
+            </button>
+
+            <button
               onClick={() => setShowDeviceSettings(true)}
               className="flex items-center gap-1.5 px-3 sm:px-4 py-2 sm:py-2 rounded-xl text-[10px] sm:text-xs font-bold transition border bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700"
               title="Audio/Video Devices"
@@ -1500,19 +726,18 @@ export default function MeetingRoom() {
               Chat
             </button>
 
-            {user?.role === 'admin' && (
+            {isHost && (
               <button
-                onClick={handleEndMeeting}
+                onClick={endRoom}
                 className="flex items-center gap-1.5 px-3 sm:px-4 py-2 bg-red-655 hover:bg-red-700 text-white text-[10px] sm:text-xs font-black rounded-xl shadow-md transition"
               >
                 <ShieldAlert className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                <span className="hidden sm:inline">End for All</span>
-                <span className="sm:hidden">End</span>
+                <span>End for All</span>
               </button>
             )}
 
             <button
-              onClick={handleLeave}
+              onClick={leaveRoom}
               className="flex items-center gap-1.5 px-3 sm:px-4 py-2 bg-gray-800 border border-gray-700 hover:bg-gray-700 text-red-400 text-[10px] sm:text-xs font-extrabold rounded-xl transition"
             >
               <PhoneOff className="w-3.5 h-3.5 sm:w-4 sm:h-4" />

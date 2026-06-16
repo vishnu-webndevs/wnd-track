@@ -29,6 +29,10 @@ class TaskController extends Controller
             })
             ->when($request->status, function ($query, $status) {
                 $query->where('status', $status);
+            }, function ($query) use ($request) {
+                if (!$request->exclude_status) {
+                    $query->where('status', '!=', 'completed');
+                }
             })
             ->when($request->exclude_status, function ($query, $exclude_status) {
                 $query->where('status', '!=', $exclude_status);
@@ -59,7 +63,7 @@ class TaskController extends Controller
             'title' => 'required|string|max:255',
             'description' => 'nullable|string',
             'project_id' => 'required|exists:projects,id',
-            'assigned_to' => 'nullable|exists:users,id',
+            'assigned_to' => 'nullable|exists:users,id,status,active',
             'status' => 'in:pending,in_progress,completed,cancelled',
             'priority' => 'in:low,medium,high,urgent',
             'due_date' => 'nullable|date',
@@ -129,7 +133,15 @@ class TaskController extends Controller
             'title' => 'sometimes|string|max:255',
             'description' => 'nullable|string',
             'project_id' => 'sometimes|exists:projects,id',
-            'assigned_to' => 'nullable|exists:users,id',
+            'assigned_to' => [
+                'nullable',
+                \Illuminate\Validation\Rule::exists('users', 'id')->where(function ($query) use ($request, $task) {
+                    if ($request->has('assigned_to') && $request->assigned_to == $task->assigned_to) {
+                        return $query;
+                    }
+                    return $query->where('status', 'active');
+                })
+            ],
             'status' => 'sometimes|in:pending,in_progress,completed,cancelled',
             'priority' => 'sometimes|in:low,medium,high,urgent',
             'due_date' => 'nullable|date',

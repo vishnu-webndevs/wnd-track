@@ -35,7 +35,7 @@ class DashboardController extends Controller
     private function getAdminDashboard()
     {
         $userId = auth()->id();
-        $totalEmployees = User::where('role', 'employee')->count();
+        $totalEmployees = User::where('role', 'employee')->where('status', 'active')->count();
         $totalClients = Client::count();
         $totalProjects = Project::count();
         $totalTasks = Task::count();

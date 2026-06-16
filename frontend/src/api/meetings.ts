@@ -101,4 +101,14 @@ export const meetingsAPI = {
     const response = await api.post(`/meetings/${id}/messages`, { message });
     return response.data;
   },
+
+  inviteParticipants: async (id: number, participants: number[]): Promise<MeetingDetailsResponse> => {
+    const response = await api.post(`/meetings/${id}/invite`, { participants });
+    return response.data;
+  },
+
+  extendMeeting: async (id: number, minutes: number): Promise<MeetingDetailsResponse> => {
+    const response = await api.post(`/meetings/${id}/extend`, { minutes });
+    return response.data;
+  },
 };

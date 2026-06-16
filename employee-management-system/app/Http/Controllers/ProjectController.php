@@ -33,6 +33,8 @@ class ProjectController extends Controller
             })
             ->when($request->status, function ($query, $status) {
                 $query->where('status', $status);
+            }, function ($query) {
+                $query->where('status', '!=', 'completed');
             })
             ->when($request->client_id, function ($query, $client_id) {
                 $query->where('client_id', $client_id);
@@ -54,7 +56,7 @@ class ProjectController extends Controller
             'name' => 'required|string|max:255',
             'description' => 'nullable|string',
             'client_id' => 'required|exists:clients,id',
-            'manager_id' => 'nullable|exists:users,id',
+            'manager_id' => 'nullable|exists:users,id,status,active',
             'status' => 'in:planning,in_progress,completed,on_hold,cancelled',
             'start_date' => 'nullable|date',
             'end_date' => 'nullable|date|after_or_equal:start_date',
@@ -120,7 +122,15 @@ class ProjectController extends Controller
             'name' => 'sometimes|string|max:255',
             'description' => 'nullable|string',
             'client_id' => 'sometimes|exists:clients,id',
-            'manager_id' => 'nullable|exists:users,id',
+            'manager_id' => [
+                'nullable',
+                \Illuminate\Validation\Rule::exists('users', 'id')->where(function ($query) use ($request, $project) {
+                    if ($request->has('manager_id') && $request->manager_id == $project->manager_id) {
+                        return $query;
+                    }
+                    return $query->where('status', 'active');
+                })
+            ],
             'status' => 'sometimes|in:planning,in_progress,completed,on_hold,cancelled',
             'start_date' => 'nullable|date',
             'end_date' => 'nullable|date|after_or_equal:start_date',

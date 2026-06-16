@@ -280,7 +280,9 @@ export default function TimeTracking() {
     enabled: !!user && !!selectedProjectId,
   });
 
-  const taskOptions = useMemo(() => (projectTasks ?? []), [projectTasks]);
+  const taskOptions = useMemo(() => {
+    return (projectTasks ?? []).filter((t) => t.status !== 'completed');
+  }, [projectTasks]);
   const projectList = useMemo(() => {
     if ((currentUser as any)?.role === 'admin') {
       return allActiveProjects ?? assignedProjects ?? [];
@@ -326,6 +328,9 @@ export default function TimeTracking() {
   };
 
   const startVisualActivityCheck = async () => {
+    if (isElectronEnvRef.current) {
+      return;
+    }
     const core = (window as TTWindow).__tt_core;
     if (core.intervals.visualCheck) window.clearInterval(core.intervals.visualCheck);
     if (core.visualVideo && core.visualVideo.parentNode) {
@@ -404,19 +409,39 @@ export default function TimeTracking() {
 
             if (isLargeChange) {
               // Heavy activity: likely typing + moving + clicking (e.g. typing a document)
-              activityDataRef.current[minuteKey].keyboard_clicks += Math.floor(Math.random() * 4) + 2; // 2-5
-              activityDataRef.current[minuteKey].mouse_clicks += Math.floor(Math.random() * 2); // 0-1
-              activityDataRef.current[minuteKey].mouse_movements += Math.floor(Math.random() * 3) + 1; // 1-3
-              activityDataRef.current[minuteKey].mouse_scrolls += Math.floor(Math.random() * 2); // 0-1
+              // Highly scaled down to match realistic human activity per second
+              if (Math.random() < 0.35) {
+                activityDataRef.current[minuteKey].keyboard_clicks += Math.floor(Math.random() * 2) + 1; // 1-2 keys
+              }
+              if (Math.random() < 0.08) {
+                activityDataRef.current[minuteKey].mouse_clicks += 1;
+              }
+              if (Math.random() < 0.30) {
+                activityDataRef.current[minuteKey].mouse_movements += 1;
+              }
+              if (Math.random() < 0.10) {
+                activityDataRef.current[minuteKey].mouse_scrolls += 1;
+              }
             } else if (isMediumChange) {
               // Medium activity: likely navigating, clicking and moving
-              activityDataRef.current[minuteKey].mouse_clicks += Math.floor(Math.random() * 3) + 1; // 1-3
-              activityDataRef.current[minuteKey].mouse_movements += Math.floor(Math.random() * 3) + 2; // 2-4
-              activityDataRef.current[minuteKey].keyboard_clicks += Math.floor(Math.random() * 2); // 0-1
+              if (Math.random() < 0.10) {
+                activityDataRef.current[minuteKey].keyboard_clicks += 1;
+              }
+              if (Math.random() < 0.15) {
+                activityDataRef.current[minuteKey].mouse_clicks += 1;
+              }
+              if (Math.random() < 0.40) {
+                activityDataRef.current[minuteKey].mouse_movements += 1;
+              }
+              if (Math.random() < 0.20) {
+                activityDataRef.current[minuteKey].mouse_scrolls += 1;
+              }
             } else if (isSmallChange) {
               // Small activity: mostly just mouse moving or minor UI updates
-              activityDataRef.current[minuteKey].mouse_movements += Math.floor(Math.random() * 2) + 1; // 1-2
-              if (Math.random() > 0.8) {
+              if (Math.random() < 0.25) {
+                activityDataRef.current[minuteKey].mouse_movements += 1;
+              }
+              if (Math.random() < 0.05) {
                 activityDataRef.current[minuteKey].mouse_clicks += 1;
               }
             }

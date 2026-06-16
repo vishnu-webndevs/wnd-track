@@ -79,12 +79,19 @@ export default function Projects() {
 
   const { data: users } = useQuery<{ data: User[] }>({
     queryKey: ['users', 'for-projects'],
-    queryFn: () => usersAPI.getUsers({ per_page: 1000 }), // Get all for dropdown
+    queryFn: () => usersAPI.getUsers({ per_page: 1000, status: 'active' }), // Get all active for dropdown
     enabled: currentUser?.role === 'admin',
   });
 
   const clientOptions = useMemo(() => (clients?.data ?? []), [clients]);
-  const userOptions = useMemo(() => (users?.data ?? []), [users]);
+  const userOptions = useMemo(() => {
+    let options = users?.data ?? [];
+    const assignedManager = selectedProject?.manager;
+    if (assignedManager && !options.find(u => u.id === assignedManager.id)) {
+      options = [...options, assignedManager];
+    }
+    return options;
+  }, [users, selectedProject]);
 
   const createForm = useForm<CreateProjectForm>({
     resolver: zodResolver(createSchema),
@@ -165,7 +172,7 @@ export default function Projects() {
                 placeholder="Search projects..."
                 className="pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 w-full"
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
               />
             </div>
           </div>
@@ -173,17 +180,17 @@ export default function Projects() {
             <select
               className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
+              onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
             >
               <option value="">All Status</option>
               {statusOptions.map((s) => (
-                <option key={s} value={s}>{s}</option>
+                <option key={s} value={s}>{s === 'completed' ? 'Archive (Completed)' : s.replace('_', ' ')}</option>
               ))}
             </select>
             <select
               className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
               value={clientFilter ?? ''}
-              onChange={(e) => setClientFilter(e.target.value ? Number(e.target.value) : undefined)}
+              onChange={(e) => { setClientFilter(e.target.value ? Number(e.target.value) : undefined); setPage(1); }}
             >
               <option value="">All Clients</option>
               {clientOptions.map((c) => (
@@ -193,7 +200,7 @@ export default function Projects() {
             <select
               className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
               value={managerFilter ?? ''}
-              onChange={(e) => setManagerFilter(e.target.value ? Number(e.target.value) : undefined)}
+              onChange={(e) => { setManagerFilter(e.target.value ? Number(e.target.value) : undefined); setPage(1); }}
             >
               <option value="">All Managers</option>
               {userOptions.map((u) => (
