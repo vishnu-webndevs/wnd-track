@@ -190,7 +190,10 @@ export default function TimeTracking() {
   const lastActivityRef = useRef<Date>((window as TTWindow).__tt_core.lastActivity);
   useEffect(() => { (window as TTWindow).__tt_core.lastActivity = lastActivityRef.current; });
 
-  const isElectronEnvRef = useRef(!!(window as any).require && !!(window as any).require('electron'));
+  const isElectronEnvRef = useRef(
+    (typeof window !== 'undefined' && !!(window as any).require && !!(window as any).require('electron')) ||
+    (typeof navigator !== 'undefined' && navigator.userAgent.toLowerCase().indexOf(' electron/') > -1)
+  );
   const permissionGrantedRef = useRef<boolean>((window as TTWindow).__tt_core.permissionGranted);
   useEffect(() => { (window as TTWindow).__tt_core.permissionGranted = permissionGrantedRef.current; });
 
