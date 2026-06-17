@@ -14,8 +14,8 @@ export function useGlobalTrackerActivity() {
     // Try to setup Electron IPC listener
     try {
       const w = window as any;
-      if (w.require) {
-        const { ipcRenderer } = w.require('electron');
+      const ipcRenderer = w.ipcRenderer || (w.require ? w.require('electron').ipcRenderer : null);
+      if (ipcRenderer) {
         isElectron = true;
 
         const handleActivityUpdate = (

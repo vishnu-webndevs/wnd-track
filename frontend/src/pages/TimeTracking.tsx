@@ -191,7 +191,7 @@ export default function TimeTracking() {
   useEffect(() => { (window as TTWindow).__tt_core.lastActivity = lastActivityRef.current; });
 
   const isElectronEnvRef = useRef(
-    (typeof window !== 'undefined' && !!(window as any).require && !!(window as any).require('electron')) ||
+    (typeof window !== 'undefined' && (!!(window as any).ipcRenderer || (!!(window as any).require && !!(window as any).require('electron')))) ||
     (typeof navigator !== 'undefined' && navigator.userAgent.toLowerCase().indexOf(' electron/') > -1)
   );
   const permissionGrantedRef = useRef<boolean>((window as TTWindow).__tt_core.permissionGranted);
@@ -249,18 +249,6 @@ export default function TimeTracking() {
     return localDate.toISOString().substring(0, 16);
   };
 
-  const activityDataRef = useRef<{
-    [minuteKey: string]: {
-      time: string;
-      keyboard_clicks: number;
-      mouse_clicks: number;
-      mouse_scrolls: number;
-      mouse_movements: number;
-      total_activity: number;
-      timestamp: string;
-    }
-  }>((window as TTWindow).__tt_core.activityData);
-  useEffect(() => { (window as TTWindow).__tt_core.activityData = activityDataRef.current; });
   useEffect(() => { (window as any).__tt_stop_tracking = stopTrackingRef.current; });
 
 
@@ -283,9 +271,7 @@ export default function TimeTracking() {
     enabled: !!user && !!selectedProjectId,
   });
 
-  const taskOptions = useMemo(() => {
-    return (projectTasks ?? []).filter((t) => t.status !== 'completed');
-  }, [projectTasks]);
+  const taskOptions = useMemo(() => (projectTasks ?? []), [projectTasks]);
   const projectList = useMemo(() => {
     if ((currentUser as any)?.role === 'admin') {
       return allActiveProjects ?? assignedProjects ?? [];
@@ -386,14 +372,15 @@ export default function TimeTracking() {
           }
 
           // Heuristic: If significant change, count as activity
-          // Lowered thresholds for 64x36 resolution
-          if (diffScore > 2000) {
+          // Lowered thresholds for 64x36 resolution (raised minimum to 8000 to filter clock ticking and cursors)
+          if (diffScore > 8000) {
             const now = new Date();
             lastActivityRef.current = now;
             const minuteKey = getMinuteKey(now);
+            const coreActivityData = core.activityData;
 
-            if (!activityDataRef.current[minuteKey]) {
-              activityDataRef.current[minuteKey] = {
+            if (!coreActivityData[minuteKey]) {
+              coreActivityData[minuteKey] = {
                 time: now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false }),
                 keyboard_clicks: 0,
                 mouse_clicks: 0,
@@ -408,49 +395,49 @@ export default function TimeTracking() {
             // and avoid the "exact same counts" bug.
             const isLargeChange = diffScore > 20000;
             const isMediumChange = diffScore > 10000 && diffScore <= 20000;
-            const isSmallChange = diffScore > 2000 && diffScore <= 10000;
+            const isSmallChange = diffScore > 8000 && diffScore <= 10000;
 
             if (isLargeChange) {
               // Heavy activity: likely typing + moving + clicking (e.g. typing a document)
               // Highly scaled down to match realistic human activity per second
               if (Math.random() < 0.35) {
-                activityDataRef.current[minuteKey].keyboard_clicks += Math.floor(Math.random() * 2) + 1; // 1-2 keys
+                coreActivityData[minuteKey].keyboard_clicks += Math.floor(Math.random() * 2) + 1; // 1-2 keys
               }
               if (Math.random() < 0.08) {
-                activityDataRef.current[minuteKey].mouse_clicks += 1;
+                coreActivityData[minuteKey].mouse_clicks += 1;
               }
               if (Math.random() < 0.30) {
-                activityDataRef.current[minuteKey].mouse_movements += 1;
+                coreActivityData[minuteKey].mouse_movements += 1;
               }
               if (Math.random() < 0.10) {
-                activityDataRef.current[minuteKey].mouse_scrolls += 1;
+                coreActivityData[minuteKey].mouse_scrolls += 1;
               }
             } else if (isMediumChange) {
               // Medium activity: likely navigating, clicking and moving
               if (Math.random() < 0.10) {
-                activityDataRef.current[minuteKey].keyboard_clicks += 1;
+                coreActivityData[minuteKey].keyboard_clicks += 1;
               }
               if (Math.random() < 0.15) {
-                activityDataRef.current[minuteKey].mouse_clicks += 1;
+                coreActivityData[minuteKey].mouse_clicks += 1;
               }
               if (Math.random() < 0.40) {
-                activityDataRef.current[minuteKey].mouse_movements += 1;
+                coreActivityData[minuteKey].mouse_movements += 1;
               }
               if (Math.random() < 0.20) {
-                activityDataRef.current[minuteKey].mouse_scrolls += 1;
+                coreActivityData[minuteKey].mouse_scrolls += 1;
               }
             } else if (isSmallChange) {
               // Small activity: mostly just mouse moving or minor UI updates
               if (Math.random() < 0.25) {
-                activityDataRef.current[minuteKey].mouse_movements += 1;
+                coreActivityData[minuteKey].mouse_movements += 1;
               }
               if (Math.random() < 0.05) {
-                activityDataRef.current[minuteKey].mouse_clicks += 1;
+                coreActivityData[minuteKey].mouse_clicks += 1;
               }
             }
             
             // Mark the second as active
-            activityDataRef.current[minuteKey].total_activity += 1;
+            coreActivityData[minuteKey].total_activity += 1;
           }
         }
 
@@ -522,6 +509,7 @@ export default function TimeTracking() {
   };
 
   const captureScreenshot = async () => {
+    const core = (window as TTWindow).__tt_core;
     // Check if we are still tracking
     if (!isTrackingRef.current) {
       return;
@@ -692,8 +680,8 @@ export default function TimeTracking() {
             continue;
           }
 
-          if (!activityDataRef.current[key]) {
-            activityDataRef.current[key] = {
+          if (!core.activityData[key]) {
+            core.activityData[key] = {
               time: loopTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false }),
               keyboard_clicks: 0,
               mouse_clicks: 0,
@@ -709,13 +697,13 @@ export default function TimeTracking() {
 
         // Filter activity data: Only send minutes <= captureTargetTime
         // Keep future minutes (e.g. if capture delayed into next minute) for the next screenshot
-        const allKeys = Object.keys(activityDataRef.current);
+        const allKeys = Object.keys(core.activityData);
 
         const breakdown: ActivityMinute[] = [];
-        const remainingActivity: typeof activityDataRef.current = {};
+        const remainingActivity: typeof core.activityData = {};
 
         allKeys.forEach((key) => {
-          const entry = activityDataRef.current[key];
+          const entry = core.activityData[key];
           if (!entry) return;
 
           const entryDate = new Date(entry.timestamp);
@@ -740,7 +728,7 @@ export default function TimeTracking() {
         const currentMinute = getMinuteKey(captureTargetTime);
 
         if (lastCapturedMinuteRef.current === currentMinute) {
-          activityDataRef.current = remainingActivity;
+          core.activityData = remainingActivity;
           lastCaptureTimeRef.current = captureTargetTime;
           return;
         }
@@ -753,7 +741,7 @@ export default function TimeTracking() {
           timeLogId: activeTimeLogIdRef.current
         });
 
-        activityDataRef.current = remainingActivity;
+        core.activityData = remainingActivity;
         lastCaptureTimeRef.current = captureTargetTime;
         lastCapturedMinuteRef.current = currentMinute;
         localStorage.setItem('tt-last-captured-minute', currentMinute);

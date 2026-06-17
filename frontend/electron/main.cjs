@@ -23,15 +23,18 @@ let lastMouseMoveCountedAt = 0;
 let lastMousePos = null;
 
 // Initialize global hooks
-uIOhook.on('keyup', () => {
+uIOhook.on('keyup', (e) => {
+  console.log('[uIOhook] keyup registered, keycode:', e.keycode);
   activityCounts.keyboard++;
 });
 
-uIOhook.on('mousedown', () => {
+uIOhook.on('mousedown', (e) => {
+  console.log('[uIOhook] mousedown registered, button:', e.button);
   activityCounts.mouseClicks++;
 });
 
-uIOhook.on('wheel', () => {
+uIOhook.on('wheel', (e) => {
+  console.log('[uIOhook] wheel registered, clicks/rotation:', e.clicks || e.amount);
   activityCounts.mouseScrolls++;
 });
 
@@ -55,6 +58,7 @@ uIOhook.on('mousemove', (e) => {
   }
 
   lastMouseMoveCountedAt = now;
+  console.log('[uIOhook] mousemove registered, pos:', lastMousePos);
   activityCounts.mouseMovements++;
 });
 
@@ -76,7 +80,7 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false, // For simple migration, though strictly less secure. Better to use preload in future.
-      // preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, 'preload.cjs'),
     },
     icon: iconPath
   });

@@ -19,18 +19,11 @@ export function useNotifications() {
 
   // Listen for native Electron notification clicks
   useEffect(() => {
-    const w = window as unknown as {
-      require?: (name: 'electron') => {
-        ipcRenderer: {
-          on: (channel: string, listener: (...args: any[]) => void) => void;
-          removeListener: (channel: string, listener: (...args: any[]) => void) => void;
-        };
-      };
-    };
+    const w = window as any;
+    const ipcRenderer = w.ipcRenderer || (typeof w.require === 'function' ? w.require('electron').ipcRenderer : null);
 
-    if (typeof w.require === 'function') {
+    if (ipcRenderer) {
       try {
-        const { ipcRenderer } = w.require('electron');
         const handleIpcClick = (_event: any, notificationData: any) => {
           if (notificationData) {
             const { data: innerData, type } = notificationData;
@@ -227,16 +220,12 @@ export function triggerDesktopNotification(data: Partial<NotificationData> & { t
   const body = data.message || '';
 
   // Check if running in Electron
-  const w = window as unknown as {
-    require?: (name: 'electron') => {
-      ipcRenderer: { send: (channel: string, ...args: unknown[]) => void };
-    };
-  };
+  const w = window as any;
+  const ipcRenderer = w.ipcRenderer || (typeof w.require === 'function' ? w.require('electron').ipcRenderer : null);
 
   const handleNotificationClick = () => {
-    if (typeof w.require === 'function') {
+    if (ipcRenderer) {
       try {
-        const { ipcRenderer } = w.require!('electron');
         ipcRenderer.send('focus-window');
       } catch (e) {
         void e;
@@ -260,10 +249,9 @@ export function triggerDesktopNotification(data: Partial<NotificationData> & { t
     }
   };
 
-  if (typeof w.require === 'function') {
+  if (ipcRenderer) {
     // Electron environment - use native IPC notification to main process
     try {
-      const { ipcRenderer } = w.require!('electron');
       ipcRenderer.send('show-notification', { title, body, data });
     } catch (e) {
       void e;

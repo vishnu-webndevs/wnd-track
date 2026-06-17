@@ -273,9 +273,9 @@ export default function Layout({ children }: LayoutProps) {
 
   // Handle Electron App Close Gracefully
   useEffect(() => {
-    const w = window as unknown as { require?: (name: 'electron') => { ipcRenderer: { on: (channel: string, listener: (...args: unknown[]) => void) => void; removeListener: (channel: string, listener: (...args: unknown[]) => void) => void; send: (channel: string, ...args: unknown[]) => void } } };
-    if (typeof w.require === 'function') {
-      const { ipcRenderer } = w.require('electron');
+    const w = window as any;
+    const ipcRenderer = w.ipcRenderer || (typeof w.require === 'function' ? w.require('electron').ipcRenderer : null);
+    if (ipcRenderer) {
       
       const handleAppClose = async () => {
         const raw = localStorage.getItem('tt-tracker');
