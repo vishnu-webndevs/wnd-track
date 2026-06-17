@@ -121,7 +121,9 @@ function createWindow() {
   const isDev = !app.isPackaged;
 
   if (isDev) {
-    win.loadURL('http://localhost:5173');
+    session.defaultSession.clearCache().finally(() => {
+      win.loadURL('http://localhost:5173');
+    });
     // win.webContents.openDevTools();
   } else {
     // Clear cache to always get the latest deployed changes from the server
