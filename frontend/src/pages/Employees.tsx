@@ -457,21 +457,20 @@ export default function Employees() {
                     <option value="active">Active</option>
                     <option value="inactive">Inactive</option>
                   </select>
-                </div>
-                <div>
+                         <div>
                   <label className="block text-sm font-medium text-gray-700">Password</label>
-                  <input {...createForm.register('password')} type="password" className="mt-1 block w-full border rounded px-3 py-2" />
+                  <input {...createForm.register('password')} type="password" autoComplete="new-password" className="mt-1 block w-full border rounded px-3 py-2" />
                   {createForm.formState.errors.password && (
                     <p className="text-sm text-red-600">{createForm.formState.errors.password.message as string}</p>
                   )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Confirm Password</label>
-                  <input {...createForm.register('password_confirmation')} type="password" className="mt-1 block w-full border rounded px-3 py-2" />
+                  <input {...createForm.register('password_confirmation')} type="password" autoComplete="new-password" className="mt-1 block w-full border rounded px-3 py-2" />
                   {createForm.formState.errors.password_confirmation && (
                     <p className="text-sm text-red-600">{createForm.formState.errors.password_confirmation.message as string}</p>
                   )}
-                </div>
+                </div>          </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Department</label>
                   <input {...createForm.register('department')} className="mt-1 block w-full border rounded px-3 py-2" />
@@ -494,6 +493,7 @@ export default function Employees() {
                     <input
                       {...createForm.register('telegram_chat_id')}
                       type={showCreateChatId ? "text" : "password"}
+                      autoComplete="new-password"
                       className="block w-full border rounded pl-3 pr-10 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 font-mono w-full"
                       placeholder="e.g. 123456789"
                     />
@@ -575,11 +575,11 @@ export default function Employees() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">New Password</label>
-                  <input {...editForm.register('password')} type="password" className="mt-1 block w-full border rounded px-3 py-2" />
+                  <input {...editForm.register('password')} type="password" autoComplete="new-password" className="mt-1 block w-full border rounded px-3 py-2" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Confirm Password</label>
-                  <input {...editForm.register('password_confirmation')} type="password" className="mt-1 block w-full border rounded px-3 py-2" />
+                  <input {...editForm.register('password_confirmation')} type="password" autoComplete="new-password" className="mt-1 block w-full border rounded px-3 py-2" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Department</label>
@@ -603,6 +603,7 @@ export default function Employees() {
                     <input
                       {...editForm.register('telegram_chat_id')}
                       type={showEditChatId ? "text" : "password"}
+                      autoComplete="new-password"
                       className="block w-full border rounded pl-3 pr-10 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 font-mono w-full"
                       placeholder="e.g. 123456789"
                     />

@@ -409,6 +409,7 @@ export default function Settings() {
               <label className="block text-sm font-medium text-gray-700">New Password</label>
               <input
                 type="password"
+                autoComplete="new-password"
                 className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                 {...passwordForm.register('password')}
               />
@@ -421,6 +422,7 @@ export default function Settings() {
               <label className="block text-sm font-medium text-gray-700">Confirm Password</label>
               <input
                 type="password"
+                autoComplete="new-password"
                 className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                 {...passwordForm.register('password_confirmation')}
               />
@@ -492,6 +494,7 @@ export default function Settings() {
                 <div className="relative flex-1">
                   <input
                     type={showBotToken ? "text" : "password"}
+                    autoComplete="new-password"
                     value={telegramBotToken}
                     onChange={(e) => setTelegramBotToken(e.target.value)}
                     placeholder="Enter Telegram Bot Token (e.g. 8498191902:AAHQJjw...)"
