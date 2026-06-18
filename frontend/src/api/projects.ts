@@ -37,13 +37,14 @@ export const projectsAPI = {
     data: Partial<Project> & {
       name: string;
       client_id: number;
+      employee_ids?: number[];
     }
   ): Promise<Project> => {
     const response = await api.post('/projects', data);
     return response.data.project;
   },
 
-  updateProject: async (id: number, data: Partial<Project>): Promise<Project> => {
+  updateProject: async (id: number, data: Partial<Project> & { employee_ids?: number[] }): Promise<Project> => {
     const response = await api.put(`/projects/${id}`, data);
     return response.data.project;
   },

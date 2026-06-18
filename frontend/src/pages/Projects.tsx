@@ -27,6 +27,7 @@ const createSchema = z.object({
   budget: z.number().optional(),
   priority: z.enum(priorityOptions),
   notes: z.string().optional(),
+  employee_ids: z.array(z.number()).optional(),
 });
 
 const editSchema = z.object({
@@ -40,6 +41,7 @@ const editSchema = z.object({
   budget: z.number().optional(),
   priority: z.enum(priorityOptions),
   notes: z.string().optional(),
+  employee_ids: z.array(z.number()).optional(),
 });
 
 type CreateProjectForm = z.infer<typeof createSchema>;
@@ -56,6 +58,7 @@ export default function Projects() {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isViewOpen, setIsViewOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<number[]>([]);
   const queryClient = useQueryClient();
 
   const isAdmin = currentUser?.role === 'admin';
@@ -114,7 +117,7 @@ export default function Projects() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: (payload: { id: number; data: Partial<EditProjectForm> }) => projectsAPI.updateProject(payload.id, payload.data),
+    mutationFn: (payload: { id: number; data: Partial<EditProjectForm> & { employee_ids?: number[] } }) => projectsAPI.updateProject(payload.id, payload.data),
     onSuccess: () => {
       toast.success('Project updated');
       setIsEditOpen(false);
@@ -219,6 +222,7 @@ export default function Projects() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Client</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Manager</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Employees</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Priority</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
@@ -227,13 +231,13 @@ export default function Projects() {
             <tbody className="bg-white divide-y divide-gray-200">
               {isLoading ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-4 text-center">
+                  <td colSpan={7} className="px-6 py-4 text-center">
                     <LoadingSpinner size="md" />
                   </td>
                 </tr>
               ) : (projects as { data: Project[] } | undefined)?.data.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-4 text-center text-gray-500">No projects found</td>
+                  <td colSpan={7} className="px-6 py-4 text-center text-gray-500">No projects found</td>
                 </tr>
               ) : (
                 (projects as { data: Project[] } | undefined)?.data.map((project) => (
@@ -253,6 +257,23 @@ export default function Projects() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{project.client?.name || '-'}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{project.manager?.name || '-'}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {project.employees && project.employees.length > 0 ? (
+                        <div className="flex flex-wrap gap-1 max-w-xs">
+                          {project.employees.map(emp => (
+                            <span 
+                              key={emp.id} 
+                              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100"
+                              title={emp.name}
+                            >
+                              {emp.name}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-gray-400 italic">None</span>
+                      )}
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${project.status === 'in_progress' ? 'bg-green-100 text-green-800' : project.status === 'completed' ? 'bg-blue-100 text-blue-800' : 'bg-yellow-100 text-yellow-800'}`}>
                         {project.status}
@@ -279,6 +300,7 @@ export default function Projects() {
                               onClick={() => {
                                 setSelectedProject(project);
                                 setIsEditOpen(true);
+                                setSelectedEmployeeIds(project.employees?.map(e => e.id) ?? []);
                                 editForm.reset({
                                   name: project.name,
                                   description: project.description ?? '',
@@ -353,6 +375,7 @@ export default function Projects() {
                   ...values,
                   budget: values.budget ?? undefined,
                   manager_id: values.manager_id ?? undefined,
+                  employee_ids: selectedEmployeeIds,
                 };
                 createMutation.mutate(payload);
               })}
@@ -360,16 +383,22 @@ export default function Projects() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Name</label>
-                  <input {...createForm.register('name')} className="mt-1 block w-full border rounded px-3 py-2" />
+                  <input {...createForm.register('name')} className={`mt-1 block w-full border rounded px-3 py-2 ${createForm.formState.errors.name ? 'border-red-500 bg-red-50' : ''}`} />
+                  {createForm.formState.errors.name && (
+                    <p className="mt-1 text-sm text-red-600">{createForm.formState.errors.name.message}</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Client</label>
-                  <select {...createForm.register('client_id', { valueAsNumber: true })} className="mt-1 block w-full border rounded px-3 py-2">
+                  <select {...createForm.register('client_id', { valueAsNumber: true })} className={`mt-1 block w-full border rounded px-3 py-2 ${createForm.formState.errors.client_id ? 'border-red-500 bg-red-50' : ''}`}>
                     <option value="">Select client</option>
                     {clientOptions.map((c) => (
                       <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
                   </select>
+                  {createForm.formState.errors.client_id && (
+                    <p className="mt-1 text-sm text-red-600">Client is required</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Manager</label>
@@ -382,31 +411,46 @@ export default function Projects() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Status</label>
-                  <select {...createForm.register('status')} className="mt-1 block w-full border rounded px-3 py-2">
+                  <select {...createForm.register('status')} className={`mt-1 block w-full border rounded px-3 py-2 ${createForm.formState.errors.status ? 'border-red-500 bg-red-50' : ''}`}>
                     {statusOptions.map((s) => (
                       <option key={s} value={s}>{s}</option>
                     ))}
                   </select>
+                  {createForm.formState.errors.status && (
+                    <p className="mt-1 text-sm text-red-600">Status is required</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Priority</label>
-                  <select {...createForm.register('priority')} className="mt-1 block w-full border rounded px-3 py-2">
+                  <select {...createForm.register('priority')} className={`mt-1 block w-full border rounded px-3 py-2 ${createForm.formState.errors.priority ? 'border-red-500 bg-red-50' : ''}`}>
                     {priorityOptions.map((p) => (
                       <option key={p} value={p}>{p}</option>
                     ))}
                   </select>
+                  {createForm.formState.errors.priority && (
+                    <p className="mt-1 text-sm text-red-600">Priority is required</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Budget</label>
-                  <input {...createForm.register('budget', { valueAsNumber: true })} type="number" step="0.01" className="mt-1 block w-full border rounded px-3 py-2" />
+                  <input {...createForm.register('budget', { valueAsNumber: true })} type="number" step="0.01" className={`mt-1 block w-full border rounded px-3 py-2 ${createForm.formState.errors.budget ? 'border-red-500 bg-red-50' : ''}`} />
+                  {createForm.formState.errors.budget && (
+                    <p className="mt-1 text-sm text-red-600">{createForm.formState.errors.budget.message}</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Start Date</label>
-                  <input {...createForm.register('start_date')} type="date" className="mt-1 block w-full border rounded px-3 py-2" />
+                  <input {...createForm.register('start_date')} type="date" className={`mt-1 block w-full border rounded px-3 py-2 ${createForm.formState.errors.start_date ? 'border-red-500 bg-red-50' : ''}`} />
+                  {createForm.formState.errors.start_date && (
+                    <p className="mt-1 text-sm text-red-600">{createForm.formState.errors.start_date.message}</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">End Date</label>
-                  <input {...createForm.register('end_date')} type="date" className="mt-1 block w-full border rounded px-3 py-2" />
+                  <input {...createForm.register('end_date')} type="date" className={`mt-1 block w-full border rounded px-3 py-2 ${createForm.formState.errors.end_date ? 'border-red-500 bg-red-50' : ''}`} />
+                  {createForm.formState.errors.end_date && (
+                    <p className="mt-1 text-sm text-red-600">{createForm.formState.errors.end_date.message}</p>
+                  )}
                 </div>
                 <div className="sm:col-span-2">
                   <label className="block text-sm font-medium text-gray-700">Description</label>
@@ -415,6 +459,29 @@ export default function Projects() {
                 <div className="sm:col-span-2">
                   <label className="block text-sm font-medium text-gray-700">Notes</label>
                   <textarea {...createForm.register('notes')} className="mt-1 block w-full border rounded px-3 py-2" rows={3} />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700">Assigned Employees</label>
+                  <div className="mt-1 border rounded-md p-3 max-h-40 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-50">
+                    {(users?.data ?? []).map((u) => (
+                      <label key={u.id} className="flex items-center space-x-2 text-sm text-gray-700 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          value={u.id}
+                          checked={selectedEmployeeIds.includes(u.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedEmployeeIds([...selectedEmployeeIds, u.id]);
+                            } else {
+                              setSelectedEmployeeIds(selectedEmployeeIds.filter(id => id !== u.id));
+                            }
+                          }}
+                          className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <span>{u.name} ({u.role})</span>
+                      </label>
+                    ))}
+                  </div>
                 </div>
               </div>
             </form>
@@ -446,6 +513,23 @@ export default function Projects() {
                 <div>
                   <label className="block text-xs font-medium text-gray-500 uppercase">Manager</label>
                   <p className="mt-1 text-sm text-gray-900">{selectedProject.manager?.name || '-'}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Assigned Employees</label>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {selectedProject.employees && selectedProject.employees.length > 0 ? (
+                      selectedProject.employees.map(emp => (
+                        <span 
+                          key={emp.id} 
+                          className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-150"
+                        >
+                          {emp.name}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-sm text-gray-500 italic">None</span>
+                    )}
+                  </div>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-500 uppercase">Status</label>
@@ -497,21 +581,33 @@ export default function Projects() {
               id="edit-project-form"
               className="px-6 py-4 space-y-4 overflow-y-auto flex-1"
               onSubmit={editForm.handleSubmit((values) => {
-                updateMutation.mutate({ id: selectedProject!.id, data: values });
+                updateMutation.mutate({ 
+                  id: selectedProject!.id, 
+                  data: {
+                    ...values,
+                    employee_ids: selectedEmployeeIds
+                  } 
+                });
               })}
             >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Name</label>
-                  <input {...editForm.register('name')} className="mt-1 block w-full border rounded px-3 py-2" />
+                  <input {...editForm.register('name')} className={`mt-1 block w-full border rounded px-3 py-2 ${editForm.formState.errors.name ? 'border-red-500 bg-red-50' : ''}`} />
+                  {editForm.formState.errors.name && (
+                    <p className="mt-1 text-sm text-red-600">{editForm.formState.errors.name.message}</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Client</label>
-                  <select {...editForm.register('client_id', { valueAsNumber: true })} className="mt-1 block w-full border rounded px-3 py-2">
+                  <select {...editForm.register('client_id', { valueAsNumber: true })} className={`mt-1 block w-full border rounded px-3 py-2 ${editForm.formState.errors.client_id ? 'border-red-500 bg-red-50' : ''}`}>
                     {clientOptions.map((c) => (
                       <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
                   </select>
+                  {editForm.formState.errors.client_id && (
+                    <p className="mt-1 text-sm text-red-600">Client is required</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Manager</label>
@@ -524,31 +620,46 @@ export default function Projects() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Status</label>
-                  <select {...editForm.register('status')} className="mt-1 block w-full border rounded px-3 py-2">
+                  <select {...editForm.register('status')} className={`mt-1 block w-full border rounded px-3 py-2 ${editForm.formState.errors.status ? 'border-red-500 bg-red-50' : ''}`}>
                     {statusOptions.map((s) => (
                       <option key={s} value={s}>{s}</option>
                     ))}
                   </select>
+                  {editForm.formState.errors.status && (
+                    <p className="mt-1 text-sm text-red-600">Status is required</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Priority</label>
-                  <select {...editForm.register('priority')} className="mt-1 block w-full border rounded px-3 py-2">
+                  <select {...editForm.register('priority')} className={`mt-1 block w-full border rounded px-3 py-2 ${editForm.formState.errors.priority ? 'border-red-500 bg-red-50' : ''}`}>
                     {priorityOptions.map((p) => (
                       <option key={p} value={p}>{p}</option>
                     ))}
                   </select>
+                  {editForm.formState.errors.priority && (
+                    <p className="mt-1 text-sm text-red-600">Priority is required</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Budget</label>
-                  <input {...editForm.register('budget', { valueAsNumber: true })} type="number" step="0.01" className="mt-1 block w-full border rounded px-3 py-2" />
+                  <input {...editForm.register('budget', { valueAsNumber: true })} type="number" step="0.01" className={`mt-1 block w-full border rounded px-3 py-2 ${editForm.formState.errors.budget ? 'border-red-500 bg-red-50' : ''}`} />
+                  {editForm.formState.errors.budget && (
+                    <p className="mt-1 text-sm text-red-600">{editForm.formState.errors.budget.message}</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Start Date</label>
-                  <input {...editForm.register('start_date')} type="date" className="mt-1 block w-full border rounded px-3 py-2" />
+                  <input {...editForm.register('start_date')} type="date" className={`mt-1 block w-full border rounded px-3 py-2 ${editForm.formState.errors.start_date ? 'border-red-500 bg-red-50' : ''}`} />
+                  {editForm.formState.errors.start_date && (
+                    <p className="mt-1 text-sm text-red-600">{editForm.formState.errors.start_date.message}</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">End Date</label>
-                  <input {...editForm.register('end_date')} type="date" className="mt-1 block w-full border rounded px-3 py-2" />
+                  <input {...editForm.register('end_date')} type="date" className={`mt-1 block w-full border rounded px-3 py-2 ${editForm.formState.errors.end_date ? 'border-red-500 bg-red-50' : ''}`} />
+                  {editForm.formState.errors.end_date && (
+                    <p className="mt-1 text-sm text-red-600">{editForm.formState.errors.end_date.message}</p>
+                  )}
                 </div>
                 <div className="sm:col-span-2">
                   <label className="block text-sm font-medium text-gray-700">Description</label>
@@ -557,6 +668,29 @@ export default function Projects() {
                 <div className="sm:col-span-2">
                   <label className="block text-sm font-medium text-gray-700">Notes</label>
                   <textarea {...editForm.register('notes')} className="mt-1 block w-full border rounded px-3 py-2" rows={3} />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700">Assigned Employees</label>
+                  <div className="mt-1 border rounded-md p-3 max-h-40 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-50">
+                    {(users?.data ?? []).map((u) => (
+                      <label key={u.id} className="flex items-center space-x-2 text-sm text-gray-700 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          value={u.id}
+                          checked={selectedEmployeeIds.includes(u.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedEmployeeIds([...selectedEmployeeIds, u.id]);
+                            } else {
+                              setSelectedEmployeeIds(selectedEmployeeIds.filter(id => id !== u.id));
+                            }
+                          }}
+                          className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <span>{u.name} ({u.role})</span>
+                      </label>
+                    ))}
+                  </div>
                 </div>
               </div>
             </form>

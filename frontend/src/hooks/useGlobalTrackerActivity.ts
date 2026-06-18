@@ -15,7 +15,7 @@ export function useGlobalTrackerActivity() {
     try {
       const w = window as any;
       const ipcRenderer = w.ipcRenderer || (w.require ? w.require('electron').ipcRenderer : null);
-      
+
       if (ipcRenderer) {
         isElectron = true;
         ipcRenderer.send('log-debug', 'useGlobalTrackerActivity: Electron environment detected. Setting up listeners.');
@@ -174,7 +174,7 @@ export function useGlobalTrackerActivity() {
     const handleActivity = (e: PointerEvent | KeyboardEvent | Event) => {
       const core = (window as any).__tt_core;
       if (!core || !core.isTracking) return;
-      
+
       const now = new Date();
       core.lastActivity = now;
 
@@ -228,7 +228,7 @@ export function useGlobalTrackerActivity() {
     window.addEventListener('scroll', handleActivity);
     document.addEventListener('wheel', handleActivity, { passive: true });
     document.addEventListener('touchmove', handleActivity, { passive: true });
-    
+
     return () => {
       window.removeEventListener('pointermove', handleActivity);
       window.removeEventListener('keydown', handleActivity);

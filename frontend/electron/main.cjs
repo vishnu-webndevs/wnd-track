@@ -19,8 +19,7 @@ function logDebug(msg) {
   try {
     const time = new Date().toISOString().substring(11, 23);
     fs.appendFileSync(logPath, `[${time}] ${msg}\n`);
-    console.log(`[${time}] ${msg}`);
-  } catch (e) {}
+  } catch (e) { }
 }
 
 if (process.platform === 'win32') {

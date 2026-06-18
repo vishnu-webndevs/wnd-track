@@ -263,7 +263,7 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
           offer: offer
         });
       } catch (e) {
-        console.error('[WebRTC] Initiator offer failed:', e);
+        // Error handled silently
       }
     }
 
@@ -365,7 +365,7 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
         localStreamInstance = await navigator.mediaDevices.getUserMedia(constraints);
         set({ localStream: localStreamInstance });
       } catch (err) {
-        console.warn('[Store] Microphone access failed. Listening-only mode.', err);
+        // Microphone access failed, using listening-only mode
         localStreamInstance = new MediaStream();
         set({ localStream: localStreamInstance });
       }
@@ -500,6 +500,12 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
       presenceChannel.listenForWhisper('meeting-signal', async (data: any) => {
         if (Number(data.to) !== Number(user?.id)) return;
 
+        if (data.action === 'recording-started') {
+          const sender = get().activeMembers.find(m => Number(m.id) === Number(data.from));
+          toast.info(`${sender?.name || 'A participant'} has started recording the meeting.`, { duration: 5000 });
+          return;
+        }
+
         const peerId = data.from;
         let pc = pcs[peerId];
         if (!pc) {
@@ -574,7 +580,7 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
             }
           }
         } catch (err) {
-          console.error('[WebRTC] Signaling message handle error:', err);
+          // Error handling signaling message
         }
       });
 
@@ -599,7 +605,7 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
       try {
         await meetingsAPI.leaveMeeting(id);
       } catch (e) {
-        console.warn('Failed to register leave on server:', e);
+        // Error registering leave silently
       }
       
       if (echoInstance) {
@@ -684,7 +690,6 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
           scheduleRenegotiation();
           broadcastMediaState({ videoEnabled: true });
         } catch (e) {
-          console.error('[WebRTC] Camera start failed:', e);
           toast.error('Could not access camera.');
           set({ cameraActive: false });
         }
@@ -758,7 +763,6 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
           scheduleRenegotiation();
           broadcastMediaState({ videoEnabled: true });
         } catch (e) {
-          console.error('[WebRTC] Screen share failed:', e);
           toast.error('Could not share screen.');
           set({ screenSharing: false });
         }
@@ -853,7 +857,7 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
           try {
             await anyEl.setSinkId(deviceId);
           } catch (e) {
-            console.error('Failed to set speaker output sink ID:', e);
+            // Error setting speaker silently
           }
         }
       });
@@ -870,7 +874,7 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
           audioOutputs: devices.filter(d => d.kind === 'audiooutput'),
         });
       } catch (e) {
-        console.warn('Could not enumerate media devices:', e);
+        // Error enumerating media devices
       }
     },
 
@@ -913,13 +917,44 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
           audio: true
         });
 
+        // Combine Audio using Web Audio API
+        const AudioContextConstructor = window.AudioContext || (window as any).webkitAudioContext;
+        const audioContext = new AudioContextConstructor();
+        const dest = audioContext.createMediaStreamDestination();
+
+        // Add display media audio (if user checked "Share tab audio")
+        if (stream.getAudioTracks().length > 0) {
+          const systemSource = audioContext.createMediaStreamSource(stream);
+          systemSource.connect(dest);
+        }
+
+        // Add local mic
+        if (localStreamInstance && localStreamInstance.getAudioTracks().length > 0) {
+          const localSource = audioContext.createMediaStreamSource(localStreamInstance);
+          localSource.connect(dest);
+        }
+
+        // Add remote streams
+        const remoteStreams = get().remoteStreams;
+        Object.values(remoteStreams).forEach(rs => {
+          if (rs.getAudioTracks().length > 0) {
+            const remoteSource = audioContext.createMediaStreamSource(rs);
+            remoteSource.connect(dest);
+          }
+        });
+
+        // Create a new stream with the screen video and the mixed audio
+        const videoTracks = stream.getVideoTracks();
+        const audioTracks = dest.stream.getAudioTracks();
+        const mixedStream = new MediaStream([...videoTracks, ...audioTracks]);
+
         recordingChunks = [];
         let mediaRecorder: MediaRecorder;
         
         try {
-          mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9,opus' });
+          mediaRecorder = new MediaRecorder(mixedStream, { mimeType: 'video/webm;codecs=vp9,opus' });
         } catch (e) {
-          mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+          mediaRecorder = new MediaRecorder(mixedStream, { mimeType: 'video/webm' });
         }
 
         mediaRecorderInstance = mediaRecorder;
@@ -945,6 +980,10 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
           }, 100);
 
           stream.getTracks().forEach(t => t.stop());
+          dest.stream.getTracks().forEach(t => t.stop());
+          if (audioContext.state !== 'closed') {
+            audioContext.close().catch(() => {});
+          }
 
           set({ recording: false, recordingDuration: 0 });
           if (recordingTimer) {
@@ -957,6 +996,19 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
         mediaRecorder.start(1000);
         set({ recording: true, recordingDuration: 0 });
 
+        // Notify others
+        const user = useAuthStore.getState().user;
+        const myId = Number(user?.id ?? 0);
+        Object.keys(pcs).forEach((peerIdStr) => {
+          const peerId = Number(peerIdStr);
+          if (!Number.isFinite(peerId) || !peerId) return;
+          presenceChannel?.whisper('meeting-signal', {
+            to: peerId,
+            from: myId,
+            action: 'recording-started'
+          });
+        });
+
         recordingTimer = setInterval(() => {
           set(state => ({ recordingDuration: state.recordingDuration + 1 }));
         }, 1000);
@@ -965,7 +1017,6 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
           get().stopRecording();
         };
       } catch (err) {
-        console.error('Failed to start recording:', err);
         toast.error('Could not start recording. Screen share permission required.');
       }
     },

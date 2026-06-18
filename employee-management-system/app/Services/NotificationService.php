@@ -62,29 +62,9 @@ class NotificationService
             // 3. Broadcast to WebSocket (in-app + desktop notification)
             if ($shouldBroadcast) {
                 try {
-                    $disabledUntil = Cache::get('broadcast:disabled_until');
-                    if (is_numeric($disabledUntil) && (int) $disabledUntil > time()) {
-                        $shouldBroadcast = false;
-                    }
-                } catch (\Throwable $e) {
-                }
-
-                if ($shouldBroadcast) {
-                    try {
-                        broadcast(new NotificationCreated($notification, $recipientId));
-                    } catch (\Exception $e) {
-                        try {
-                            $cooldownSeconds = 300;
-                            $cacheKey = 'broadcast:notification_failed';
-                            $shouldLog = Cache::add($cacheKey, true, $cooldownSeconds);
-                            Cache::put('broadcast:disabled_until', time() + $cooldownSeconds, $cooldownSeconds);
-                            if ($shouldLog) {
-                                Log::warning('Failed to broadcast notification: ' . $e->getMessage());
-                            }
-                        } catch (\Throwable $inner) {
-                            Log::warning('Failed to broadcast notification: ' . $e->getMessage());
-                        }
-                    }
+                    broadcast(new NotificationCreated($notification, $recipientId));
+                } catch (\Exception $e) {
+                    Log::warning('Failed to broadcast notification: ' . $e->getMessage());
                 }
             }
 

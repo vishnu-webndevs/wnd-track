@@ -22,6 +22,9 @@ class ProjectController extends Controller
             ->when($user->role !== 'admin', function ($query) use ($user) {
                 $query->where(function ($q) use ($user) {
                     $q->where('manager_id', $user->id)
+                      ->orWhereHas('employees', function ($eq) use ($user) {
+                          $eq->where('user_id', $user->id);
+                      })
                       ->orWhereHas('tasks', function ($tq) use ($user) {
                           $tq->where('assigned_to', $user->id);
                       });
@@ -42,7 +45,7 @@ class ProjectController extends Controller
             ->when($request->manager_id, function ($query, $manager_id) {
                 $query->where('manager_id', $manager_id);
             })
-            ->with(['client', 'manager'])
+            ->with(['client', 'manager', 'employees'])
             ->withCount('tasks')
             ->orderBy('created_at', 'desc')
             ->paginate($request->per_page ?? 10);
@@ -63,6 +66,8 @@ class ProjectController extends Controller
             'budget' => 'nullable|numeric|min:0',
             'priority' => 'in:low,medium,high,urgent',
             'notes' => 'nullable|string',
+            'employee_ids' => 'nullable|array',
+            'employee_ids.*' => 'exists:users,id,status,active',
         ]);
 
         if ($validator->fails()) {
@@ -81,6 +86,10 @@ class ProjectController extends Controller
             'priority' => $request->priority ?? 'medium',
             'notes' => $request->notes,
         ]);
+
+        if ($request->has('employee_ids')) {
+            $project->employees()->sync($request->employee_ids);
+        }
 
         if ($project->manager_id) {
             try {
@@ -105,14 +114,14 @@ class ProjectController extends Controller
 
         return response()->json([
             'message' => 'Project created successfully',
-            'project' => $project->load(['client', 'manager'])
+            'project' => $project->load(['client', 'manager', 'employees'])
         ], 201);
     }
 
     public function show(Project $project)
     {
         return response()->json([
-            'project' => $project->load(['client', 'manager', 'tasks.assignedTo'])
+            'project' => $project->load(['client', 'manager', 'tasks.assignedTo', 'employees'])
         ]);
     }
 
@@ -137,6 +146,8 @@ class ProjectController extends Controller
             'budget' => 'nullable|numeric|min:0',
             'priority' => 'sometimes|in:low,medium,high,urgent',
             'notes' => 'nullable|string',
+            'employee_ids' => 'nullable|array',
+            'employee_ids.*' => 'exists:users,id,status,active',
         ]);
 
         if ($validator->fails()) {
@@ -149,6 +160,10 @@ class ProjectController extends Controller
             'name', 'description', 'client_id', 'manager_id', 'status', 
             'start_date', 'end_date', 'budget', 'priority', 'notes'
         ]));
+
+        if ($request->has('employee_ids')) {
+            $project->employees()->sync($request->employee_ids);
+        }
 
         if ($project->manager_id && $project->manager_id !== $oldManager) {
             try {
@@ -173,7 +188,7 @@ class ProjectController extends Controller
 
         return response()->json([
             'message' => 'Project updated successfully',
-            'project' => $project->load(['client', 'manager'])
+            'project' => $project->load(['client', 'manager', 'employees'])
         ]);
     }
 
@@ -202,12 +217,15 @@ class ProjectController extends Controller
             ->when($user->role !== 'admin', function ($query) use ($user) {
                 $query->where(function ($q) use ($user) {
                     $q->where('manager_id', $user->id)
+                      ->orWhereHas('employees', function ($eq) use ($user) {
+                          $eq->where('user_id', $user->id);
+                      })
                       ->orWhereHas('tasks', function ($tq) use ($user) {
                           $tq->where('assigned_to', $user->id);
                       });
                 });
             })
-            ->with(['client', 'manager'])
+            ->with(['client', 'manager', 'employees'])
             ->orderBy('name')
             ->get();
 
@@ -221,12 +239,15 @@ class ProjectController extends Controller
             ->when($user->role !== 'admin', function ($query) use ($user) {
                 $query->where(function ($q) use ($user) {
                     $q->where('manager_id', $user->id)
+                      ->orWhereHas('employees', function ($eq) use ($user) {
+                          $eq->where('user_id', $user->id);
+                      })
                       ->orWhereHas('tasks', function ($tq) use ($user) {
                           $tq->where('assigned_to', $user->id);
                       });
                 });
             })
-            ->with(['manager'])
+            ->with(['manager', 'employees'])
             ->withCount('tasks')
             ->orderBy('created_at', 'desc')
             ->get();
@@ -243,7 +264,7 @@ class ProjectController extends Controller
                       $tq->where('assigned_to', $currentUser->id);
                  });
             })
-            ->with(['client'])
+            ->with(['client', 'employees'])
             ->withCount('tasks')
             ->orderBy('created_at', 'desc')
             ->get();

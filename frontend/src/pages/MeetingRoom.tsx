@@ -315,7 +315,7 @@ export default function MeetingRoom() {
       const eligible = res.data.filter((u: User) => u.id !== user?.id && !participantsIds.has(u.id));
       setInviteUsers(eligible);
     } catch (err) {
-      console.error('Failed to fetch eligible users to invite:', err);
+      // Error fetching users silently
     }
   };
 
@@ -344,7 +344,7 @@ export default function MeetingRoom() {
     try {
       await anyEl.setSinkId(deviceId);
     } catch (e) {
-      console.error('Could not switch speaker output for this browser.', e);
+      // Speaker switch not supported
     }
   };
 

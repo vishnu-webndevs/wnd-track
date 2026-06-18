@@ -40,13 +40,19 @@ export const tasksAPI = {
     data: Partial<Task> & {
       title: string;
       project_id: number;
+      assignee_ids?: number[];
     }
   ): Promise<Task> => {
     const response = await api.post('/tasks', data);
     return response.data.task;
   },
 
-  updateTask: async (id: number, data: Partial<Task>): Promise<Task> => {
+  updateTask: async (
+    id: number,
+    data: Partial<Task> & {
+      assignee_ids?: number[];
+    }
+  ): Promise<Task> => {
     const response = await api.put(`/tasks/${id}`, data);
     return response.data.task ?? response.data;
   },

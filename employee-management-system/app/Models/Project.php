@@ -35,6 +35,11 @@ class Project extends Model
         return $this->belongsTo(Client::class);
     }
 
+    public function employees()
+    {
+        return $this->belongsToMany(User::class, 'project_user')->withTimestamps();
+    }
+
     public function manager()
     {
         return $this->belongsTo(User::class, 'manager_id');

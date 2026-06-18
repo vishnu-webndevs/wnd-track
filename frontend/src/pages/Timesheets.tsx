@@ -26,174 +26,6 @@ export default function Timesheets() {
   const { user } = useAuthStore();
   const hasInitializedRef = useRef(false);
 
-  // 2FA States
-  const [is2FaVerified, setIs2FaVerified] = useState<boolean>(() => {
-    return sessionStorage.getItem('tt-2fa-verified') === 'true';
-  });
-  const [isChecking2Fa, setIsChecking2Fa] = useState(false);
-  const [isSendingOtp, setIsSendingOtp] = useState(false);
-  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
-  const [maskedEmail, setMaskedEmail] = useState('');
-  const [otpCode, setOtpCode] = useState<string[]>(Array(6).fill(''));
-  const [backupCodeInput, setBackupCodeInput] = useState('');
-  const [availableMethods, setAvailableMethods] = useState<('email' | 'totp' | 'backup')[]>(['email']);
-  const [selectedMethod, setSelectedMethod] = useState<'email' | 'totp' | 'backup'>('email');
-  const [errorMsg, setErrorMsg] = useState('');
-  const [cooldown, setCooldown] = useState(0);
-
-  // Cooldown effect
-  useEffect(() => {
-    if (cooldown > 0) {
-      const timer = setTimeout(() => setCooldown(cooldown - 1), 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [cooldown]);
-
-  const sendOtp = async () => {
-    setIsSendingOtp(true);
-    setErrorMsg('');
-    try {
-      const res = await authAPI.send2FaOtp();
-      setMaskedEmail(res.email || 'your registered email');
-      setCooldown(60);
-      toast.success(res.message || 'Verification code sent successfully');
-    } catch (err: any) {
-      setErrorMsg(err.response?.data?.message || 'Failed to send verification code. Please try again.');
-      toast.error('Failed to send verification code');
-    } finally {
-      setIsSendingOtp(false);
-    }
-  };
-
-  // Listen for global 2FA challenge triggers from Axios interceptor (e.g. backend cache expires)
-  useEffect(() => {
-    const handle2FaRequired = () => {
-      setIs2FaVerified(false);
-      hasInitializedRef.current = false;
-    };
-    window.addEventListener('tt-2fa-required', handle2FaRequired);
-    return () => {
-      window.removeEventListener('tt-2fa-required', handle2FaRequired);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!user || user.role !== 'admin' || hasInitializedRef.current) return;
-
-    const init2Fa = async () => {
-      hasInitializedRef.current = true;
-      setIsChecking2Fa(true);
-      try {
-        const res = await authAPI.get2FaStatusFull();
-        if (res.verified) {
-          setIs2FaVerified(true);
-          sessionStorage.setItem('tt-2fa-verified', 'true');
-        } else {
-          setIs2FaVerified(false);
-          sessionStorage.removeItem('tt-2fa-verified');
-          const methods = res.methods || ['email'];
-          setAvailableMethods(methods);
-          const defaultM = res.default_method || methods[0] || 'email';
-          setSelectedMethod(defaultM);
-
-          if (defaultM === 'email') {
-            await sendOtp();
-          }
-        }
-      } catch {
-        setIs2FaVerified(false);
-        sessionStorage.removeItem('tt-2fa-verified');
-        await sendOtp();
-      } finally {
-        setIsChecking2Fa(false);
-      }
-    };
-    init2Fa();
-  }, [user]);
-
-  const handleMethodChange = async (method: 'email' | 'totp' | 'backup') => {
-    setSelectedMethod(method);
-    setErrorMsg('');
-    setOtpCode(Array(6).fill(''));
-    setBackupCodeInput('');
-    if (method === 'email' && cooldown === 0) {
-      await sendOtp();
-    }
-  };
-
-  const handleVerifyOtp = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    
-    let code = '';
-    if (selectedMethod === 'backup') {
-      code = backupCodeInput.trim();
-      if (code.length !== 8) {
-        setErrorMsg('Please enter a valid 8-character recovery code.');
-        return;
-      }
-    } else {
-      code = otpCode.join('').trim();
-      if (code.length !== 6) {
-        setErrorMsg('Please enter the full 6-digit code.');
-        return;
-      }
-    }
-
-    setIsVerifyingOtp(true);
-    setErrorMsg('');
-    try {
-      const res = await authAPI.verify2FaOtp(code, selectedMethod);
-      if (res.verified) {
-        setIs2FaVerified(true);
-        sessionStorage.setItem('tt-2fa-verified', 'true');
-        toast.success(res.message || 'Two-factor authentication verified successfully.');
-      }
-    } catch (err: any) {
-      setErrorMsg(err.response?.data?.message || 'Verification failed. Please check and try again.');
-      toast.error('Verification failed');
-    } finally {
-      setIsVerifyingOtp(false);
-    }
-  };
-
-  const handleOtpChange = (value: string, index: number) => {
-    if (value && !/^\d+$/.test(value)) return;
-
-    const newCode = [...otpCode];
-    newCode[index] = value.slice(-1);
-    setOtpCode(newCode);
-    setErrorMsg('');
-
-    if (value && index < 5) {
-      const nextInput = document.getElementById(`otp-input-${index + 1}`);
-      if (nextInput) (nextInput as HTMLInputElement).focus();
-    }
-  };
-
-  const handleOtpKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, index: number) => {
-    if (e.key === 'Backspace' && !otpCode[index] && index > 0) {
-      const prevInput = document.getElementById(`otp-input-${index - 1}`);
-      if (prevInput) {
-        (prevInput as HTMLInputElement).focus();
-        const newCode = [...otpCode];
-        newCode[index - 1] = '';
-        setOtpCode(newCode);
-      }
-    }
-  };
-
-  const handleOtpPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
-    e.preventDefault();
-    const text = e.clipboardData.getData('text').trim();
-    if (/^\d{6}$/.test(text)) {
-      const chars = text.split('');
-      setOtpCode(chars);
-      setErrorMsg('');
-      const lastInput = document.getElementById('otp-input-5');
-      if (lastInput) (lastInput as HTMLInputElement).focus();
-    }
-  };
-
   const [search, setSearch] = useState('');
   const [employeeId, setEmployeeId] = useState<number | undefined>(undefined);
   const [startDate, setStartDate] = useState<string>(() => new Date(new Date().setDate(new Date().getDate() - 7)).toISOString().slice(0, 10));
@@ -709,192 +541,114 @@ export default function Timesheets() {
     return Object.entries(map).sort((a, b) => a[0] < b[0] ? 1 : -1);
   }, [timeLogs]);
 
+  const selectedEmployeeName = useMemo(() => {
+    if (user?.role === 'employee') return user?.name || '';
+    const emp = (employees?.data ?? []).find(e => e.id === employeeId);
+    return emp ? emp.name : 'Unknown';
+  }, [user, employees, employeeId]);
+
+  const handleExportCSV = () => {
+    if (!timeLogs || timeLogs.length === 0) {
+      toast.error('No data to export');
+      return;
+    }
+
+    const headers = [
+      'Date',
+      'Employee Name',
+      'Project',
+      'Task',
+      'Start Time',
+      'End Time',
+      'Duration (Minutes)',
+      'Description/Notes',
+      'Start Work Log',
+      'End Work Log',
+      'Manual Entry'
+    ];
+
+    const escapeCSV = (val?: string | number | boolean | null) => {
+      if (val === undefined || val === null) return '""';
+      let str = String(val);
+      str = str.replace(/"/g, '""');
+      return `"${str}"`;
+    };
+
+    const rows = timeLogs.map((log) => {
+      const startDt = new Date(log.start_time);
+      const endDt = log.end_time ? new Date(log.end_time) : null;
+      
+      const dateStr = startDt.toLocaleDateString();
+      const startTimeStr = startDt.toLocaleTimeString();
+      const endTimeStr = endDt ? endDt.toLocaleTimeString() : 'In Progress';
+      
+      const projectStr = log.project?.name ?? '-';
+      const taskStr = log.task?.title ?? '-';
+      const durationVal = log.duration ?? '-';
+      const manualStr = log.is_manual ? 'Yes' : 'No';
+
+      return [
+        escapeCSV(dateStr),
+        escapeCSV(selectedEmployeeName),
+        escapeCSV(projectStr),
+        escapeCSV(taskStr),
+        escapeCSV(`${dateStr} ${startTimeStr}`),
+        escapeCSV(endDt ? `${dateStr} ${endTimeStr}` : 'In Progress'),
+        escapeCSV(durationVal),
+        escapeCSV(log.description),
+        escapeCSV(log.start_work_log),
+        escapeCSV(log.end_work_log),
+        escapeCSV(manualStr)
+      ].join(',');
+    });
+
+    const csvContent = [headers.join(','), ...rows].join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    
+    const fileName = `timesheet_${selectedEmployeeName.replace(/\s+/g, '_')}_${startDate}_to_${endDate}.csv`;
+    link.setAttribute('download', fileName);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    toast.success('Timesheet exported successfully');
+  };
+
   if (!user || (user.role !== 'admin' && user.role !== 'employee')) {
     return <div className="py-8 text-center text-gray-500">Access denied.</div>;
   }
 
-  if (user.role === 'admin' && !is2FaVerified) {
-    if (isChecking2Fa) {
-      return (
-        <div className="min-h-[60vh] flex flex-col items-center justify-center space-y-4">
-          <LoadingSpinner size="lg" />
-          <p className="text-gray-500 animate-pulse font-medium">Checking security verification status...</p>
-        </div>
-      );
-    }
-
-    return (
-      <div className="min-h-[70vh] flex items-center justify-center px-4 py-8">
-        <div className="bg-white/80 backdrop-blur-md shadow-2xl rounded-2xl border border-gray-100 p-8 max-w-md w-full text-center space-y-6 transform transition-all duration-300 hover:scale-[1.01]">
-          {/* Animated Lock Shield */}
-          <div className="relative mx-auto w-20 h-20 flex items-center justify-center bg-indigo-50 text-indigo-600 rounded-full border border-indigo-100 shadow-inner">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.8" stroke="currentColor" className="w-10 h-10 animate-pulse">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
-            </svg>
-            <div className="absolute inset-0 rounded-full bg-indigo-400/20 blur animate-ping opacity-75 pointer-events-none"></div>
-          </div>
-
-          <div className="space-y-2">
-            <h2 className="text-2xl font-bold text-gray-900 font-sans tracking-tight">Security Verification</h2>
-            <p className="text-sm text-gray-500 leading-relaxed">
-              {selectedMethod === 'backup' 
-                ? 'Use one of your 8-character recovery backup codes to unlock timesheets.'
-                : selectedMethod === 'totp'
-                ? 'Open your Authenticator App (Google/Microsoft) and enter the 6-digit passcode.'
-                : 'To view timesheet records and employee logs, please complete Two-Factor Authentication.'
-              }
-            </p>
-          </div>
-
-          {/* Method Switcher Header */}
-          {availableMethods.length > 1 && (
-            <div className="flex justify-center border-b border-gray-100 pb-2">
-              <div className="flex bg-gray-100 p-1 rounded-xl w-full">
-                {availableMethods.includes('totp') && (
-                  <button
-                    type="button"
-                    onClick={() => handleMethodChange('totp')}
-                    className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all outline-none ${
-                      selectedMethod === 'totp' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'
-                    }`}
-                  >
-                    📲 App
-                  </button>
-                )}
-                {availableMethods.includes('email') && (
-                  <button
-                    type="button"
-                    onClick={() => handleMethodChange('email')}
-                    className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all outline-none ${
-                      selectedMethod === 'email' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'
-                    }`}
-                  >
-                    ✉️ Email
-                  </button>
-                )}
-                {availableMethods.includes('backup') && (
-                  <button
-                    type="button"
-                    onClick={() => handleMethodChange('backup')}
-                    className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all outline-none ${
-                      selectedMethod === 'backup' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'
-                    }`}
-                  >
-                    🛡️ Backup
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {selectedMethod === 'email' && maskedEmail && (
-            <div className="bg-indigo-50/50 rounded-xl px-4 py-3 border border-indigo-50/80 inline-block w-full">
-              <p className="text-xs font-medium text-indigo-700">We've sent a 6-digit verification code to</p>
-              <span className="font-bold text-sm block mt-1 tracking-wide text-indigo-900">{maskedEmail}</span>
-            </div>
-          )}
-
-          {errorMsg && (
-            <div className="bg-red-50 text-red-600 rounded-xl p-3 border border-red-100 text-xs font-semibold">
-              {errorMsg}
-            </div>
-          )}
-
-          <form onSubmit={handleVerifyOtp} className="space-y-6">
-            {selectedMethod === 'backup' ? (
-              <div className="max-w-xs mx-auto space-y-2">
-                <input
-                  type="text"
-                  maxLength={8}
-                  placeholder="Enter Backup Code (e.g. A1B2C3D4)"
-                  value={backupCodeInput}
-                  onChange={(e) => setBackupCodeInput(e.target.value.toUpperCase())}
-                  className="block w-full border border-gray-300 rounded-xl py-3 px-3 text-center text-lg font-bold font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-gray-50"
-                  autoComplete="off"
-                  disabled={isVerifyingOtp}
-                />
-              </div>
-            ) : (
-              /* 6-Digit PIN input boxes */
-              <div className="flex justify-between max-w-xs mx-auto gap-2">
-                {otpCode.map((char, index) => (
-                  <input
-                    key={index}
-                    id={`otp-input-${index}`}
-                    type="text"
-                    maxLength={1}
-                    value={char}
-                    onChange={(e) => handleOtpChange(e.target.value, index)}
-                    onKeyDown={(e) => handleOtpKeyDown(e, index)}
-                    onPaste={handleOtpPaste}
-                    className="w-12 h-14 text-center text-xl font-extrabold text-gray-900 bg-gray-50 border border-gray-200 rounded-xl shadow-sm focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 transition-all outline-none"
-                    autoComplete="off"
-                    disabled={isVerifyingOtp}
-                  />
-                ))}
-              </div>
-            )}
-
-            <div className="space-y-3">
-              <button
-                type="submit"
-                disabled={isVerifyingOtp || (selectedMethod === 'backup' ? backupCodeInput.length !== 8 : otpCode.some(c => !c))}
-                className="w-full py-3 bg-indigo-600 text-white rounded-xl font-semibold shadow-lg shadow-indigo-600/20 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-indigo-700/30 transition-all flex items-center justify-center space-x-2"
-              >
-                {isVerifyingOtp ? (
-                  <>
-                    <LoadingSpinner size="sm" />
-                    <span>Verifying Credentials...</span>
-                  </>
-                ) : (
-                  <span>Verify and Access Timesheets</span>
-                )}
-              </button>
-
-              {selectedMethod === 'email' && (
-                <div className="pt-2 text-xs">
-                  {cooldown > 0 ? (
-                    <span className="text-gray-400 font-medium">
-                      Resend code in <strong className="text-indigo-600 font-semibold">{cooldown}s</strong>
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={sendOtp}
-                      disabled={isSendingOtp}
-                      className="text-indigo-600 hover:text-indigo-800 font-semibold underline underline-offset-4 disabled:opacity-50 transition-colors outline-none"
-                    >
-                      {isSendingOtp ? 'Resending Code...' : 'Resend Verification Code'}
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          </form>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between relative">
+      <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Timesheets</h1>
-        {user.role === 'admin' && (
+        <div className="flex items-center gap-2">
           <button
-            onClick={() => {
-              if (!employeeId) {
-                toast.error('Please select an employee first');
-                return;
-              }
-              setShowManualModal(true);
-            }}
-            className="absolute right-0 top-0 px-3 py-1 bg-indigo-600 text-white text-xs rounded hover:bg-indigo-700 whitespace-nowrap"
-            style={{ transform: 'translateY(4px)' }} 
+            onClick={handleExportCSV}
+            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-md shadow-sm transition-colors whitespace-nowrap"
           >
-            Add Time
+            Export CSV
           </button>
-        )}
+          {user.role === 'admin' && (
+            <button
+              onClick={() => {
+                if (!employeeId) {
+                  toast.error('Please select an employee first');
+                  return;
+                }
+                setShowManualModal(true);
+              }}
+              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-md shadow-sm transition-colors whitespace-nowrap"
+            >
+              Add Time
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="bg-white rounded-lg shadow p-4 space-y-4">

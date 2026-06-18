@@ -756,6 +756,9 @@ class DesktopAppController extends Controller
             ->when($user->role !== 'admin', function ($query) use ($user) {
                 $query->where(function ($q) use ($user) {
                     $q->where('manager_id', $user->id)
+                        ->orWhereHas('employees', function ($eq) use ($user) {
+                            $eq->where('user_id', $user->id);
+                        })
                         ->orWhereHas('tasks', function ($tq) use ($user) {
                             $tq->where('assigned_to', $user->id);
                         });
@@ -770,7 +773,12 @@ class DesktopAppController extends Controller
     public function getAssignedProjects()
     {
         $projectIds = Task::where('assigned_to', auth()->id())->pluck('project_id')->unique()->values();
-        $projects = Project::whereIn('id', $projectIds)->orderBy('name')->get(['id', 'name', 'status']);
+        $projects = Project::whereIn('id', $projectIds)
+            ->orWhereHas('employees', function ($q) {
+                $q->where('user_id', auth()->id());
+            })
+            ->orderBy('name')
+            ->get(['id', 'name', 'status']);
         return response()->json($projects);
     }
 

@@ -37,6 +37,7 @@ export interface Project {
   client?: Client;
   manager_id?: number;
   manager?: User;
+  employees?: User[];
   status: 'planning' | 'in_progress' | 'completed' | 'on_hold' | 'cancelled';
   priority: 'low' | 'medium' | 'high' | 'urgent';
   start_date?: string;
@@ -57,6 +58,7 @@ export interface Task {
   assigned_to?: number;
   assigned_employee?: User;
   assignedTo?: User;
+  assignees?: User[];
   createdBy?: User;
   status: 'pending' | 'in_progress' | 'completed' | 'cancelled';
   priority: 'low' | 'medium' | 'high' | 'urgent';
