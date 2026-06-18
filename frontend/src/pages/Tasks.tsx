@@ -21,6 +21,7 @@ const createSchema = z.object({
   description: z.string().optional(),
   project_id: z.number(),
   assigned_to: z.number().optional(),
+  assignee_ids: z.union([z.array(z.string()), z.array(z.number())]).optional(),
   status: z.enum(statusOptions),
   priority: z.enum(priorityOptions),
   due_date: z.string().optional(),
@@ -33,6 +34,7 @@ const editSchema = z.object({
   description: z.string().optional(),
   project_id: z.number(),
   assigned_to: z.number().optional(),
+  assignee_ids: z.union([z.array(z.string()), z.array(z.number())]).optional(),
   status: z.enum(statusOptions),
   priority: z.enum(priorityOptions),
   due_date: z.string().optional(),
@@ -43,6 +45,14 @@ const editSchema = z.object({
 
 type CreateTaskForm = z.infer<typeof createSchema>;
 type EditTaskForm = z.infer<typeof editSchema>;
+
+const getDisplayAssignees = (task: Task) => {
+  if (task.assignees && task.assignees.length > 0) return task.assignees;
+  if (task.assignedTo) return [task.assignedTo];
+  if (task.assigned_employee) return [task.assigned_employee];
+  if (typeof task.assigned_to === 'object' && task.assigned_to !== null) return [task.assigned_to as unknown as User];
+  return [];
+};
 
 export default function Tasks() {
   const { user: currentUser } = useAuthStore();
@@ -154,7 +164,7 @@ export default function Tasks() {
     }
 
     // Ensure the assigned user is in the list (in case of pagination or restricted view)
-    let assignedUser = selectedTask?.assignedTo ?? selectedTask?.assigned_employee;
+    let assignedUser = selectedTask?.assignedTo ?? selectedTask?.assigned_employee ?? (typeof selectedTask?.assigned_to === 'object' && selectedTask?.assigned_to !== null ? selectedTask?.assigned_to as unknown as User : undefined);
     const assignedIdVal = selectedTask?.assigned_to;
 
     // Handle case where assigned_to is an object (User) instead of number
@@ -176,7 +186,7 @@ export default function Tasks() {
 
   const createForm = useForm<CreateTaskForm>({
     resolver: zodResolver(createSchema),
-    defaultValues: { status: 'pending', priority: 'medium' },
+    defaultValues: { status: 'pending', priority: 'medium', assignee_ids: [] },
   });
   const editForm = useForm<EditTaskForm>({ resolver: zodResolver(editSchema) });
 
@@ -201,11 +211,17 @@ export default function Tasks() {
         finalAssignedId = Number(assignedId);
       }
 
+      // Prepopulate assignee_ids from task's assignees relation as array of strings
+      const defaultAssignees = selectedTask.assignees && selectedTask.assignees.length > 0
+        ? selectedTask.assignees.map((u) => String(u.id))
+        : (finalAssignedId ? [String(finalAssignedId)] : []);
+
       editForm.reset({
         title: selectedTask.title,
         description: selectedTask.description ?? '',
         project_id: selectedTask.project_id,
         assigned_to: finalAssignedId,
+        assignee_ids: defaultAssignees,
         status: selectedTask.status,
         priority: selectedTask.priority,
         due_date: selectedTask.due_date ?? '',
@@ -217,7 +233,7 @@ export default function Tasks() {
   }, [isEditOpen, selectedTask, isAdmin, currentUser, editForm]);
 
   const createMutation = useMutation({
-    mutationFn: (payload: CreateTaskForm) => tasksAPI.createTask(payload),
+    mutationFn: (payload: any) => tasksAPI.createTask(payload),
     onSuccess: () => {
       toast.success('Task created');
       setIsCreateOpen(false);
@@ -232,7 +248,7 @@ export default function Tasks() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: (payload: { id: number; data: Partial<EditTaskForm> }) => tasksAPI.updateTask(payload.id, payload.data),
+    mutationFn: (payload: { id: number; data: any }) => tasksAPI.updateTask(payload.id, payload.data),
     onSuccess: () => {
       toast.success('Task updated');
       setIsEditOpen(false);
@@ -419,7 +435,33 @@ export default function Tasks() {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{task.project?.name || '-'}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{task.assignedTo?.name || task.assigned_employee?.name || '-'}</td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex -space-x-1 overflow-hidden">
+                          {(() => {
+                            const displayAssignees = getDisplayAssignees(task);
+                            if (displayAssignees.length > 0) {
+                              return displayAssignees.map((assignee) => {
+                                const initials = assignee.name
+                                  .split(' ')
+                                  .map((n) => n[0])
+                                  .join('')
+                                  .substring(0, 2)
+                                  .toUpperCase();
+                                return (
+                                  <div
+                                    key={assignee.id}
+                                    title={assignee.name}
+                                    className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-indigo-100 text-[10px] font-medium text-indigo-800 ring-2 ring-white"
+                                  >
+                                    {initials}
+                                  </div>
+                                );
+                              });
+                            }
+                            return <span className="text-sm text-gray-400">Unassigned</span>;
+                          })()}
+                        </div>
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${task.status === 'completed' ? 'bg-green-100 text-green-800' : task.status === 'in_progress' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}`}>
                           {task.status}
@@ -567,11 +609,36 @@ export default function Tasks() {
                             )}
                           </div>
                         </div>
-                        <div className="mt-2 flex items-center justify-between text-xs text-gray-600">
-                          <span className="capitalize">{task.priority}</span>
-                          <span>{task.due_date ? new Date(task.due_date).toLocaleDateString() : '-'}</span>
+                        <div className="mt-2 flex items-center justify-between">
+                          <div className="flex -space-x-1 overflow-hidden">
+                            {(() => {
+                              const displayAssignees = getDisplayAssignees(task);
+                              if (displayAssignees.length > 0) {
+                                return displayAssignees.map((assignee) => {
+                                  const initials = assignee.name
+                                    .split(' ')
+                                    .map((n) => n[0])
+                                    .join('')
+                                    .substring(0, 2)
+                                    .toUpperCase();
+                                  return (
+                                    <div
+                                      key={assignee.id}
+                                      title={assignee.name}
+                                      className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-indigo-100 text-[10px] font-medium text-indigo-800 ring-2 ring-white"
+                                    >
+                                      {initials}
+                                    </div>
+                                  );
+                                });
+                              }
+                              return <span className="text-xs text-gray-400">Unassigned</span>;
+                            })()}
+                          </div>
+                          <span className="text-xs text-gray-500">
+                            {task.due_date ? new Date(task.due_date).toLocaleDateString() : '-'}
+                          </span>
                         </div>
-                        <div className="mt-1 text-xs text-gray-500">{task.assignedTo?.name || task.assigned_employee?.name || '-'}</div>
                       </div>
                     ))
                   )}
@@ -620,8 +687,23 @@ export default function Tasks() {
                   <p className="mt-1 text-sm text-gray-900">{selectedTask.project?.name || '-'}</p>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 uppercase">Assigned To</label>
-                  <p className="mt-1 text-sm text-gray-900">{selectedTask.assignedTo?.name || selectedTask.assigned_employee?.name || '-'}</p>
+                  <label className="block text-xs font-medium text-gray-500 uppercase">Assigned Employees</label>
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    {(() => {
+                      const displayAssignees = getDisplayAssignees(selectedTask);
+                      if (displayAssignees.length > 0) {
+                        return displayAssignees.map((assignee) => (
+                          <span
+                            key={assignee.id}
+                            className="inline-flex items-center px-2 py-0.5 rounded bg-indigo-50 text-xs font-medium text-indigo-700 border border-indigo-100"
+                          >
+                            {assignee.name}
+                          </span>
+                        ));
+                      }
+                      return <p className="text-sm text-gray-900">-</p>;
+                    })()}
+                  </div>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-500 uppercase">Status</label>
@@ -673,10 +755,14 @@ export default function Tasks() {
               id="create-task-form"
               className="px-6 py-4 space-y-4 overflow-y-auto flex-1"
               onSubmit={createForm.handleSubmit((values) => {
+                const assigneeIds = values.assignee_ids
+                  ? values.assignee_ids.map(Number).filter((id) => !isNaN(id))
+                  : [];
                 const payload = {
                   ...values,
                   estimated_hours: values.estimated_hours ?? undefined,
-                  assigned_to: values.assigned_to ?? undefined,
+                  assigned_to: assigneeIds.length > 0 ? assigneeIds[0] : undefined,
+                  assignee_ids: assigneeIds,
                 };
                 createMutation.mutate(payload);
               })}
@@ -695,14 +781,22 @@ export default function Tasks() {
                     ))}
                   </select>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Assigned To</label>
-                  <select {...createForm.register('assigned_to', { valueAsNumber: true })} className="mt-1 block w-full border rounded px-3 py-2">
-                    <option value="">Optional</option>
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Assigned Employees</label>
+                  <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto p-2 border rounded bg-white">
                     {userOptions.map((u) => (
-                      <option key={u.id} value={u.id}>{u.name}</option>
+                      <label key={u.id} className="flex items-center space-x-2 text-sm text-gray-700 cursor-pointer hover:bg-gray-50 p-1 rounded">
+                        <input
+                          type="checkbox"
+                          value={String(u.id)}
+                          disabled={!isAdmin && currentUser.id !== u.id}
+                          className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 disabled:opacity-50"
+                          {...createForm.register('assignee_ids')}
+                        />
+                        <span>{u.name}</span>
+                      </label>
                     ))}
-                  </select>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Status</label>
@@ -757,7 +851,15 @@ export default function Tasks() {
               id="edit-task-form"
               className="px-6 py-4 space-y-4 overflow-y-auto flex-1"
               onSubmit={editForm.handleSubmit((values) => {
-                updateMutation.mutate({ id: selectedTask!.id, data: values });
+                const assigneeIds = values.assignee_ids
+                  ? values.assignee_ids.map(Number).filter((id) => !isNaN(id))
+                  : [];
+                const payload = {
+                  ...values,
+                  assigned_to: assigneeIds.length > 0 ? assigneeIds[0] : undefined,
+                  assignee_ids: assigneeIds,
+                };
+                updateMutation.mutate({ id: selectedTask!.id, data: payload });
               })}
             >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -773,24 +875,22 @@ export default function Tasks() {
                     ))}
                   </select>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Assigned To</label>
-                  <select {...editForm.register('assigned_to', { valueAsNumber: true })} disabled={!isAdmin} className="mt-1 block w-full border rounded px-3 py-2 disabled:bg-gray-100 disabled:text-gray-500">
-                    <option value="">Optional</option>
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Assigned Employees</label>
+                  <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto p-2 border rounded bg-white">
                     {userOptions.map((u) => (
-                      <option key={u.id} value={u.id}>{u.name}</option>
+                      <label key={u.id} className="flex items-center space-x-2 text-sm text-gray-700 cursor-pointer hover:bg-gray-50 p-1 rounded">
+                        <input
+                          type="checkbox"
+                          value={String(u.id)}
+                          disabled={!isAdmin}
+                          className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 disabled:opacity-50"
+                          {...editForm.register('assignee_ids')}
+                        />
+                        <span>{u.name}</span>
+                      </label>
                     ))}
-                  </select>
-                  {selectedTask?.assigned_to && (
-                    <p className="text-xs text-gray-400 mt-1">
-                      Debug: Assigned ID: {
-                        typeof selectedTask.assigned_to === 'object' && selectedTask.assigned_to !== null
-                          ? (selectedTask.assigned_to as unknown as User).id
-                          : selectedTask.assigned_to
-                      }
-                      {selectedTask.assignedTo ? ` (${selectedTask.assignedTo.name})` : ' (Relation Missing)'}
-                    </p>
-                  )}
+                  </div>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Status</label>
