@@ -25,7 +25,8 @@ import {
   Briefcase,
   Trash2,
   Settings,
-  Eraser
+  Eraser,
+  Reply
 } from 'lucide-react';
 
 export default function Chat() {
@@ -59,6 +60,14 @@ export default function Chat() {
   // Admin Group Management
   const [showManageGroupModal, setShowManageGroupModal] = useState(false);
   const [manageGroupSearch, setManageGroupSearch] = useState('');
+
+  // New Chat Features State
+  const [replyMessage, setReplyMessage] = useState<ChatMessage | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showMentionSuggestions, setShowMentionSuggestions] = useState(false);
+  const [mentionSearch, setMentionSearch] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<number | null>(null);
@@ -177,8 +186,23 @@ export default function Chat() {
 
   // Handle typing status broadcast
   const handleMessageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setMessageText(e.target.value);
+    const val = e.target.value;
+    setMessageText(val);
     if (!activeConversationId) return;
+
+    // Check for mentions in group chats
+    if (activeConversation?.type === 'group') {
+      const words = val.split(' ');
+      const lastWord = words[words.length - 1] || '';
+      if (lastWord.startsWith('@')) {
+        setShowMentionSuggestions(true);
+        setMentionSearch(lastWord.substring(1));
+      } else {
+        setShowMentionSuggestions(false);
+      }
+    } else {
+      setShowMentionSuggestions(false);
+    }
 
     if (!isTypingRef.current) {
       isTypingRef.current = true;
@@ -195,10 +219,17 @@ export default function Chat() {
     }, 2000);
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setSelectedFile(file);
+    }
+  };
+
   // Send message handler
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!messageText.trim() || !activeConversationId) return;
+    if ((!messageText.trim() && !selectedFile) || !activeConversationId) return;
 
     // Clear typing timeout if active
     if (typingTimeoutRef.current) {
@@ -208,10 +239,17 @@ export default function Chat() {
     }
 
     const text = messageText;
+    const file = selectedFile;
+    const parentId = replyMessage?.id;
+
     setMessageText('');
+    setSelectedFile(null);
+    setReplyMessage(null);
+    setShowEmojiPicker(false);
+    setShowMentionSuggestions(false);
 
     try {
-      const res = await chatAPI.sendMessage(activeConversationId, text);
+      const res = await chatAPI.sendMessage(activeConversationId, text, file, parentId);
       if (res.success) {
         addMessage(res.data);
         fetchConversations();
@@ -528,6 +566,11 @@ export default function Chat() {
                     );
                   }
 
+                  const isMentioned = activeConversation?.type === 'group' && !isSelf && (
+                    msg.body.includes('@all') || 
+                    (currentUser && msg.body.includes(`@${currentUser.name}`))
+                  );
+
                   return (
                     <React.Fragment key={msg.id}>
                       {showDateSeparator && (
@@ -538,7 +581,7 @@ export default function Chat() {
                         </div>
                       )}
 
-                      <div className={`flex gap-2 ${isSelf ? 'justify-end' : 'justify-start'}`}>
+                      <div id={`msg-${msg.id}`} className={`flex gap-2 ${isSelf ? 'justify-end' : 'justify-start'}`}>
                         {/* Sender Avatar for group chat */}
                         {!isSelf && activeConversation.type === 'group' && (
                           <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs flex-shrink-0 self-end ${getAvatarBg(msg.sender_name)}`}>
@@ -558,17 +601,88 @@ export default function Chat() {
                           <div className={`p-3 rounded-2xl shadow-sm ${
                             isSelf
                               ? 'bg-indigo-600 text-white rounded-br-none'
-                              : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white border border-gray-100 dark:border-gray-700 rounded-bl-none'
+                              : isMentioned
+                                ? 'bg-amber-50 dark:bg-amber-950/20 text-gray-900 dark:text-white border-2 border-amber-400 rounded-bl-none'
+                                : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white border border-gray-100 dark:border-gray-700 rounded-bl-none'
                           }`}>
-                            <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.body}</p>
+                            {/* Parent Message Reply Preview */}
+                            {msg.parent && (
+                              <div
+                                onClick={() => {
+                                  const parentEl = document.getElementById(`msg-${msg.parent?.id}`);
+                                  parentEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                }}
+                                className={`mb-2 p-2 rounded-lg text-xs border-l-2 bg-black/5 dark:bg-white/5 text-gray-600 dark:text-gray-300 border-indigo-500 cursor-pointer hover:bg-black/10 dark:hover:bg-white/10 transition truncate`}
+                              >
+                                <span className="font-bold block text-[10px] text-indigo-500 mb-0.5">
+                                  {msg.parent.sender_name}
+                                </span>
+                                <p className="truncate">
+                                  {msg.parent.type === 'image' 
+                                    ? '🖼️ Photo' 
+                                    : msg.parent.type === 'file' 
+                                      ? `📁 ${msg.parent.file_name}` 
+                                      : msg.parent.body}
+                                </p>
+                              </div>
+                            )}
+
+                            {/* Render image attachment */}
+                            {msg.type === 'image' && msg.file_url && (
+                              <div className="mb-2 max-w-sm rounded-lg overflow-hidden border border-gray-100 dark:border-gray-700">
+                                <img
+                                  src={msg.file_url}
+                                  alt={msg.file_name || 'image'}
+                                  className="w-full max-h-60 object-contain bg-black/5 dark:bg-white/5 cursor-pointer"
+                                  onClick={() => window.open(msg.file_url!, '_blank')}
+                                />
+                              </div>
+                            )}
+
+                            {/* Render file attachment */}
+                            {msg.type === 'file' && msg.file_url && (
+                              <a
+                                href={msg.file_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={`flex items-center gap-2 p-2.5 rounded-lg border border-gray-100 dark:border-gray-700 hover:bg-black/5 dark:hover:bg-white/5 transition mb-2 ${isSelf ? 'text-white border-white/20' : 'text-indigo-600 dark:text-indigo-400'}`}
+                              >
+                                <Paperclip className="w-4 h-4 flex-shrink-0" />
+                                <div className="min-w-0 flex-1">
+                                  <p className={`text-xs font-semibold truncate ${isSelf ? 'text-white' : 'text-gray-800 dark:text-gray-200'}`}>
+                                    {msg.file_name}
+                                  </p>
+                                  {msg.file_size && (
+                                    <p className={`text-[10px] ${isSelf ? 'text-indigo-200' : 'text-gray-400'}`}>
+                                      {(msg.file_size / 1024).toFixed(1)} KB
+                                    </p>
+                                  )}
+                                </div>
+                              </a>
+                            )}
+
+                            {/* Message text body */}
+                            {msg.body && (
+                              <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.body}</p>
+                            )}
                             
-                            <div className="flex items-center justify-end gap-1 mt-1">
-                              <span className={`text-[9px] ${isSelf ? 'text-indigo-200' : 'text-gray-400'}`}>
-                                {formatTime(msg.created_at)}
-                              </span>
-                              {isSelf && (
-                                <CheckCheck className="w-3 h-3 text-indigo-200" />
-                              )}
+                            <div className="flex items-center justify-between gap-4 mt-1.5 pt-0.5 border-t border-black/5 dark:border-white/5">
+                              <button
+                                type="button"
+                                onClick={() => setReplyMessage(msg)}
+                                className={`text-[10px] font-semibold flex items-center gap-0.5 ${isSelf ? 'text-indigo-200 hover:text-white' : 'text-indigo-500 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300'} transition`}
+                              >
+                                <Reply className="w-2.5 h-2.5" /> Reply
+                              </button>
+
+                              <div className="flex items-center gap-1">
+                                <span className={`text-[9px] ${isSelf ? 'text-indigo-200' : 'text-gray-400'}`}>
+                                  {formatTime(msg.created_at)}
+                                </span>
+                                {isSelf && (
+                                  <CheckCheck className="w-3 h-3 text-indigo-200" />
+                                )}
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -593,12 +707,128 @@ export default function Chat() {
               <div ref={messagesEndRef} />
             </div>
 
+            {/* Selected File Preview */}
+            {selectedFile && (
+              <div className="px-4 py-2 border-t border-gray-100 dark:border-gray-800 bg-gray-50/75 dark:bg-gray-800/40 flex justify-between items-center text-xs text-gray-500 rounded-t-xl mx-3 shadow-inner">
+                <div className="flex items-center gap-2 truncate">
+                  {selectedFile.type.startsWith('image/') ? (
+                    <img src={URL.createObjectURL(selectedFile)} className="w-8 h-8 object-cover rounded-lg shadow-sm" />
+                  ) : (
+                    <Paperclip className="w-4 h-4 text-indigo-500" />
+                  )}
+                  <div className="flex flex-col truncate">
+                    <span className="font-semibold text-gray-700 dark:text-gray-300 truncate">{selectedFile.name}</span>
+                    <span>{(selectedFile.size / 1024).toFixed(1)} KB</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedFile(null)}
+                  className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+            {/* Replying to Message Preview */}
+            {replyMessage && (
+              <div className="px-4 py-2 border-t border-gray-100 dark:border-gray-800 bg-gray-50/75 dark:bg-gray-800/40 flex justify-between items-center text-xs text-gray-500 rounded-t-xl mx-3 shadow-inner border-l-4 border-indigo-500">
+                <div className="flex flex-col truncate">
+                  <span className="font-semibold text-indigo-600 dark:text-indigo-400">Replying to {replyMessage.sender_name}</span>
+                  <span className="truncate text-gray-700 dark:text-gray-300">
+                    {replyMessage.type === 'image' 
+                      ? '🖼️ Photo' 
+                      : replyMessage.type === 'file' 
+                        ? `📁 ${replyMessage.file_name}` 
+                        : replyMessage.body}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setReplyMessage(null)}
+                  className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
             {/* Message Input Form */}
-            <form onSubmit={handleSendMessage} className="p-3 border-t border-gray-200 dark:border-gray-700 flex gap-2 items-center bg-white dark:bg-gray-900">
+            <form onSubmit={handleSendMessage} className="p-3 border-t border-gray-200 dark:border-gray-700 flex gap-2 items-center bg-white dark:bg-gray-900 relative">
+              
+              {/* Mentions suggestions list */}
+              {showMentionSuggestions && activeConversation?.type === 'group' && (
+                <div className="absolute bottom-full left-12 mb-1 z-50 w-52 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl max-h-48 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-800">
+                  <div
+                    onClick={() => {
+                      const words = messageText.split(' ');
+                      words.pop();
+                      setMessageText([...words, '@all'].join(' ') + ' ');
+                      setShowMentionSuggestions(false);
+                    }}
+                    className="p-2 text-xs font-semibold text-gray-700 dark:text-gray-200 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 cursor-pointer flex items-center gap-2"
+                  >
+                    <Users className="w-3.5 h-3.5 text-indigo-500" />
+                    <span>@all (Mention all)</span>
+                  </div>
+                  {activeConversation.participants
+                    .filter((p) => p.name.toLowerCase().includes(mentionSearch.toLowerCase()))
+                    .map((p) => (
+                      <div
+                        key={p.id}
+                        onClick={() => {
+                          const words = messageText.split(' ');
+                          words.pop();
+                          setMessageText([...words, `@${p.name}`].join(' ') + ' ');
+                          setShowMentionSuggestions(false);
+                        }}
+                        className="p-2 text-xs hover:bg-indigo-50 dark:hover:bg-indigo-950/20 cursor-pointer flex items-center gap-2 text-gray-700 dark:text-gray-200"
+                      >
+                        <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold ${getAvatarBg(p.name)}`}>
+                          {getInitials(p.name)}
+                        </div>
+                        <span>@{p.name}</span>
+                      </div>
+                    ))}
+                </div>
+              )}
+
+              {/* Emoji Picker Panel */}
+              {showEmojiPicker && (
+                <div className="absolute bottom-full right-12 mb-1 z-50 p-2 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-xl">
+                  <div className="grid grid-cols-8 gap-1 max-h-40 overflow-y-auto p-0.5">
+                    {['😀','😃','😄','😁','😆','😅','😂','🤣','😊','😇','🙂','🙃','😉','😌','😍','🥰','😘','😗','😙','😚','😋','😛','😝','😜','🤪','🤨','🧐','🤓','😎','🤩','🥳','😏','😒','😞','😔','😟','😕','🙁','☹️','😣','😖','😫','😩','🥺','😢','😭','😤','😠','😡','🤬','🤯','😳','🥵','🥶','😱','😨','😰','😥','😓','🤗','🤔','🤭','🤫','🤥','😶','😐','😑','😬','🙄','😯','😦','😧','😮','😲','🥱','😴','🤤','😪','😵','🤐','🥴','🤢','🤮','🤧','😷','🤒','🤕','🤑','🤠','😈','👿','👹','👺','🤡','💩','👻','💀','☠️','👽','👾','🤖','🎃','😺','😸','😹','😻','😼','😽','🙀','😿','😾','👍','👎','👌','✌️','🤞','🤟','🤘','🤙','👈','👉','👆','🖕','👇','☝️','✊','👊','🤛','🤜','👏','🙌','👐','🤲','🤝','🙏','✍️','💅','🤳','💪','🧠','🧡','❤️','💖','🎁','🚀','🔥','✨','🎉','💯'].map((emoji) => (
+                      <button
+                        key={emoji}
+                        type="button"
+                        onClick={() => {
+                          setMessageText(prev => prev + emoji);
+                          setShowEmojiPicker(false);
+                        }}
+                        className="w-7 h-7 flex items-center justify-center text-lg rounded hover:bg-gray-150 dark:hover:bg-gray-700 transition"
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* File Attachment Hidden Input */}
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileChange}
+                className="hidden"
+                accept="image/*,application/*,text/*"
+              />
+
               <button
                 type="button"
-                onClick={() => alert('Attachments are not supported in this version.')}
+                onClick={() => fileInputRef.current?.click()}
                 className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+                title="Attach image or file"
               >
                 <Paperclip className="w-4 h-4" />
               </button>
@@ -607,15 +837,30 @@ export default function Chat() {
                 type="text"
                 value={messageText}
                 onChange={handleMessageChange}
-                placeholder="Type a message..."
+                placeholder={selectedFile ? "Add a caption..." : "Type a message..."}
                 className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
               />
 
               <button
+                type="button"
+                onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                className={`p-2 rounded-lg transition ${
+                  showEmojiPicker 
+                    ? 'text-indigo-600 bg-indigo-50 dark:bg-indigo-950/20' 
+                    : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                }`}
+                title="Insert emoji"
+              >
+                <Smile className="w-4 h-4" />
+              </button>
+
+              <button
                 type="submit"
-                disabled={!messageText.trim()}
+                disabled={!messageText.trim() && !selectedFile}
                 className={`p-2 rounded-xl text-white transition ${
-                  messageText.trim() ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-gray-200 dark:bg-gray-800 text-gray-400 cursor-not-allowed'
+                  messageText.trim() || selectedFile
+                    ? 'bg-indigo-600 hover:bg-indigo-700' 
+                    : 'bg-gray-200 dark:bg-gray-800 text-gray-400 cursor-not-allowed'
                 }`}
               >
                 <Send className="w-4 h-4" />

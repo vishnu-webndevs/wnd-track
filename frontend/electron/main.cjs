@@ -1,9 +1,27 @@
 const { app, BrowserWindow, screen, ipcMain, shell, session, Notification } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const { uIOhook, UiohookKey } = require('uiohook-napi');
 
 let mainWindow;
 let isQuitting = false;
+
+const logPath = path.join(__dirname, '../scratch/tracker_debug.log');
+
+try {
+  fs.mkdirSync(path.dirname(logPath), { recursive: true });
+  fs.writeFileSync(logPath, `=== Tracker Debug Log started at ${new Date().toISOString()} ===\n`);
+} catch (e) {
+  console.error('Failed to create debug log file', e);
+}
+
+function logDebug(msg) {
+  try {
+    const time = new Date().toISOString().substring(11, 23);
+    fs.appendFileSync(logPath, `[${time}] ${msg}\n`);
+    console.log(`[${time}] ${msg}`);
+  } catch (e) {}
+}
 
 if (process.platform === 'win32') {
   app.setAppUserModelId('com.tracker.webndevs');
@@ -23,46 +41,33 @@ let lastMouseMoveCountedAt = 0;
 let lastMousePos = null;
 
 // Initialize global hooks
+logDebug('Initializing uIOhook global hooks...');
+
 uIOhook.on('keyup', (e) => {
-  console.log('[uIOhook] keyup registered, keycode:', e.keycode);
   activityCounts.keyboard++;
+  logDebug(`[uIOhook] keyup event. Total keyboard: ${activityCounts.keyboard}`);
 });
 
 uIOhook.on('mousedown', (e) => {
-  console.log('[uIOhook] mousedown registered, button:', e.button);
   activityCounts.mouseClicks++;
+  logDebug(`[uIOhook] mousedown event. Total mouseClicks: ${activityCounts.mouseClicks}`);
 });
 
 uIOhook.on('wheel', (e) => {
-  console.log('[uIOhook] wheel registered, clicks/rotation:', e.clicks || e.amount);
   activityCounts.mouseScrolls++;
-});
-
-uIOhook.on('mousemove', (e) => {
-  const now = Date.now();
-  if (now - lastMouseMoveCountedAt < MOUSE_MOVE_MIN_INTERVAL_MS) return;
-
-  const x = e && typeof e.x === 'number' ? e.x : null;
-  const y = e && typeof e.y === 'number' ? e.y : null;
-
-  if (x !== null && y !== null) {
-    if (!lastMousePos) {
-      lastMousePos = { x, y };
-      lastMouseMoveCountedAt = now;
-      return;
-    }
-
-    const dist = Math.abs(x - lastMousePos.x) + Math.abs(y - lastMousePos.y);
-    if (dist < MOUSE_MOVE_MIN_DISTANCE) return;
-    lastMousePos = { x, y };
-  }
-
-  lastMouseMoveCountedAt = now;
-  console.log('[uIOhook] mousemove registered, pos:', lastMousePos);
   activityCounts.mouseMovements++;
+  logDebug(`[uIOhook] wheel event. Total mouseScrolls: ${activityCounts.mouseScrolls}, movements: ${activityCounts.mouseMovements}`);
 });
 
-uIOhook.start();
+// Global cursor movement and touchscreen click tracking is handled via polling in app.whenReady()
+
+try {
+  uIOhook.start();
+  logDebug('uIOhook.start() completed.');
+} catch (err) {
+  logDebug(`ERROR starting uIOhook: ${err.message}\n${err.stack}`);
+}
+
 
 const iconPath = app.isPackaged
   ? path.join(__dirname, '../dist/tracker_logo.png')
@@ -93,19 +98,19 @@ function createWindow() {
   // Handle Close Event for Graceful Shutdown
   win.on('close', (e) => {
     if (isQuitting) return;
-    
+
     e.preventDefault();
-    
+
     // Check if renderer is still alive
     if (!win.webContents || win.webContents.isDestroyed()) {
-        isQuitting = true;
-        win.close();
-        return;
+      isQuitting = true;
+      win.close();
+      return;
     }
 
     // Send message to renderer to stop tracking
     win.webContents.send('app-close');
-    
+
     // Fallback: If renderer doesn't respond in 2 seconds (faster fallback), close anyway
     setTimeout(() => {
       isQuitting = true;
@@ -160,8 +165,11 @@ function createWindow() {
     if (win && !win.isDestroyed()) {
       // Only send if there is activity to report, or just send zeros?
       // Sending always ensures the frontend knows we are alive.
+      if (activityCounts.keyboard > 0 || activityCounts.mouseClicks > 0 || activityCounts.mouseScrolls > 0 || activityCounts.mouseMovements > 0) {
+        logDebug(`Sending activity-update to renderer: ${JSON.stringify(activityCounts)}`);
+      }
       win.webContents.send('activity-update', activityCounts);
-      
+
       // Reset counts
       activityCounts = {
         keyboard: 0,
@@ -174,7 +182,35 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  logDebug('app.whenReady() resolved. Creating window and setting up listeners.');
   createWindow();
+
+  // Start global cursor polling to detect mouse movements and touchscreen taps.
+  // Bypasses native uIOhook limitations where touchscreen taps are ignored by OS low-level hooks.
+  let lastCheckPos = null;
+  setInterval(() => {
+    try {
+      const currentPos = screen.getCursorScreenPoint();
+      if (lastCheckPos) {
+        const dist = Math.abs(currentPos.x - lastCheckPos.x) + Math.abs(currentPos.y - lastCheckPos.y);
+        if (dist >= 3) {
+          activityCounts.mouseMovements++;
+          if (dist >= 15) {
+            activityCounts.mouseClicks++;
+            logDebug(`[CursorPoll] Touch/jump click detected. Dist: ${dist}. Total clicks: ${activityCounts.mouseClicks}, movements: ${activityCounts.mouseMovements}`);
+          }
+        }
+      }
+      lastCheckPos = currentPos;
+    } catch (e) {
+      logDebug(`[CursorPoll] Error getting screen cursor point: ${e.message}`);
+    }
+  }, 100);
+
+  // Register log-debug IPC handler
+  ipcMain.on('log-debug', (event, msg) => {
+    logDebug(`[Renderer] ${msg}`);
+  });
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -205,7 +241,7 @@ app.whenReady().then(() => {
         icon: iconPath,
         silent: false
       });
-      
+
       notification.on('click', () => {
         if (mainWindow) {
           if (mainWindow.isMinimized()) mainWindow.restore();
@@ -214,7 +250,7 @@ app.whenReady().then(() => {
           mainWindow.webContents.send('notification-clicked', data);
         }
       });
-      
+
       notification.show();
     } catch (e) {
       void e;

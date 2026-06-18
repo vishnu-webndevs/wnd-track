@@ -59,6 +59,7 @@ const trackerCore = {
   isCapturing: false,
   permissionGranted: false,
   lastCapturedMinute: null as string | null,
+  lastNativeActivityAt: 0,
 
   // Method to stop EVERYTHING
   cleanup: function () {
@@ -317,9 +318,6 @@ export default function TimeTracking() {
   };
 
   const startVisualActivityCheck = async () => {
-    if (isElectronEnvRef.current) {
-      return;
-    }
     const core = (window as TTWindow).__tt_core;
     if (core.intervals.visualCheck) window.clearInterval(core.intervals.visualCheck);
     if (core.visualVideo && core.visualVideo.parentNode) {
@@ -375,6 +373,15 @@ export default function TimeTracking() {
           // Lowered thresholds for 64x36 resolution (raised minimum to 8000 to filter clock ticking and cursors)
           if (diffScore > 8000) {
             const now = new Date();
+            const nativeActivityAgeMs = now.getTime() - Number(core.lastNativeActivityAt || 0);
+
+            // Electron receives native mouse/keyboard hooks already. Use screen-diff only as
+            // a fallback when native hooks stay silent, which is common on touch devices.
+            if (isElectronEnvRef.current && nativeActivityAgeMs <= 2500) {
+              previousFrameDataRef.current = frameData;
+              return;
+            }
+
             lastActivityRef.current = now;
             const minuteKey = getMinuteKey(now);
             const coreActivityData = core.activityData;
@@ -731,6 +738,11 @@ export default function TimeTracking() {
           core.activityData = remainingActivity;
           lastCaptureTimeRef.current = captureTargetTime;
           return;
+        }
+
+        const ipcRenderer = (window as any).ipcRenderer || (typeof (window as any).require === 'function' ? (window as any).require('electron').ipcRenderer : null);
+        if (ipcRenderer) {
+          ipcRenderer.send('log-debug', `Uploading shot at ${localCapturedAt} with breakdown: ${JSON.stringify(breakdown)}`);
         }
 
         await uploadShot.mutateAsync({

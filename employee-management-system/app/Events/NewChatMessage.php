@@ -47,7 +47,7 @@ class NewChatMessage implements ShouldBroadcastNow
      */
     public function broadcastWith(): array
     {
-        $this->message->load('sender:id,name');
+        $this->message->load(['sender:id,name', 'parent']);
 
         return [
             'message' => [
@@ -60,6 +60,15 @@ class NewChatMessage implements ShouldBroadcastNow
                 'file_path' => $this->message->file_path,
                 'file_name' => $this->message->file_name,
                 'file_size' => $this->message->file_size,
+                'file_url' => $this->message->file_url,
+                'parent_id' => $this->message->parent_id,
+                'parent' => $this->message->parent ? [
+                    'id' => $this->message->parent->id,
+                    'body' => $this->message->parent->body,
+                    'type' => $this->message->parent->type,
+                    'file_name' => $this->message->parent->file_name,
+                    'sender_name' => $this->message->parent->sender?->name ?? 'System',
+                ] : null,
                 'created_at' => $this->message->created_at->toIso8601String(),
             ],
         ];

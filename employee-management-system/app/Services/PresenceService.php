@@ -30,7 +30,8 @@ class PresenceService
         ?int $taskId = null,
         bool $internetConnected = true
     ): UserPresence {
-        $presence = UserPresence::where('user_id', $userId)->first();
+        $column = 'user_id';
+        $presence = UserPresence::where($column, $userId)->first();
         $oldStatus = $presence ? $presence->status : null;
         
         $trackingStartedAt = null;
@@ -67,7 +68,8 @@ class PresenceService
      */
     public function heartbeat(int $userId, bool $internetConnected = true): void
     {
-        $presence = UserPresence::where('user_id', $userId)->first();
+        $column = 'user_id';
+        $presence = UserPresence::where($column, $userId)->first();
         if ($presence) {
             $oldStatus = $presence->status;
             $presence->update([
@@ -94,13 +96,16 @@ class PresenceService
      */
     public function getTeamStatus(array $filters = []): Collection
     {
-        $usersQuery = User::where('status', 'active')->with(['presence.currentProject', 'presence.currentTask']);
+        $statusCol = 'status';
+        $usersQuery = User::where($statusCol, 'active')->with(['presence.currentProject', 'presence.currentTask']);
 
         if (!empty($filters['department'])) {
-            $usersQuery->where('department', $filters['department']);
+            $deptCol = 'department';
+            $usersQuery->where($deptCol, $filters['department']);
         }
         if (!empty($filters['search'])) {
-            $usersQuery->where('name', 'like', '%' . $filters['search'] . '%');
+            $nameCol = 'name';
+            $usersQuery->where($nameCol, 'like', '%' . $filters['search'] . '%');
         }
 
         $users = $usersQuery->get();

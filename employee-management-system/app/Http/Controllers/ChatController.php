@@ -216,16 +216,41 @@ class ChatController extends Controller
         }
 
         $messages = Message::where('conversation_id', $id)
-            ->with('sender:id,name')
+            ->with(['sender:id,name', 'parent'])
             ->orderBy('created_at', 'desc')
             ->paginate($request->input('per_page', 50));
 
         // Mark as read asynchronously/synchronously
         $this->markConversationAsRead($conversation, $userId);
 
+        // Format return items to match type definition
+        $data = collect($messages->items())->map(function($msg) {
+            return [
+                'id' => $msg->id,
+                'conversation_id' => $msg->conversation_id,
+                'sender_id' => $msg->sender_id,
+                'sender_name' => $msg->sender_name,
+                'body' => $msg->body,
+                'type' => $msg->type,
+                'file_path' => $msg->file_path,
+                'file_name' => $msg->file_name,
+                'file_size' => $msg->file_size,
+                'file_url' => $msg->file_url,
+                'parent_id' => $msg->parent_id,
+                'parent' => $msg->parent ? [
+                    'id' => $msg->parent->id,
+                    'body' => $msg->parent->body,
+                    'type' => $msg->parent->type,
+                    'file_name' => $msg->parent->file_name,
+                    'sender_name' => $msg->parent->sender?->name ?? 'System',
+                ] : null,
+                'created_at' => $msg->created_at->toIso8601String(),
+            ];
+        })->all();
+
         return response()->json([
             'success' => true,
-            'data' => array_reverse($messages->items()),
+            'data' => array_reverse($data),
             'meta' => [
                 'current_page' => $messages->currentPage(),
                 'last_page' => $messages->lastPage(),
@@ -241,7 +266,9 @@ class ChatController extends Controller
     public function sendMessage(Request $request, int $id): JsonResponse
     {
         $request->validate([
-            'body' => 'required|string',
+            'body' => 'required_without:file|nullable|string',
+            'file' => 'nullable|file|max:10240', // 10MB max
+            'parent_id' => 'nullable|exists:messages,id',
         ]);
 
         $userId = $request->user()->id;
@@ -255,12 +282,30 @@ class ChatController extends Controller
             ], 403);
         }
 
-        $message = DB::transaction(function () use ($conversation, $userId, $request) {
+        $file = $request->file('file');
+        $filePath = null;
+        $fileName = null;
+        $fileSize = null;
+        $msgType = 'text';
+
+        if ($file) {
+            $filePath = $file->store('chat_files/' . date('Y/m/d'), 'public');
+            $fileName = $file->getClientOriginalName();
+            $fileSize = $file->getSize();
+            $mimeType = $file->getMimeType();
+            $msgType = str_starts_with($mimeType, 'image/') ? 'image' : 'file';
+        }
+
+        $message = DB::transaction(function () use ($conversation, $userId, $request, $filePath, $fileName, $fileSize, $msgType) {
             $msg = Message::create([
                 'conversation_id' => $conversation->id,
                 'sender_id' => $userId,
-                'body' => $request->input('body'),
-                'type' => 'text',
+                'parent_id' => $request->input('parent_id'),
+                'body' => $request->input('body') ?? '',
+                'type' => $msgType,
+                'file_path' => $filePath,
+                'file_name' => $fileName,
+                'file_size' => $fileSize,
             ]);
 
             $conversation->update([
@@ -274,6 +319,9 @@ class ChatController extends Controller
 
             return $msg;
         });
+
+        // Load relations for response
+        $message->load('parent');
 
         // Broadcast to websocket
         try {
@@ -291,12 +339,16 @@ class ChatController extends Controller
         foreach ($otherParticipants as $participant) {
             try {
                 $convName = $conversation->type === 'group' ? $conversation->name : 'Direct Message';
+                $previewText = $message->type === 'text' 
+                    ? $message->body 
+                    : ($message->type === 'image' ? 'Sent an image: ' . $message->file_name : 'Sent a file: ' . $message->file_name);
+
                 $this->notificationService->sendToUser(
                     $participant->user_id,
                     'chat_message',
                     'communication',
                     "New message from {$userName}",
-                    "{$userName} sent you a message: " . substr($message->body, 0, 50) . (strlen($message->body) > 50 ? '...' : ''),
+                    "{$userName} sent you a message: " . substr($previewText, 0, 50) . (strlen($previewText) > 50 ? '...' : ''),
                     [
                         'conversation_id' => $conversation->id,
                         'sender_id' => $userId,
@@ -320,6 +372,18 @@ class ChatController extends Controller
                 'sender_name' => $userName,
                 'body' => $message->body,
                 'type' => $message->type,
+                'file_path' => $message->file_path,
+                'file_name' => $message->file_name,
+                'file_size' => $message->file_size,
+                'file_url' => $message->file_url,
+                'parent_id' => $message->parent_id,
+                'parent' => $message->parent ? [
+                    'id' => $message->parent->id,
+                    'body' => $message->parent->body,
+                    'type' => $message->parent->type,
+                    'file_name' => $message->parent->file_name,
+                    'sender_name' => $message->parent->sender?->name ?? 'System',
+                ] : null,
                 'created_at' => $message->created_at->toIso8601String(),
             ],
         ]);

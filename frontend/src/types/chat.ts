@@ -19,6 +19,15 @@ export interface ChatMessage {
   file_path?: string | null;
   file_name?: string | null;
   file_size?: number | null;
+  file_url?: string | null;
+  parent_id?: number | null;
+  parent?: {
+    id: number;
+    body: string;
+    type: 'text' | 'file' | 'image' | 'system';
+    file_name?: string | null;
+    sender_name: string;
+  } | null;
   created_at: string;
 }
 

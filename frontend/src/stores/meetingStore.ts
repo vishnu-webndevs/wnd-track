@@ -343,8 +343,8 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
     showDeviceSettings: false,
 
     initRoom: async (id: number) => {
-      // If already initialized for this room, do not re-run
-      if (get().meetingId === id) return;
+      // If already initialized for this room and we have the meeting details, do not re-run
+      if (get().meetingId === id && get().meeting) return;
 
       // Clean up previous meeting if any
       if (get().meetingId) {
@@ -586,7 +586,7 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
           cleanupWebRTC();
         }
       });
-      privateChannel.listen('meeting.started', (e: { meeting: Meeting }) => {
+      privateChannel.listen('.meeting.started', (e: { meeting: Meeting }) => {
         if (e.meeting.id === get().meetingId) {
           set({ meeting: e.meeting, durationLimitReached: false });
         }
@@ -606,7 +606,7 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
         echoInstance.leave(`presence-meeting.${id}`);
         if (privateChannel) {
           privateChannel.stopListening('.meeting.ended');
-          privateChannel.stopListening('meeting.started');
+          privateChannel.stopListening('.meeting.started');
         }
       }
 
@@ -627,7 +627,7 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
         echoInstance.leave(`presence-meeting.${id}`);
         if (privateChannel) {
           privateChannel.stopListening('.meeting.ended');
-          privateChannel.stopListening('meeting.started');
+          privateChannel.stopListening('.meeting.started');
         }
       }
 

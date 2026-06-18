@@ -14,6 +14,7 @@ class Message extends Model
     protected $fillable = [
         'conversation_id',
         'sender_id',
+        'parent_id',
         'body',
         'type',
         'file_path',
@@ -21,11 +22,21 @@ class Message extends Model
         'file_size',
     ];
 
-    protected $appends = ['sender_name'];
+    protected $appends = ['sender_name', 'file_url'];
 
     public function getSenderNameAttribute(): string
     {
         return $this->sender?->name ?? 'System';
+    }
+
+    public function getFileUrlAttribute(): ?string
+    {
+        return $this->file_path ? url(\Illuminate\Support\Facades\Storage::url($this->file_path)) : null;
+    }
+
+    public function parent(): BelongsTo
+    {
+        return $this->belongsTo(Message::class, 'parent_id')->with('sender:id,name');
     }
 
     /**

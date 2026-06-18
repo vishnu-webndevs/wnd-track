@@ -42,6 +42,7 @@ export default function Meetings() {
   const [submitting, setSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState<'upcoming' | 'live' | 'completed'>('upcoming');
   const selectAllRef = useRef<HTMLInputElement | null>(null);
+  const startImmediatelyRef = useRef(false);
 
   const participantIds = useMemo(() => users.map(u => u.id), [users]);
   const allSelected = participantIds.length > 0 && selectedParticipants.length === participantIds.length;
@@ -156,7 +157,6 @@ export default function Meetings() {
       const res = await meetingsAPI.startMeeting(id);
       if (res.success) {
         toast.success('Meeting started!');
-        fetchMeetings();
         navigate(`/meeting-room/${id}`);
       }
     } catch (err: any) {
@@ -222,11 +222,23 @@ export default function Meetings() {
     setScheduledAt('');
     setDurationMinutes(30);
     setSelectedParticipants([]);
+    startImmediatelyRef.current = false;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !scheduledAt || selectedParticipants.length === 0) {
+    
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const nowStr = `${year}-${month}-${day}T${hours}:${minutes}`;
+
+    const scheduledTime = startImmediatelyRef.current ? nowStr : scheduledAt;
+
+    if (!title.trim() || !scheduledTime || selectedParticipants.length === 0) {
       toast.error('Please fill in all required fields and select at least one participant.');
       return;
     }
@@ -236,7 +248,7 @@ export default function Meetings() {
       title,
       description,
       type,
-      scheduled_at: scheduledAt,
+      scheduled_at: scheduledTime,
       duration_minutes: durationMinutes,
       participants: selectedParticipants,
     };
@@ -252,15 +264,31 @@ export default function Meetings() {
       } else {
         const res = await meetingsAPI.createMeeting(data);
         if (res.success) {
-          toast.success('Meeting scheduled successfully!');
-          handleCloseModal();
-          fetchMeetings();
+          const newMeeting = res.data;
+          if (startImmediatelyRef.current) {
+            toast.success('Meeting created, starting now...');
+            const startRes = await meetingsAPI.startMeeting(newMeeting.id);
+            if (startRes.success) {
+              toast.success('Meeting started!');
+              handleCloseModal();
+              navigate(`/meeting-room/${newMeeting.id}`);
+            } else {
+              toast.error('Meeting created, but failed to start room.');
+              handleCloseModal();
+              fetchMeetings();
+            }
+          } else {
+            toast.success('Meeting scheduled successfully!');
+            handleCloseModal();
+            fetchMeetings();
+          }
         }
       }
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Failed to schedule meeting');
     } finally {
       setSubmitting(false);
+      startImmediatelyRef.current = false;
     }
   };
 
@@ -558,7 +586,7 @@ export default function Meetings() {
                 </div>
               </div>
 
-              <div className="pt-6 border-t border-gray-150 dark:border-gray-800/60 flex justify-end gap-3">
+              <div className="pt-6 border-t border-gray-150 dark:border-gray-800/60 flex justify-end gap-3 flex-wrap">
                 <button
                   type="button"
                   onClick={handleCloseModal}
@@ -566,12 +594,24 @@ export default function Meetings() {
                 >
                   Cancel
                 </button>
+                {!editingMeeting && (
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    onClick={() => { startImmediatelyRef.current = true; }}
+                    className="flex items-center justify-center gap-2 px-6 py-3 text-sm font-black text-white bg-rose-500 hover:bg-rose-600 rounded-xl shadow-lg shadow-rose-500/30 hover:shadow-rose-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed transform hover:-translate-y-0.5"
+                  >
+                    {submitting && startImmediatelyRef.current && <Loader2 className="w-4 h-4 animate-spin" />}
+                    Start Now
+                  </button>
+                )}
                 <button
                   type="submit"
                   disabled={submitting}
+                  onClick={() => { startImmediatelyRef.current = false; }}
                   className="flex items-center justify-center gap-2 px-8 py-3 text-sm font-black text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-lg shadow-indigo-500/30 hover:shadow-indigo-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed transform hover:-translate-y-0.5"
                 >
-                  {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {submitting && !startImmediatelyRef.current && <Loader2 className="w-4 h-4 animate-spin" />}
                   {editingMeeting ? 'Save Changes' : 'Schedule Meeting'}
                 </button>
               </div>
