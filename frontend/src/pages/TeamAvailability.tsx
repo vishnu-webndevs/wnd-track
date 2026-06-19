@@ -208,21 +208,29 @@ function ChatDrawer({ isOpen, userId, userName, onClose }: { isOpen: boolean; us
       </div>
 
       {/* Message input */}
-      <form onSubmit={handleSend} className="p-3 border-t border-gray-100 dark:border-gray-700 flex items-center gap-2">
+      <div className="p-3 border-t border-gray-100 dark:border-gray-700 flex items-center gap-2">
         <input
           type="text"
           value={messageText}
           onChange={handleMessageChange}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              handleSend(e as any);
+            }
+          }}
           placeholder="Type a message..."
           className="flex-1 px-4 py-2.5 text-sm border border-gray-300 dark:border-gray-700 rounded-full bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          autoComplete="off"
         />
         <button
-          type="submit"
+          type="button"
+          onClick={handleSend}
           className="p-2.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800 transition flex-shrink-0"
         >
           <Send className="w-4 h-4" />
         </button>
-      </form>
+      </div>
     </div>
   );
 }

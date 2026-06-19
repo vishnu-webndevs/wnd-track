@@ -14,3 +14,6 @@ Schedule::command('timelogs:monitor-offline')->everyMinute();
 Schedule::command('timelogs:monitor-activity')->everyFiveMinutes();
 Schedule::command('meetings:remind')->everyMinute();
 
+
+// Send monthly report on the last day of the month at 9:00 PM
+Schedule::command('app:send-timesheet-reports --period=month')->monthlyOn(date('t'), '21:00');

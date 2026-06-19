@@ -783,4 +783,68 @@ class UserController extends Controller
             'telegram_bot_token' => \App\Models\Setting::get('telegram_bot_token', env('TELEGRAM_BOT_TOKEN') ?: ''),
         ]);
     }
+
+    public function exportTimesheetEmail(Request $request)
+    {
+        $user = Auth::user();
+        
+        $validator = Validator::make($request->all(), [
+            'start_date' => 'nullable|date',
+            'end_date' => 'nullable|date',
+            'employee_id' => 'nullable|integer|exists:users,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $startDate = $request->start_date ?? \Carbon\Carbon::today()->toDateString();
+        $endDate = $request->end_date ?? \Carbon\Carbon::today()->toDateString();
+        $employeeId = $request->employee_id;
+
+        $isAdminReport = false;
+        $targetUser = null;
+
+        $query = TimeLog::with(['project', 'task', 'user'])
+            ->whereBetween('start_time', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
+            ->orderBy('start_time', 'desc');
+
+        if ($user->isAdmin() && empty($employeeId)) {
+            // Admin wants all employees
+            $isAdminReport = true;
+        } elseif ($user->isAdmin() && !empty($employeeId)) {
+            // Admin wants specific employee
+            $query->where('user_id', $employeeId);
+            $targetUser = User::find($employeeId);
+        } else {
+            // Employee wants their own
+            $query->where('user_id', $user->id);
+            $targetUser = $user;
+        }
+
+        $logs = $query->get();
+
+        if ($logs->count() === 0) {
+            return response()->json(['message' => 'No logs found for the selected period.'], 404);
+        }
+
+        $periodLabel = 'Custom Range';
+        $fileName = "timesheet_" . ($isAdminReport ? "all_employees" : str_replace(' ', '_', $targetUser->name)) . "_{$startDate}_to_{$endDate}.pdf";
+        $subjectLine = "Timesheet Report: " . ($isAdminReport ? "All Employees" : $targetUser->name) . " ({$startDate} to {$endDate})";
+
+        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('pdf.timesheet', [
+            'logs' => $logs,
+            'periodLabel' => $periodLabel,
+            'startDate' => $startDate,
+            'endDate' => $endDate,
+            'isAdminReport' => $isAdminReport,
+            'user' => $targetUser
+        ])->setPaper('a4', 'landscape');
+
+        $pdfContent = $pdf->output();
+
+        \Illuminate\Support\Facades\Mail::to($user->email)->send(new \App\Mail\TimesheetReportMail($pdfContent, $subjectLine, $fileName, $user, $periodLabel, $startDate, $endDate));
+
+        return response()->json(['message' => 'Timesheet sent to your email successfully.']);
+    }
 }

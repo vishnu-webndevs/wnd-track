@@ -594,7 +594,7 @@ export default function MeetingRoom() {
             )}
 
             <div className="absolute bottom-3 left-3 bg-gray-900/80 backdrop-blur px-2.5 py-1 rounded-lg border border-gray-850 flex items-center gap-2 text-xs font-semibold text-white">
-              <span>You (Host/Participant)</span>
+              <span>You</span>
               {!micActive && <MicOff className="w-3.5 h-3.5 text-red-500" />}
             </div>
           </div>
@@ -646,8 +646,8 @@ export default function MeetingRoom() {
             <button
               onClick={toggleMic}
               className={`p-2.5 sm:p-3 rounded-xl transition font-semibold border ${micActive
-                  ? 'bg-gray-800 hover:bg-gray-700 text-white border-gray-700'
-                  : 'bg-red-500/10 border-red-500/35 text-red-500 hover:bg-red-500/20'
+                ? 'bg-gray-800 hover:bg-gray-700 text-white border-gray-700'
+                : 'bg-red-500/10 border-red-500/35 text-red-500 hover:bg-red-500/20'
                 }`}
               title={micActive ? 'Mute Mic' : 'Unmute Mic'}
             >
@@ -657,8 +657,8 @@ export default function MeetingRoom() {
             <button
               onClick={toggleCamera}
               className={`p-2.5 sm:p-3 rounded-xl transition font-semibold border ${cameraActive
-                  ? 'bg-gray-800 hover:bg-gray-700 text-white border-gray-700'
-                  : 'bg-red-500/10 border-red-500/35 text-red-500 hover:bg-red-500/20'
+                ? 'bg-gray-800 hover:bg-gray-700 text-white border-gray-700'
+                : 'bg-red-500/10 border-red-500/35 text-red-500 hover:bg-red-500/20'
                 }`}
               title={cameraActive ? 'Turn Off Camera' : 'Turn On Camera'}
             >
@@ -668,8 +668,8 @@ export default function MeetingRoom() {
             <button
               onClick={toggleScreenShare}
               className={`p-2.5 sm:p-3 rounded-xl transition font-semibold border ${screenSharing
-                  ? 'bg-indigo-600/10 border-indigo-500/35 text-indigo-400 hover:bg-indigo-650/20'
-                  : 'bg-gray-800 hover:bg-gray-700 text-white border-gray-700'
+                ? 'bg-indigo-600/10 border-indigo-500/35 text-indigo-400 hover:bg-indigo-650/20'
+                : 'bg-gray-800 hover:bg-gray-700 text-white border-gray-700'
                 }`}
               title={screenSharing ? 'Stop Screen Share' : 'Share Screen'}
             >
@@ -693,8 +693,8 @@ export default function MeetingRoom() {
             <button
               onClick={recording ? stopRecording : startRecording}
               className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-xl text-[10px] sm:text-xs font-bold transition border ${recording
-                  ? 'bg-red-500/20 border-red-500/35 text-red-400 hover:bg-red-500/30 animate-pulse'
-                  : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'
+                ? 'bg-red-500/20 border-red-500/35 text-red-400 hover:bg-red-500/30 animate-pulse'
+                : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'
                 }`}
               title={recording ? 'Stop Recording' : 'Record Meeting'}
             >
@@ -713,8 +713,8 @@ export default function MeetingRoom() {
             <button
               onClick={() => setShowChat(prev => !prev)}
               className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 sm:py-2 rounded-xl text-[10px] sm:text-xs font-bold transition border ${showChat
-                  ? 'bg-indigo-600/10 border-indigo-500/30 text-indigo-400 hover:bg-indigo-650/20'
-                  : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'
+                ? 'bg-indigo-600/10 border-indigo-500/30 text-indigo-400 hover:bg-indigo-650/20'
+                : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'
                 }`}
             >
               <MessageSquare className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
@@ -776,8 +776,8 @@ export default function MeetingRoom() {
                       </span>
                     </div>
                     <div className={`px-3 py-2 rounded-2xl text-xs max-w-[90%] break-words leading-relaxed ${isMe
-                        ? 'bg-indigo-600 text-white rounded-tr-none'
-                        : 'bg-gray-800 text-gray-200 rounded-tl-none'
+                      ? 'bg-indigo-600 text-white rounded-tr-none'
+                      : 'bg-gray-800 text-gray-200 rounded-tl-none'
                       }`}>
                       {msg.message}
                     </div>

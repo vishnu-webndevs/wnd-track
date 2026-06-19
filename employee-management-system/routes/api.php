@@ -134,6 +134,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/users/{user}/assigned-projects', [UserController::class, 'getAssignedProjects']);
     Route::get('/users/{user}/projects/{project}/assigned-tasks', [UserController::class, 'getAssignedProjectTasks']);
     Route::put('/time-logs/{timeLog}/notes', [UserController::class, 'updateTimeLogEmployee']);
+    Route::post('/time-logs/export-email', [UserController::class, 'exportTimesheetEmail']);
 
     // Timesheets and Monitoring Protected by 2FA for Admins
     Route::middleware(AdminTwoFactorMiddleware::class)->group(function () {

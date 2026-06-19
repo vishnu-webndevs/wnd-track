@@ -755,7 +755,7 @@ export default function Chat() {
             )}
 
             {/* Message Input Form */}
-            <form onSubmit={handleSendMessage} className="p-3 border-t border-gray-200 dark:border-gray-700 flex gap-2 items-center bg-white dark:bg-gray-900 relative">
+            <div className="p-3 border-t border-gray-200 dark:border-gray-700 flex gap-2 items-center bg-white dark:bg-gray-900 relative">
               
               {/* Mentions suggestions list */}
               {showMentionSuggestions && activeConversation?.type === 'group' && (
@@ -837,8 +837,15 @@ export default function Chat() {
                 type="text"
                 value={messageText}
                 onChange={handleMessageChange}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleSendMessage(e as any);
+                  }
+                }}
                 placeholder={selectedFile ? "Add a caption..." : "Type a message..."}
                 className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                autoComplete="off"
               />
 
               <button
@@ -855,7 +862,8 @@ export default function Chat() {
               </button>
 
               <button
-                type="submit"
+                type="button"
+                onClick={handleSendMessage}
                 disabled={!messageText.trim() && !selectedFile}
                 className={`p-2 rounded-xl text-white transition ${
                   messageText.trim() || selectedFile
@@ -865,7 +873,7 @@ export default function Chat() {
               >
                 <Send className="w-4 h-4" />
               </button>
-            </form>
+            </div>
           </>
         ) : (
           /* Empty Chat view */

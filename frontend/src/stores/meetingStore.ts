@@ -155,15 +155,7 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
         const peerId = Number(peerIdStr);
         if (!Number.isFinite(peerId) || !peerId) return;
 
-        if (myId && myId < peerId) {
-          attemptRenegotiate(peerId);
-        } else {
-          presenceChannel?.whisper('meeting-signal', {
-            to: peerId,
-            from: user?.id,
-            renegotiate: true
-          });
-        }
+        attemptRenegotiate(peerId);
       });
     }, 150);
   };
@@ -187,7 +179,12 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
       pc.addTransceiver('audio', { direction: 'sendrecv' });
     }
 
-    videoTransceivers[peerId] = pc.addTransceiver('video', { direction: 'sendrecv' });
+    let existingVideoTransceiver = pc.getTransceivers().find(t => t.receiver && t.receiver.track && t.receiver.track.kind === 'video');
+    if (!existingVideoTransceiver) {
+      videoTransceivers[peerId] = pc.addTransceiver('video', { direction: 'sendrecv' });
+    } else {
+      videoTransceivers[peerId] = existingVideoTransceiver;
+    }
 
     let candidateTimeout: any = null;
     let candidateBatch: any[] = [];
@@ -497,8 +494,9 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
 
       const pendingCandidates: Record<number, any[]> = {};
 
+      presenceChannel.stopListeningForWhisper('meeting-signal');
       presenceChannel.listenForWhisper('meeting-signal', async (data: any) => {
-        if (Number(data.to) !== Number(user?.id)) return;
+        if (data.to !== 'all' && Number(data.to) !== Number(user?.id)) return;
 
         if (data.action === 'recording-started') {
           const sender = get().activeMembers.find(m => Number(m.id) === Number(data.from));
@@ -523,22 +521,27 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
           }
 
           if (data.renegotiate) {
-            const myId = Number(user?.id ?? 0);
-            if (myId && myId < peerId) {
-              attemptRenegotiate(peerId);
-            }
+            attemptRenegotiate(peerId);
             return;
           }
 
           if (data.offer) {
+            const isPolite = Number(user?.id ?? 0) > Number(peerId);
+            const collision = pc.signalingState !== 'stable';
+
             if (data.offer.sdp) data.offer.sdp = sanitizeSdp(data.offer.sdp);
-            if (pc.signalingState !== 'stable') {
-              if (pc.signalingState === 'have-local-offer') {
-                try {
-                  await pc.setLocalDescription({ type: 'rollback' } as any);
-                } catch (e) { /* ignore rollback failures */ }
+
+            if (collision) {
+              if (!isPolite) {
+                // Impolite peer ignores the incoming offer collision
+                return;
               }
+              // Polite peer rolls back local offer
+              try {
+                await pc.setLocalDescription({ type: 'rollback' } as any);
+              } catch (e) { /* ignore rollback errors */ }
             }
+
             await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
 
             const queued = pendingCandidates[peerId] || [];
@@ -557,10 +560,6 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
           } else if (data.answer) {
             if (data.answer.sdp) data.answer.sdp = sanitizeSdp(data.answer.sdp);
             if (pc.signalingState === 'stable') return;
-            if (pc.remoteDescription?.type === 'answer') return;
-
-            const localType = pc.localDescription?.type;
-            if (pc.signalingState !== 'have-local-offer' || localType !== 'offer') return;
 
             await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
 

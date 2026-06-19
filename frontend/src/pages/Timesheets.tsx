@@ -39,6 +39,7 @@ export default function Timesheets() {
   const [isLiveWatching, setIsLiveWatching] = useState(false);
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [showPdfPreview, setShowPdfPreview] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const pdfIframeRef = useRef<HTMLIFrameElement>(null);
@@ -565,76 +566,22 @@ export default function Timesheets() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showExportMenu]);
 
-  const handleExportCSV = () => {
-    if (!timeLogs || timeLogs.length === 0) {
-      toast.error('No data to export');
-      return;
+
+  const handleSendEmail = async () => {
+    try {
+      setIsSendingEmail(true);
+      await timeTrackingAPI.exportTimesheetToEmail({
+        start_date: startDate,
+        end_date: endDate,
+        employee_id: isAdmin && employeeId !== undefined ? employeeId : undefined
+      });
+      toast.success('Timesheet sent to your email successfully!');
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to send timesheet to email');
+    } finally {
+      setIsSendingEmail(false);
+      setShowExportMenu(false);
     }
-
-    const headers = [
-      'Date',
-      'Employee Name',
-      'Project',
-      'Task',
-      'Start Time',
-      'End Time',
-      'Duration (Minutes)',
-      'Description/Notes',
-      'Start Work Log',
-      'End Work Log',
-      'Manual Entry'
-    ];
-
-    const escapeCSV = (val?: string | number | boolean | null) => {
-      if (val === undefined || val === null) return '""';
-      let str = String(val);
-      str = str.replace(/"/g, '""');
-      return `"${str}"`;
-    };
-
-    const rows = timeLogs.map((log) => {
-      const startDt = new Date(log.start_time);
-      const endDt = log.end_time ? new Date(log.end_time) : null;
-      
-      const dateStr = startDt.toLocaleDateString();
-      const startTimeStr = startDt.toLocaleTimeString();
-      const endTimeStr = endDt ? endDt.toLocaleTimeString() : 'In Progress';
-      
-      const projectStr = log.project?.name ?? '-';
-      const taskStr = log.task?.title ?? '-';
-      const durationVal = log.duration ?? '-';
-      const manualStr = log.is_manual ? 'Yes' : 'No';
-
-      return [
-        escapeCSV(dateStr),
-        escapeCSV(selectedEmployeeName),
-        escapeCSV(projectStr),
-        escapeCSV(taskStr),
-        escapeCSV(`${dateStr} ${startTimeStr}`),
-        escapeCSV(endDt ? `${dateStr} ${endTimeStr}` : 'In Progress'),
-        escapeCSV(durationVal),
-        escapeCSV(log.description),
-        escapeCSV(log.start_work_log),
-        escapeCSV(log.end_work_log),
-        escapeCSV(manualStr)
-      ].join(',');
-    });
-
-    const csvContent = [headers.join(','), ...rows].join('\n');
-    
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    
-    const fileName = `timesheet_${selectedEmployeeName.replace(/\s+/g, '_')}_${startDate}_to_${endDate}.csv`;
-    link.setAttribute('download', fileName);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    
-    toast.success('Timesheet exported successfully');
   };
 
   const handleExportExcel = async () => {
@@ -1196,32 +1143,25 @@ export default function Timesheets() {
             </button>
             {showExportMenu && (
               <div className="absolute right-0 mt-1.5 w-48 bg-white rounded-lg shadow-xl border border-gray-100 py-1 z-30 animate-in fade-in slide-in-from-top-1">
-                <button
-                  onClick={() => { handleExportCSV(); setShowExportMenu(false); }}
-                  className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3 transition-colors"
-                >
-                  <span className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center flex-shrink-0">
-                    <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                  </span>
-                  <div>
-                    <div className="font-semibold text-gray-900">Export CSV</div>
-                    <div className="text-xs text-gray-400">Spreadsheet format</div>
-                  </div>
-                </button>
+
                 <div className="border-t border-gray-100 mx-2"></div>
-                <button
-                  onClick={() => { handleExportExcel(); setShowExportMenu(false); }}
-                  className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3 transition-colors"
-                >
-                  <span className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center flex-shrink-0">
-                    <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                  </span>
-                  <div>
-                    <div className="font-semibold text-gray-900">Export Excel</div>
-                    <div className="text-xs text-gray-400">Styled spreadsheet</div>
-                  </div>
-                </button>
-                <div className="border-t border-gray-100 mx-2"></div>
+                {isAdmin && (
+                  <>
+                    <button
+                      onClick={() => { handleExportExcel(); setShowExportMenu(false); }}
+                      className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3 transition-colors"
+                    >
+                      <span className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center flex-shrink-0">
+                        <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                      </span>
+                      <div>
+                        <div className="font-semibold text-gray-900">Export Excel</div>
+                        <div className="text-xs text-gray-400">Styled spreadsheet</div>
+                      </div>
+                    </button>
+                    <div className="border-t border-gray-100 mx-2"></div>
+                  </>
+                )}
                 <button
                   onClick={handleShowPdfPreview}
                   className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3 transition-colors"
@@ -1231,7 +1171,25 @@ export default function Timesheets() {
                   </span>
                   <div>
                     <div className="font-semibold text-gray-900">Export PDF</div>
-                    <div className="text-xs text-gray-400">Preview & print</div>
+                    <div className="text-xs text-gray-400">Printable document</div>
+                  </div>
+                </button>
+                <div className="border-t border-gray-100 mx-2"></div>
+                <button
+                  onClick={handleSendEmail}
+                  disabled={isSendingEmail}
+                  className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3 transition-colors disabled:opacity-50"
+                >
+                  <span className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0">
+                    {isSendingEmail ? (
+                      <LoadingSpinner size="sm" />
+                    ) : (
+                      <svg className="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                    )}
+                  </span>
+                  <div>
+                    <div className="font-semibold text-gray-900">{isSendingEmail ? 'Sending...' : 'Send to Email'}</div>
+                    <div className="text-xs text-gray-400">Receive PDF via email</div>
                   </div>
                 </button>
               </div>

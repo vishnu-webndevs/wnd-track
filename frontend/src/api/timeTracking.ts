@@ -161,4 +161,8 @@ export const timeTrackingAPI = {
     const res = await api.get(`/users/${userId}/activity-summary?${params.toString()}`);
     return res.data;
   },
+  exportTimesheetToEmail: async (filters: { start_date?: string; end_date?: string; employee_id?: number }) => {
+    const res = await api.post('/time-logs/export-email', filters);
+    return res.data;
+  },
 };
