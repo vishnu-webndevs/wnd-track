@@ -932,14 +932,14 @@ export default function TimeTracking() {
 
       if (totalMinutes >= limitMinutes) {
         hasNotifiedDailyLimitRef.current = true;
-        toast.success(`🎉 Congratulations! You have reached your daily activity target of ${dailyLimitRef.current} hours.`, { duration: 10000 });
+        toast.success(`Congratulations! You have reached your daily activity target of ${dailyLimitRef.current} hours.`, { duration: 10000 });
         
         triggerDesktopNotification({
           type: 'daily_limit_reached',
           category: 'tracking',
-          title: '🎉 Daily Target Reached!',
+          title: 'Daily Target Reached!',
           message: `Congratulations! You have reached your daily activity target of ${dailyLimitRef.current} hours.`,
-          icon: '🏆'
+          icon: ''
         });
       }
     }
@@ -1258,9 +1258,9 @@ export default function TimeTracking() {
         triggerDesktopNotification({
           type: 'network_lost',
           category: 'network',
-          title: '🌐 Internet Connection Lost',
+          title: 'Internet Connection Lost',
           message: 'Internet connection lost. Tracking will continue temporarily.',
-          icon: '🌐'
+          icon: ''
         });
 
         // Add to local notificationStore
@@ -1290,9 +1290,9 @@ export default function TimeTracking() {
         triggerDesktopNotification({
           type: 'network_restored',
           category: 'network',
-          title: '🌐 Internet Connection Restored',
+          title: 'Internet Connection Restored',
           message: 'Internet connection restored successfully.',
-          icon: '🌐'
+          icon: ''
         });
 
         // Add to local notificationStore
