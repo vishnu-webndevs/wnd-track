@@ -113,7 +113,7 @@ class SendDailyTimeReport extends Command
         }
 
         // 2. Send Admin Report
-        $admins = User::where('role', 'admin')
+        $admins = User::whereIn('role', ['admin', 'project_manager'])
             ->where('status', 'active')
             ->get();
 

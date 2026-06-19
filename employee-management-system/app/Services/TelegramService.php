@@ -25,8 +25,8 @@ class TelegramService
             return $this->sendToChat($this->adminChatId, $message);
         }
 
-        // Fallback: search database for admin users with telegram_chat_id
-        $admins = \App\Models\User::where('role', 'admin')
+        // Fallback: search database for admin and PM users with telegram_chat_id
+        $admins = \App\Models\User::whereIn('role', ['admin', 'project_manager'])
             ->whereNotNull('telegram_chat_id')
             ->where('telegram_chat_id', '!=', '')
             ->get();
