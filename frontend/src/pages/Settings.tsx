@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import type { AxiosError } from 'axios';
 import { toast } from 'sonner';
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, User, Shield, Settings as SettingsIcon } from 'lucide-react';
 import { usersAPI } from '../api/users';
 import { authAPI } from '../api/auth';
 import { useAuthStore } from '../stores/authStore';
@@ -30,9 +30,12 @@ const passwordSchema = z.object({
 
 type PasswordForm = z.infer<typeof passwordSchema>;
 
+type TabType = 'profile' | 'security' | 'system';
+
 export default function Settings() {
   const { user, updateUser } = useAuthStore();
   const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState<TabType>('profile');
 
   const profileForm = useForm<ProfileForm>({
     resolver: zodResolver(profileSchema),
@@ -165,13 +168,58 @@ export default function Settings() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="max-w-6xl mx-auto space-y-6">
+      <div className="flex items-center justify-between mb-2">
         <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
       </div>
 
-      <div className="bg-white shadow rounded-lg p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">My Profile</h2>
+      <div className="flex flex-col md:flex-row gap-8">
+        {/* Sidebar Navigation */}
+        <div className="w-full md:w-64 flex flex-col space-y-2">
+          <button
+            onClick={() => setActiveTab('profile')}
+            className={`flex items-center gap-3 px-4 py-3 text-sm font-semibold rounded-xl transition-all duration-200 ${
+              activeTab === 'profile'
+                ? 'bg-indigo-50 text-indigo-700 shadow-sm ring-1 ring-indigo-100'
+                : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+            }`}
+          >
+            <User className="w-5 h-5" />
+            Profile
+          </button>
+          
+          <button
+            onClick={() => setActiveTab('security')}
+            className={`flex items-center gap-3 px-4 py-3 text-sm font-semibold rounded-xl transition-all duration-200 ${
+              activeTab === 'security'
+                ? 'bg-indigo-50 text-indigo-700 shadow-sm ring-1 ring-indigo-100'
+                : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+            }`}
+          >
+            <Shield className="w-5 h-5" />
+            Security
+          </button>
+
+          {user?.role === 'admin' && (
+            <button
+              onClick={() => setActiveTab('system')}
+              className={`flex items-center gap-3 px-4 py-3 text-sm font-semibold rounded-xl transition-all duration-200 ${
+                activeTab === 'system'
+                  ? 'bg-indigo-50 text-indigo-700 shadow-sm ring-1 ring-indigo-100'
+                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+              }`}
+            >
+              <SettingsIcon className="w-5 h-5" />
+              System Preferences
+            </button>
+          )}
+        </div>
+
+        {/* Main Content Area */}
+        <div className="flex-1 min-w-0 space-y-6">
+          {activeTab === 'profile' && (
+            <div className="bg-white shadow rounded-lg p-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">My Profile</h2>
         <form
           className="space-y-4"
           onSubmit={profileForm.handleSubmit((data) => updateProfileMutation.mutate(data))}
@@ -225,11 +273,14 @@ export default function Settings() {
               {updateProfileMutation.isPending ? 'Saving...' : 'Save Profile'}
             </button>
           </div>
-        </form>
-      </div>
+          </form>
+        </div>
+          )}
 
-      <div className="bg-white shadow rounded-lg p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Change Password</h2>
+          {activeTab === 'security' && (
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="bg-white shadow rounded-lg p-6">
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">Change Password</h2>
         <form
           className="space-y-4"
           onSubmit={passwordForm.handleSubmit((data) => resetPasswordMutation.mutate(data))}
@@ -273,16 +324,19 @@ export default function Settings() {
           </div>
         </form>
       </div>
+              <SessionManagement />
+            </div>
+          )}
 
-      {/* Telegram Notification Settings */}
-      {user?.role === 'admin' && (
-        <div className="bg-white shadow rounded-lg p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <span className="text-xl">📱</span>
-            <h2 className="text-lg font-semibold text-gray-900">Telegram Notifications</h2>
-          </div>
+          {activeTab === 'system' && user?.role === 'admin' && (
+            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="bg-white shadow rounded-lg p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="text-xl">⚙️</span>
+                  <h2 className="text-lg font-semibold text-gray-900">System Preferences</h2>
+                </div>
 
-          <div className="space-y-4">
+                <div className="space-y-4">
             <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200">
               <div className="flex-1">
                 <h3 className="text-sm font-medium text-gray-900">Work Log Notifications via Telegram</h3>
@@ -389,9 +443,10 @@ export default function Settings() {
             </p>
           </div>
         </div>
+      </div>
       )}
-
-      <SessionManagement />
+        </div>
+      </div>
     </div>
   );
 }
