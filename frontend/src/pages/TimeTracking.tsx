@@ -301,8 +301,44 @@ export default function TimeTracking() {
     mutationFn: (args: { id: number; payload: Parameters<typeof timeTrackingAPI.updateTimeLog>[1] }) =>
       timeTrackingAPI.updateTimeLog(args.id, args.payload),
   });
+  const syncOfflineData = useCallback(async () => {
+    try {
+      const raw = localStorage.getItem('tt_offline_sync_queue');
+      if (!raw) return;
+      const offlineQueue = JSON.parse(raw);
+      if (!Array.isArray(offlineQueue) || offlineQueue.length === 0) return;
 
+      const remainingQueue = [];
+      let syncedCount = 0;
+      for (const item of offlineQueue) {
+        try {
+          if (item.type === 'update') {
+            await updateTimeLog.mutateAsync({ id: item.id, payload: item.payload });
+          } else if (item.type === 'create') {
+            await createTimeLog.mutateAsync(item.payload);
+          }
+          syncedCount++;
+        } catch {
+          remainingQueue.push(item);
+        }
+      }
+      
+      if (syncedCount > 0) {
+        toast.success(`Synced ${syncedCount} offline records.`);
+      }
+      
+      localStorage.setItem('tt_offline_sync_queue', JSON.stringify(remainingQueue));
+    } catch { void 0; }
+  }, [createTimeLog, updateTimeLog]);
 
+  useEffect(() => {
+    const handleOnlineSync = () => syncOfflineData();
+    window.addEventListener('online', handleOnlineSync);
+    if (navigator.onLine) {
+      syncOfflineData();
+    }
+    return () => window.removeEventListener('online', handleOnlineSync);
+  }, [syncOfflineData]);
 
   const uploadShot = useMutation({
     mutationFn: (args: { projectId: number; file: File; capturedAt: string; minuteBreakdown?: ActivityMinute[]; timeLogId?: number }) =>
@@ -1259,27 +1295,9 @@ export default function TimeTracking() {
     networkCheckIntervalRef.current = window.setInterval(() => {
       if (!isTrackingRef.current) return;
 
-      const now = new Date();
-
       if (networkFailureStartRef.current) {
-        const offlineDuration = now.getTime() - networkFailureStartRef.current.getTime();
-        const twoMinutes = 2 * 60 * 1000;
-
-        if (offlineDuration >= twoMinutes && !isStoppedDueToNetworkRef.current) {
-          isStoppedDueToNetworkRef.current = true;
-          toast.error('Due to internet connectivity issues, your tracking was stopped. Please start tracking again.');
-
-          // Show native desktop notification
-          triggerDesktopNotification({
-            type: 'tracking_auto_stopped',
-            category: 'network',
-            title: '⚠️ Tracking Auto Stopped Due To Long Network Loss',
-            message: 'Tracking was stopped because internet was unavailable for more than 2 minutes.',
-            icon: '⚠️'
-          });
-
-          stopTrackingRef.current();
-        }
+        // Tracker will continue running offline indefinitely
+        // The data will be synced when the connection is restored
       }
     }, 10000); // Check every 10 seconds
 
@@ -1690,7 +1708,20 @@ export default function TimeTracking() {
           if (!isPauseAction) toast.success('Tracking stopped and saved');
           else toast.success('Tracking paused');
         } catch {
-          toast.error('Failed to save time log');
+          const offlineQueue = JSON.parse(localStorage.getItem('tt_offline_sync_queue') || '[]');
+          offlineQueue.push({
+            type: 'update',
+            id: activeLogId,
+            payload: {
+              end_time: toLocalISOString(end),
+              duration: durationMinutes,
+              description: currentNote,
+              end_work_log: endWorkLogText || undefined,
+              tracker_action: isPauseAction ? 'pause' : 'stop',
+            }
+          });
+          localStorage.setItem('tt_offline_sync_queue', JSON.stringify(offlineQueue));
+          toast.warning(isPauseAction ? 'Tracking paused offline (will sync later)' : 'Tracking stopped offline (will sync later)');
         }
       } else if (wasPaused && !isPauseAction) {
         try {
@@ -1703,7 +1734,17 @@ export default function TimeTracking() {
           });
           toast.success('Tracking stopped and saved');
         } catch {
-          toast.error('Failed to save time log');
+          const offlineQueue = JSON.parse(localStorage.getItem('tt_offline_sync_queue') || '[]');
+          offlineQueue.push({
+            type: 'update',
+            id: activeLogId,
+            payload: {
+              end_work_log: endWorkLogText || undefined,
+              tracker_action: 'stop',
+            }
+          });
+          localStorage.setItem('tt_offline_sync_queue', JSON.stringify(offlineQueue));
+          toast.warning('Tracking stopped offline (will sync later)');
         }
       }
     } else if (startTime && currentTaskId && wasTracking) {
@@ -1723,7 +1764,21 @@ export default function TimeTracking() {
           if (!isPauseAction) toast.success('Tracking stopped and saved');
           else toast.success('Tracking paused');
         } catch {
-          toast.error('Failed to save time log');
+          const offlineQueue = JSON.parse(localStorage.getItem('tt_offline_sync_queue') || '[]');
+          offlineQueue.push({
+            type: 'create',
+            payload: {
+              project_id,
+              task_id: currentTaskId,
+              start_time: toLocalISOString(startTime),
+              end_time: toLocalISOString(end),
+              duration: durationMinutes,
+              description: currentNote,
+              desktop_app_id: 'web',
+            }
+          });
+          localStorage.setItem('tt_offline_sync_queue', JSON.stringify(offlineQueue));
+          toast.warning(isPauseAction ? 'Tracking paused offline (will sync later)' : 'Tracking stopped offline (will sync later)');
         }
       }
     }
