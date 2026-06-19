@@ -19,7 +19,7 @@ class ProjectController extends Controller
     {
         $user = auth()->user();
         $projects = Project::query()
-            ->when($user->role !== 'admin', function ($query) use ($user) {
+            ->when(!$user->isAdmin(), function ($query) use ($user) {
                 $query->where(function ($q) use ($user) {
                     $q->where('manager_id', $user->id)
                       ->orWhereHas('employees', function ($eq) use ($user) {
@@ -214,7 +214,7 @@ class ProjectController extends Controller
                 $q->where('status', 'in_progress')
                   ->orWhere('status', 'planning');
             })
-            ->when($user->role !== 'admin', function ($query) use ($user) {
+            ->when(!$user->isAdmin(), function ($query) use ($user) {
                 $query->where(function ($q) use ($user) {
                     $q->where('manager_id', $user->id)
                       ->orWhereHas('employees', function ($eq) use ($user) {
@@ -236,7 +236,7 @@ class ProjectController extends Controller
     {
         $user = auth()->user();
         $projects = $client->projects()
-            ->when($user->role !== 'admin', function ($query) use ($user) {
+            ->when(!$user->isAdmin(), function ($query) use ($user) {
                 $query->where(function ($q) use ($user) {
                     $q->where('manager_id', $user->id)
                       ->orWhereHas('employees', function ($eq) use ($user) {
@@ -259,7 +259,7 @@ class ProjectController extends Controller
     {
         $currentUser = auth()->user();
         $projects = $user->projects()
-            ->when($currentUser->role !== 'admin' && $currentUser->id !== $user->id, function ($query) use ($currentUser) {
+            ->when(!$currentUser->isAdmin() && $currentUser->id !== $user->id, function ($query) use ($currentUser) {
                  $query->whereHas('tasks', function ($tq) use ($currentUser) {
                       $tq->where('assigned_to', $currentUser->id);
                  });

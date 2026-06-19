@@ -1,7 +1,7 @@
 {
   "name": "frontend",
   "private": true,
-  "version": "1.0.39",
+  "version": "1.0.40",
   "main": "electron/main.cjs",
   "type": "module",
   "description": "Time Tracking Desktop App",
@@ -27,6 +27,7 @@
     "buffer": "^6.0.3",
     "clsx": "^2.1.1",
     "events": "^3.3.0",
+    "exceljs": "^4.4.0",
     "laravel-echo": "^2.3.4",
     "lucide-react": "^0.511.0",
     "process": "^0.11.10",

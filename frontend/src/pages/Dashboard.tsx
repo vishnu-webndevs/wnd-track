@@ -54,7 +54,7 @@ export default function Dashboard() {
     return <LoadingSpinner size="lg" className="h-64" />;
   }
 
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'project_manager';
 
   // Standard Stat Cards
   const statCards = [

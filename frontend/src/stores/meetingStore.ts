@@ -96,7 +96,7 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
     Object.keys(pcs).forEach((peerIdStr) => {
       const peerId = Number(peerIdStr);
       if (!Number.isFinite(peerId) || !peerId) return;
-      
+
       channel.whisper('meeting-signal', {
         to: peerId,
         from: myId,
@@ -109,7 +109,7 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
     const pc = pcs[peerId];
     if (!pc || pc.signalingState === 'closed') return;
     if (pc.signalingState !== 'stable') return;
-    
+
     try {
       const user = useAuthStore.getState().user;
       const offer = await pc.createOffer();
@@ -288,7 +288,7 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
     });
     pcs = {};
     videoTransceivers = {};
-    
+
     if (recordingTimer) clearInterval(recordingTimer);
     if (elapsedTimer) clearInterval(elapsedTimer);
     recordingTimer = null;
@@ -435,7 +435,7 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
       const user = useAuthStore.getState().user;
       const echo = getEcho();
       echoInstance = echo;
-      
+
       const presenceChannelName = `presence-meeting.${id}`;
       const userPrivateChannelName = `App.Models.User.${user?.id}`;
 
@@ -540,7 +540,7 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
               }
             }
             await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-            
+
             const queued = pendingCandidates[peerId] || [];
             for (const c of queued) {
               await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => void 0);
@@ -563,7 +563,7 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
             if (pc.signalingState !== 'have-local-offer' || localType !== 'offer') return;
 
             await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-            
+
             const queued = pendingCandidates[peerId] || [];
             for (const c of queued) {
               await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => void 0);
@@ -607,7 +607,7 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
       } catch (e) {
         // Error registering leave silently
       }
-      
+
       if (echoInstance) {
         echoInstance.leave(`presence-meeting.${id}`);
         if (privateChannel) {
@@ -628,7 +628,7 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
       } catch (e) {
         toast.error('Failed to end meeting.');
       }
-      
+
       if (echoInstance) {
         echoInstance.leave(`presence-meeting.${id}`);
         if (privateChannel) {
@@ -664,10 +664,10 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
           const constraints = camId
             ? { video: { width: 1280, height: 720, deviceId: { exact: camId } }, audio: false }
             : { video: { width: 1280, height: 720 }, audio: false };
-          
+
           const stream = await navigator.mediaDevices.getUserMedia(constraints);
           const videoTrack = stream.getVideoTracks()[0];
-          
+
           if (localStreamInstance) {
             localStreamInstance.getVideoTracks().forEach(t => {
               localStreamInstance?.removeTrack(t);
@@ -700,7 +700,7 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
             track.stop();
           });
         }
-        
+
         Object.entries(pcs).forEach(([peerId, pc]) => {
           const pid = Number(peerId);
           const transceiver = (videoTransceivers[pid] || pc.getSenders().find(s => s.track?.kind === 'video')) as any;
@@ -950,7 +950,7 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
 
         recordingChunks = [];
         let mediaRecorder: MediaRecorder;
-        
+
         try {
           mediaRecorder = new MediaRecorder(mixedStream, { mimeType: 'video/webm;codecs=vp9,opus' });
         } catch (e) {
@@ -982,7 +982,7 @@ export const useMeetingStore = create<MeetingState>()((set, get) => {
           stream.getTracks().forEach(t => t.stop());
           dest.stream.getTracks().forEach(t => t.stop());
           if (audioContext.state !== 'closed') {
-            audioContext.close().catch(() => {});
+            audioContext.close().catch(() => { });
           }
 
           set({ recording: false, recordingDuration: 0 });

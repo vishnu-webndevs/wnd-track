@@ -36,6 +36,9 @@ class UserPolicy
      */
     public function update(User $user, User $model): bool
     {
+        if ($user->role === 'project_manager' && $model->role === 'admin') {
+            return false;
+        }
         return $user->isAdmin() || $user->id === $model->id;
     }
 
@@ -44,6 +47,9 @@ class UserPolicy
      */
     public function delete(User $user, User $model): bool
     {
+        if ($user->role === 'project_manager' && $model->role === 'admin') {
+            return false;
+        }
         return $user->isAdmin() && $user->id !== $model->id;
     }
 

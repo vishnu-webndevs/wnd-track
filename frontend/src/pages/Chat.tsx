@@ -477,7 +477,7 @@ export default function Chat() {
               {/* Header Right Action icons */}
               <div className="flex items-center gap-2">
                 {/* Admin Group Management */}
-                {currentUser?.role === 'admin' && (
+                {(currentUser?.role === 'admin' || currentUser?.role === 'project_manager') && (
                   <>
                     {activeConversation.type === 'group' && (
                       <button

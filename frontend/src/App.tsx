@@ -79,8 +79,8 @@ function AppContent() {
                 <Route path="/chat" element={<Chat />} />
                 <Route path="/meetings" element={<Meetings />} />
                 <Route path="/meeting-room/:id" element={<MeetingRoom />} />
-                <Route path="/team-availability" element={<ProtectedRoute requiredRole="admin"><TeamAvailability /></ProtectedRoute>} />
-                <Route path="/settings" element={<ProtectedRoute requiredRole="admin"><Settings /></ProtectedRoute>} />
+                <Route path="/team-availability" element={<ProtectedRoute requiredRole={['admin', 'project_manager']}><TeamAvailability /></ProtectedRoute>} />
+                <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
                 <Route path="/" element={<Dashboard />} />
               </Routes>
             </Layout>

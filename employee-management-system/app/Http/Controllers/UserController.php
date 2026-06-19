@@ -54,7 +54,7 @@ class UserController extends Controller
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users',
             'password' => 'required|string|min:8|confirmed',
-            'role' => 'required|in:admin,employee',
+            'role' => 'required|in:admin,employee,project_manager',
             'phone' => 'nullable|string|max:20',
             'department' => 'nullable|string|max:100',
             'position' => 'nullable|string|max:100',
@@ -62,6 +62,10 @@ class UserController extends Controller
             'hire_date' => 'nullable|date',
             'telegram_chat_id' => 'nullable|string|max:100',
         ]);
+
+        if (Auth::user()->role === 'project_manager' && $request->role === 'admin') {
+            return response()->json(['message' => 'Project managers cannot create admin users'], 403);
+        }
 
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
@@ -103,7 +107,7 @@ class UserController extends Controller
             'name' => 'sometimes|string|max:255',
             'email' => 'sometimes|string|email|max:255|unique:users,email,' . $user->id,
             'password' => 'sometimes|string|min:8|confirmed',
-            'role' => 'sometimes|in:admin,employee',
+            'role' => 'sometimes|in:admin,employee,project_manager',
             'phone' => 'nullable|string|max:20',
             'department' => 'nullable|string|max:100',
             'position' => 'nullable|string|max:100',
@@ -111,6 +115,10 @@ class UserController extends Controller
             'hire_date' => 'nullable|date',
             'telegram_chat_id' => 'nullable|string|max:100',
         ]);
+
+        if (Auth::user()->role === 'project_manager' && $request->role === 'admin') {
+            return response()->json(['message' => 'Project managers cannot assign the admin role'], 403);
+        }
 
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
@@ -208,7 +216,7 @@ class UserController extends Controller
     public function storeTimeLog(Request $request, User $user)
     {
         // Only admin can add manual time
-        if (Auth::user()->role !== 'admin') {
+        if (!Auth::user()->isAdmin()) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
@@ -249,7 +257,7 @@ class UserController extends Controller
     public function updateTimeLogAdmin(Request $request, User $user, TimeLog $timeLog)
     {
         // Only admin can edit time logs
-        if (Auth::user()->role !== 'admin') {
+        if (!Auth::user()->isAdmin()) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
@@ -323,7 +331,7 @@ class UserController extends Controller
 
     public function getAssignedProjects(User $user)
     {
-        if (Auth::user()->role !== 'admin' && Auth::id() !== $user->id) {
+        if (!Auth::user()->isAdmin() && Auth::id() !== $user->id) {
              return response()->json(['message' => 'Unauthorized'], 403);
         }
 
@@ -335,7 +343,7 @@ class UserController extends Controller
 
     public function getAssignedProjectTasks(User $user, Project $project)
     {
-        if (Auth::user()->role !== 'admin' && Auth::id() !== $user->id) {
+        if (!Auth::user()->isAdmin() && Auth::id() !== $user->id) {
              return response()->json(['message' => 'Unauthorized'], 403);
         }
 
@@ -419,7 +427,7 @@ class UserController extends Controller
     {
         $this->authorize('update', $user); // Or 'delete' if specific policy exists, but 'update' for self/admin is fine
 
-        if ($screenshot->user_id !== $user->id && Auth::user()->role !== 'admin') {
+        if ($screenshot->user_id !== $user->id && !Auth::user()->isAdmin()) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 

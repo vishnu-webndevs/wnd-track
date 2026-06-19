@@ -20,7 +20,7 @@ class TaskController extends Controller
     {
         $user = auth()->user();
         $tasks = Task::query()
-            ->when($user->role !== 'admin', function ($query) use ($user) {
+            ->when(!$user->isAdmin(), function ($query) use ($user) {
                 $query->where(function ($q) use ($user) {
                     $q->where('assigned_to', $user->id)
                       ->orWhereHas('assignees', function ($sq) use ($user) {
@@ -326,7 +326,7 @@ class TaskController extends Controller
     {
         $user = auth()->user();
         $tasks = $project->tasks()
-            ->when($user->role !== 'admin', function ($query) use ($user) {
+            ->when(!$user->isAdmin(), function ($query) use ($user) {
                 $query->where(function ($q) use ($user) {
                     $q->where('assigned_to', $user->id)
                       ->orWhereHas('assignees', function ($sq) use ($user) {
@@ -343,7 +343,7 @@ class TaskController extends Controller
 
     public function getTasksByUser(User $user)
     {
-        if (auth()->user()->role !== 'admin' && auth()->id() !== $user->id) {
+        if (!auth()->user()->isAdmin() && auth()->id() !== $user->id) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 

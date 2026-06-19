@@ -47,7 +47,7 @@ export default function Clients() {
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const queryClient = useQueryClient();
 
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'project_manager';
 
   const { data: clients, isLoading } = useQuery<{ data: Client[]; current_page: number; last_page: number }>({
     queryKey: ['clients', searchTerm, statusFilter, page],

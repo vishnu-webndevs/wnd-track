@@ -383,7 +383,7 @@ export default function Layout({ children }: LayoutProps) {
                   )}
                 </Link>
               ))}
-              {user?.role === 'admin' && (
+              {(user?.role === 'admin' || user?.role === 'project_manager') && (
                 <div className="border-t border-gray-200 pt-4">
                   <p className="px-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
                     Admin
@@ -459,7 +459,7 @@ export default function Layout({ children }: LayoutProps) {
                     )}
                   </Link>
                 ))}
-                {user?.role === 'admin' && (
+                {(user?.role === 'admin' || user?.role === 'project_manager') && (
                   <div className="border-t border-gray-200 pt-4">
                     <p className="px-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
                       Admin

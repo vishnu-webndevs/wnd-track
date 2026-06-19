@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { 
-  Video, Mic, MicOff, VideoOff, PhoneOff, Send, Users, 
+import {
+  Video, Mic, MicOff, VideoOff, PhoneOff, Send, Users,
   MessageSquare, Loader2, ArrowLeft, ShieldAlert, Monitor, Maximize, Settings
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -41,13 +41,13 @@ function useActiveSpeaker(stream: MediaStream | null, enabled: boolean = true) {
 
       const checkAudioLevel = () => {
         analyser.getByteFrequencyData(dataArray);
-        
+
         let sum = 0;
         for (let i = 0; i < dataArray.length; i++) {
           sum += dataArray[i];
         }
         const average = sum / dataArray.length;
-        
+
         if (average > 10) {
           lastSpeakTime = Date.now();
           setIsSpeaking(true);
@@ -66,11 +66,11 @@ function useActiveSpeaker(stream: MediaStream | null, enabled: boolean = true) {
         source.disconnect();
         analyser.disconnect();
         if (audioContext.state !== 'closed') {
-          audioContext.close().catch(() => {});
+          audioContext.close().catch(() => { });
         }
       };
     } catch (err) {
-      return () => {};
+      return () => { };
     }
   }, [stream, enabled]);
 
@@ -99,7 +99,7 @@ function RemoteParticipantTile({
   const isSpeaking = useActiveSpeaker(remoteStream, peerMicEnabled);
 
   return (
-    <div 
+    <div
       className={`aspect-video bg-gray-950 border rounded-2xl relative overflow-hidden flex flex-col items-center justify-center shadow-lg transition duration-300 ${isSpeaking ? 'border-indigo-500 shadow-indigo-500/20' : 'border-gray-800 hover:border-indigo-500/30'}`}
     >
       <audio
@@ -122,7 +122,7 @@ function RemoteParticipantTile({
       />
       <video
         autoPlay
-        playsInline 
+        playsInline
         onDoubleClick={toggleFullscreen}
         className="w-full h-full object-contain rounded-2xl cursor-pointer"
         ref={(el) => {
@@ -279,7 +279,7 @@ export default function MeetingRoom() {
       document.querySelectorAll('video, audio').forEach((el) => {
         const mediaEl = el as HTMLMediaElement;
         if (mediaEl.paused) {
-          mediaEl.play().then(() => setAudioBlocked(false)).catch(() => {});
+          mediaEl.play().then(() => setAudioBlocked(false)).catch(() => { });
         }
       });
     };
@@ -365,7 +365,7 @@ export default function MeetingRoom() {
     <div className="h-[calc(100dvh-5rem)] md:h-[calc(100vh-8rem)] flex flex-col md:flex-row overflow-hidden bg-gray-950 md:rounded-2xl md:border border-gray-800 md:shadow-2xl relative -mx-4 sm:mx-0">
       {/* Audio Blocked Overlay */}
       {audioBlocked && (
-        <div 
+        <div
           className="absolute inset-0 z-[100] flex items-center justify-center bg-gray-950/90 backdrop-blur-md"
           onClick={() => {
             document.querySelectorAll('video, audio').forEach((el) => {
@@ -539,11 +539,11 @@ export default function MeetingRoom() {
 
       {/* Main Video/Grid Area */}
       <div className="flex-1 flex flex-col p-2 sm:p-4 md:p-6 overflow-hidden min-h-0 bg-gray-900/60">
-        
+
         {/* Top bar info */}
         <div className="flex justify-between items-center bg-gray-900/80 backdrop-blur border border-gray-800 p-2 sm:p-4 rounded-xl z-10 shrink-0">
           <div className="flex items-center gap-2 sm:gap-3">
-            <button 
+            <button
               onClick={leaveRoom}
               className="p-1.5 sm:p-2 hover:bg-gray-800 rounded-lg text-gray-400 hover:text-white transition"
             >
@@ -576,15 +576,15 @@ export default function MeetingRoom() {
 
         {/* Video / Avatar Grid */}
         <div className="flex-1 my-2 sm:my-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 sm:gap-6 overflow-y-auto min-h-0 p-1 sm:p-2 items-center justify-center content-start sm:content-center">
-          
+
           {/* Local participant feed */}
           <div className={`aspect-video bg-gray-950 border rounded-2xl relative overflow-hidden flex flex-col items-center justify-center shadow-lg group transition duration-300 ${isSpeakingLocal ? 'border-indigo-500 shadow-indigo-500/20' : 'border-gray-800 hover:border-indigo-500/50'}`}>
             {(cameraActive || screenSharing) ? (
-              <video 
-                ref={localVideoRef} 
-                autoPlay 
-                playsInline 
-                muted 
+              <video
+                ref={localVideoRef}
+                autoPlay
+                playsInline
+                muted
                 className={`w-full h-full rounded-2xl ${screenSharing ? 'object-contain' : 'object-cover'}`}
               />
             ) : (
@@ -592,7 +592,7 @@ export default function MeetingRoom() {
                 {user?.name.charAt(0).toUpperCase()}
               </div>
             )}
-            
+
             <div className="absolute bottom-3 left-3 bg-gray-900/80 backdrop-blur px-2.5 py-1 rounded-lg border border-gray-850 flex items-center gap-2 text-xs font-semibold text-white">
               <span>You (Host/Participant)</span>
               {!micActive && <MicOff className="w-3.5 h-3.5 text-red-500" />}
@@ -604,9 +604,9 @@ export default function MeetingRoom() {
             const remoteStream = remoteStreams[member.id];
             const remoteVideoOn = peerVideoEnabled[member.id] ?? true;
             const peerMicOn = peerMicEnabled[member.id] ?? true;
-            
+
             return (
-              <RemoteParticipantTile 
+              <RemoteParticipantTile
                 key={member.id}
                 member={member}
                 remoteStream={remoteStream}
@@ -623,7 +623,7 @@ export default function MeetingRoom() {
           {meeting.participants
             .filter(p => !activeMembers.some(am => Number(am.id) === Number(p.id)))
             .map(p => (
-              <div 
+              <div
                 key={p.id}
                 className="aspect-video bg-gray-950/40 border border-gray-900 border-dashed rounded-2xl relative overflow-hidden flex flex-col items-center justify-center opacity-40 hover:opacity-60 transition duration-300"
               >
@@ -645,11 +645,10 @@ export default function MeetingRoom() {
           <div className="flex gap-2">
             <button
               onClick={toggleMic}
-              className={`p-2.5 sm:p-3 rounded-xl transition font-semibold border ${
-                micActive 
-                  ? 'bg-gray-800 hover:bg-gray-700 text-white border-gray-700' 
+              className={`p-2.5 sm:p-3 rounded-xl transition font-semibold border ${micActive
+                  ? 'bg-gray-800 hover:bg-gray-700 text-white border-gray-700'
                   : 'bg-red-500/10 border-red-500/35 text-red-500 hover:bg-red-500/20'
-              }`}
+                }`}
               title={micActive ? 'Mute Mic' : 'Unmute Mic'}
             >
               {micActive ? <Mic className="w-4 h-4 sm:w-5 sm:h-5" /> : <MicOff className="w-4 h-4 sm:w-5 sm:h-5" />}
@@ -657,11 +656,10 @@ export default function MeetingRoom() {
 
             <button
               onClick={toggleCamera}
-              className={`p-2.5 sm:p-3 rounded-xl transition font-semibold border ${
-                cameraActive 
-                  ? 'bg-gray-800 hover:bg-gray-700 text-white border-gray-700' 
+              className={`p-2.5 sm:p-3 rounded-xl transition font-semibold border ${cameraActive
+                  ? 'bg-gray-800 hover:bg-gray-700 text-white border-gray-700'
                   : 'bg-red-500/10 border-red-500/35 text-red-500 hover:bg-red-500/20'
-              }`}
+                }`}
               title={cameraActive ? 'Turn Off Camera' : 'Turn On Camera'}
             >
               {cameraActive ? <Video className="w-4 h-4 sm:w-5 sm:h-5" /> : <VideoOff className="w-4 h-4 sm:w-5 sm:h-5" />}
@@ -669,11 +667,10 @@ export default function MeetingRoom() {
 
             <button
               onClick={toggleScreenShare}
-              className={`p-2.5 sm:p-3 rounded-xl transition font-semibold border ${
-                screenSharing 
-                  ? 'bg-indigo-600/10 border-indigo-500/35 text-indigo-400 hover:bg-indigo-650/20' 
+              className={`p-2.5 sm:p-3 rounded-xl transition font-semibold border ${screenSharing
+                  ? 'bg-indigo-600/10 border-indigo-500/35 text-indigo-400 hover:bg-indigo-650/20'
                   : 'bg-gray-800 hover:bg-gray-700 text-white border-gray-700'
-              }`}
+                }`}
               title={screenSharing ? 'Stop Screen Share' : 'Share Screen'}
             >
               <Monitor className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -695,11 +692,10 @@ export default function MeetingRoom() {
 
             <button
               onClick={recording ? stopRecording : startRecording}
-              className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-xl text-[10px] sm:text-xs font-bold transition border ${
-                recording 
-                  ? 'bg-red-500/20 border-red-500/35 text-red-400 hover:bg-red-500/30 animate-pulse' 
+              className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-xl text-[10px] sm:text-xs font-bold transition border ${recording
+                  ? 'bg-red-500/20 border-red-500/35 text-red-400 hover:bg-red-500/30 animate-pulse'
                   : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'
-              }`}
+                }`}
               title={recording ? 'Stop Recording' : 'Record Meeting'}
             >
               <span className={`w-1.5 h-1.5 rounded-full ${recording ? 'bg-red-500 animate-ping' : 'bg-gray-400'}`}></span>
@@ -716,11 +712,10 @@ export default function MeetingRoom() {
             </button>
             <button
               onClick={() => setShowChat(prev => !prev)}
-              className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 sm:py-2 rounded-xl text-[10px] sm:text-xs font-bold transition border ${
-                showChat 
-                  ? 'bg-indigo-600/10 border-indigo-500/30 text-indigo-400 hover:bg-indigo-650/20' 
+              className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 sm:py-2 rounded-xl text-[10px] sm:text-xs font-bold transition border ${showChat
+                  ? 'bg-indigo-600/10 border-indigo-500/30 text-indigo-400 hover:bg-indigo-650/20'
                   : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'
-              }`}
+                }`}
             >
               <MessageSquare className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               Chat
@@ -780,11 +775,10 @@ export default function MeetingRoom() {
                         {new Date(msg.created_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
                       </span>
                     </div>
-                    <div className={`px-3 py-2 rounded-2xl text-xs max-w-[90%] break-words leading-relaxed ${
-                      isMe 
-                        ? 'bg-indigo-600 text-white rounded-tr-none' 
+                    <div className={`px-3 py-2 rounded-2xl text-xs max-w-[90%] break-words leading-relaxed ${isMe
+                        ? 'bg-indigo-600 text-white rounded-tr-none'
                         : 'bg-gray-800 text-gray-200 rounded-tl-none'
-                    }`}>
+                      }`}>
                       {msg.message}
                     </div>
                   </div>

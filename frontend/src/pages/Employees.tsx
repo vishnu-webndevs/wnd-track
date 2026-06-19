@@ -26,13 +26,13 @@ export default function Employees() {
   const [showEditChatId, setShowEditChatId] = useState(false);
   const queryClient = useQueryClient();
 
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'project_manager';
 
   const { data: users, isLoading } = useQuery<{ data: User[]; current_page: number; last_page: number }>({
     queryKey: ['users', searchTerm, roleFilter, statusFilter, page],
     queryFn: () => usersAPI.getUsers({
       search: searchTerm,
-      role: roleFilter as 'admin' | 'employee' | undefined,
+      role: roleFilter as 'admin' | 'employee' | 'project_manager' | undefined,
       status: statusFilter as 'active' | 'inactive' | undefined,
       page,
     }),
@@ -41,7 +41,7 @@ export default function Employees() {
   const createSchema = z.object({
     name: z.string().min(1, 'Name is required'),
     email: z.string().email('Invalid email'),
-    role: z.enum(['admin', 'employee']),
+    role: z.enum(['admin', 'employee', 'project_manager']),
     password: z.string().min(8, 'Minimum 8 characters'),
     password_confirmation: z.string().min(8, 'Minimum 8 characters'),
     phone: z.string().optional(),
@@ -58,7 +58,7 @@ export default function Employees() {
   const editSchema = z.object({
     name: z.string().min(1, 'Name is required'),
     email: z.string().email('Invalid email'),
-    role: z.enum(['admin', 'employee']),
+    role: z.enum(['admin', 'employee', 'project_manager']),
     password: z.string().optional(),
     password_confirmation: z.string().optional(),
     phone: z.string().optional(),
@@ -160,6 +160,7 @@ export default function Employees() {
             >
               <option value="">All Roles</option>
               <option value="admin">Admin</option>
+              <option value="project_manager">Project Manager</option>
               <option value="employee">Employee</option>
             </select>
             <select
@@ -268,10 +269,11 @@ export default function Employees() {
                         >
                           <Eye className="h-4 w-4" />
                         </button>
-                        <button
-                          className="text-indigo-600 hover:text-indigo-900"
-                          title="Edit"
-                          onClick={() => {
+                        {!(currentUser?.role === 'project_manager' && employee.role === 'admin') && (
+                          <button
+                            className="text-indigo-600 hover:text-indigo-900"
+                            title="Edit"
+                            onClick={() => {
                             setSelectedUser(employee);
                             setIsEditOpen(true);
                             setShowEditChatId(false);
@@ -291,8 +293,9 @@ export default function Employees() {
                           }}
                         >
                           <Edit className="h-4 w-4" />
-                        </button>
-                        {isAdmin && (
+                          </button>
+                        )}
+                        {isAdmin && !(currentUser?.role === 'project_manager' && employee.role === 'admin') && (
                           <button
                             className="text-red-600 hover:text-red-900"
                             title="Delete"
@@ -448,6 +451,7 @@ export default function Employees() {
                   <label className="block text-sm font-medium text-gray-700">Role</label>
                   <select {...createForm.register('role')} className="mt-1 block w-full border rounded px-3 py-2">
                     <option value="admin">Admin</option>
+                    <option value="project_manager">Project Manager</option>
                     <option value="employee">Employee</option>
                   </select>
                 </div>
@@ -563,6 +567,7 @@ export default function Employees() {
                   <label className="block text-sm font-medium text-gray-700">Role</label>
                   <select {...editForm.register('role')} className="mt-1 block w-full border rounded px-3 py-2">
                     <option value="admin">Admin</option>
+                    <option value="project_manager">Project Manager</option>
                     <option value="employee">Employee</option>
                   </select>
                 </div>

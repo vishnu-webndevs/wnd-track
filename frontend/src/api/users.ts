@@ -3,7 +3,7 @@ import { User, Project, Task } from '../types';
 
 export interface UserFilters {
   search?: string;
-  role?: 'admin' | 'employee';
+  role?: 'admin' | 'employee' | 'project_manager';
   status?: 'active' | 'inactive';
   department?: string;
   page?: number;

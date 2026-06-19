@@ -61,7 +61,7 @@ export default function Projects() {
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<number[]>([]);
   const queryClient = useQueryClient();
 
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'project_manager';
 
   const { data: projects, isLoading } = useQuery<{ data: Project[]; current_page: number; last_page: number }>({
     queryKey: ['projects', searchTerm, statusFilter, clientFilter, managerFilter, page],
@@ -83,7 +83,7 @@ export default function Projects() {
   const { data: users } = useQuery<{ data: User[] }>({
     queryKey: ['users', 'for-projects'],
     queryFn: () => usersAPI.getUsers({ per_page: 1000, status: 'active' }), // Get all active for dropdown
-    enabled: currentUser?.role === 'admin',
+    enabled: currentUser?.role === 'admin' || currentUser?.role === 'project_manager',
   });
 
   const clientOptions = useMemo(() => (clients?.data ?? []), [clients]);
@@ -261,8 +261,8 @@ export default function Projects() {
                       {project.employees && project.employees.length > 0 ? (
                         <div className="flex flex-wrap gap-1 max-w-xs">
                           {project.employees.map(emp => (
-                            <span 
-                              key={emp.id} 
+                            <span
+                              key={emp.id}
                               className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100"
                               title={emp.name}
                             >
@@ -519,8 +519,8 @@ export default function Projects() {
                   <div className="mt-1 flex flex-wrap gap-1">
                     {selectedProject.employees && selectedProject.employees.length > 0 ? (
                       selectedProject.employees.map(emp => (
-                        <span 
-                          key={emp.id} 
+                        <span
+                          key={emp.id}
                           className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-150"
                         >
                           {emp.name}
@@ -581,12 +581,12 @@ export default function Projects() {
               id="edit-project-form"
               className="px-6 py-4 space-y-4 overflow-y-auto flex-1"
               onSubmit={editForm.handleSubmit((values) => {
-                updateMutation.mutate({ 
-                  id: selectedProject!.id, 
+                updateMutation.mutate({
+                  id: selectedProject!.id,
                   data: {
                     ...values,
                     employee_ids: selectedEmployeeIds
-                  } 
+                  }
                 });
               })}
             >

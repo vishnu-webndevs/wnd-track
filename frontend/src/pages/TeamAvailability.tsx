@@ -1241,7 +1241,7 @@ export default function TeamAvailability() {
             const isPaused = presence.status === 'paused';
             const isInternetIssue = isOnline && !presence.internet_connected;
             const isSelected = selectedUserIds.includes(presence.user_id);
-            const showIdleToday = currentUser?.role === 'admin' && presence.user?.role === 'employee';
+            const showIdleToday = (currentUser?.role === 'admin' || currentUser?.role === 'project_manager') && presence.user?.role === 'employee';
             const idleMinutesToday = presence.idle_no_movement_minutes_today ?? 0;
             const idleStreaksToday = presence.idle_no_movement_streaks_today ?? 0;
 

@@ -17,7 +17,7 @@ class ClientController extends Controller
     {
         $user = auth()->user();
         $clients = Client::query()
-            ->when($user->role !== 'admin', function ($query) use ($user) {
+            ->when(!$user->isAdmin(), function ($query) use ($user) {
                 $query->whereHas('projects', function ($pq) use ($user) {
                     $pq->where('manager_id', $user->id)
                        ->orWhereHas('tasks', function ($tq) use ($user) {
@@ -125,7 +125,7 @@ class ClientController extends Controller
     {
         $user = auth()->user();
         $clients = Client::where('status', 'active')
-            ->when($user->role !== 'admin', function ($query) use ($user) {
+            ->when(!$user->isAdmin(), function ($query) use ($user) {
                 $query->whereHas('projects', function ($pq) use ($user) {
                     $pq->where('manager_id', $user->id)
                        ->orWhereHas('tasks', function ($tq) use ($user) {
