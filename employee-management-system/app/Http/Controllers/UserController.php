@@ -743,26 +743,31 @@ class UserController extends Controller
     public function getTelegramWorklogSetting(Request $request)
     {
         $user = Auth::user();
-        if ($user->role !== 'admin') {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        
+        $data = [
+            'send_worklog_telegram' => (bool) $user->send_worklog_telegram,
+            'daily_tracking_limit_hours' => (float) \App\Models\Setting::get('daily_tracking_limit_hours', 9),
+        ];
+
+        // Only include sensitive info if admin
+        if ($user->role === 'admin' || $user->role === 'project_manager') {
+            $data['telegram_bot_token'] = \App\Models\Setting::get('telegram_bot_token', env('TELEGRAM_BOT_TOKEN') ?: '');
         }
 
-        return response()->json([
-            'send_worklog_telegram' => (bool) $user->send_worklog_telegram,
-            'telegram_bot_token' => \App\Models\Setting::get('telegram_bot_token', env('TELEGRAM_BOT_TOKEN') ?: ''),
-        ]);
+        return response()->json($data);
     }
 
     public function updateTelegramWorklogSetting(Request $request)
     {
         $user = Auth::user();
-        if ($user->role !== 'admin') {
+        if ($user->role !== 'admin' && $user->role !== 'project_manager') {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
         $validator = Validator::make($request->all(), [
             'send_worklog_telegram' => 'required|boolean',
             'telegram_bot_token' => 'nullable|string',
+            'daily_tracking_limit_hours' => 'nullable|numeric|min:0',
         ]);
 
         if ($validator->fails()) {
@@ -777,10 +782,15 @@ class UserController extends Controller
             \App\Models\Setting::set('telegram_bot_token', $request->telegram_bot_token);
         }
 
+        if ($request->has('daily_tracking_limit_hours')) {
+            \App\Models\Setting::set('daily_tracking_limit_hours', $request->daily_tracking_limit_hours);
+        }
+
         return response()->json([
-            'message' => 'Telegram setting updated',
+            'message' => 'Settings updated',
             'send_worklog_telegram' => (bool) $user->send_worklog_telegram,
             'telegram_bot_token' => \App\Models\Setting::get('telegram_bot_token', env('TELEGRAM_BOT_TOKEN') ?: ''),
+            'daily_tracking_limit_hours' => (float) \App\Models\Setting::get('daily_tracking_limit_hours', 9),
         ]);
     }
 

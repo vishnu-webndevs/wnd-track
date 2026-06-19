@@ -109,6 +109,23 @@ export default function TimeTracking() {
     enabled: !!user,
   });
 
+  const dashboardStatsRef = useRef(dashboardStats);
+  useEffect(() => {
+    dashboardStatsRef.current = dashboardStats;
+  }, [dashboardStats]);
+
+  const { data: telegramSetting } = useQuery({
+    queryKey: ['telegram-worklog-setting'],
+    queryFn: () => usersAPI.getTelegramWorklogSetting(),
+    enabled: !!user,
+    refetchInterval: 5 * 60 * 1000, // 5 min
+  });
+  
+  const dailyLimitRef = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    dailyLimitRef.current = telegramSetting?.daily_tracking_limit_hours;
+  }, [telegramSetting]);
+
   const [selectedTaskId, setSelectedTaskId] = useState<number | undefined>(undefined);
   const selectedTaskIdRef = useRef(selectedTaskId);
   useEffect(() => { selectedTaskIdRef.current = selectedTaskId; }, [selectedTaskId]);
@@ -136,6 +153,13 @@ export default function TimeTracking() {
   useEffect(() => {
     isTrackingRef.current = isTracking;
     (window as TTWindow).__tt_core.isTracking = isTracking;
+  }, [isTracking]);
+
+  const hasNotifiedDailyLimitRef = useRef(false);
+  useEffect(() => {
+    if (!isTracking) {
+      hasNotifiedDailyLimitRef.current = false;
+    }
   }, [isTracking]);
 
   const [isPaused, setIsPaused] = useState((window as TTWindow).__tt_core.isPaused);
@@ -898,6 +922,27 @@ export default function TimeTracking() {
     }
 
     const now = new Date();
+
+    // Check Daily Limit
+    if (dailyLimitRef.current && dailyLimitRef.current > 0 && dashboardStatsRef.current && !hasNotifiedDailyLimitRef.current) {
+      const todayMinutes = dashboardStatsRef.current.todayMinutes || 0;
+      const currentElapsedMinutes = core.elapsed / 60;
+      const totalMinutes = todayMinutes + currentElapsedMinutes;
+      const limitMinutes = dailyLimitRef.current * 60;
+
+      if (totalMinutes >= limitMinutes) {
+        hasNotifiedDailyLimitRef.current = true;
+        toast.success(`🎉 Congratulations! You have reached your daily activity target of ${dailyLimitRef.current} hours.`, { duration: 10000 });
+        
+        triggerDesktopNotification({
+          type: 'daily_limit_reached',
+          category: 'tracking',
+          title: '🎉 Daily Target Reached!',
+          message: `Congratulations! You have reached your daily activity target of ${dailyLimitRef.current} hours.`,
+          icon: '🏆'
+        });
+      }
+    }
     try {
       if (isTrackingRef.current) {
         const raw = localStorage.getItem(trackerKey);

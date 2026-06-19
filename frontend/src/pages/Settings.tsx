@@ -102,19 +102,24 @@ export default function Settings() {
   const [telegramToggle, setTelegramToggle] = useState(false);
   const [telegramBotToken, setTelegramBotToken] = useState('');
   const [showBotToken, setShowBotToken] = useState(false);
+  const [dailyTrackingLimit, setDailyTrackingLimit] = useState(9);
 
   useEffect(() => {
     if (telegramSetting) {
       setTelegramToggle(telegramSetting.send_worklog_telegram);
       setTelegramBotToken(telegramSetting.telegram_bot_token || '');
+      if (telegramSetting.daily_tracking_limit_hours !== undefined) {
+        setDailyTrackingLimit(telegramSetting.daily_tracking_limit_hours);
+      }
     }
   }, [telegramSetting]);
 
   const telegramToggleMutation = useMutation({
-    mutationFn: (enabled: boolean) => usersAPI.updateTelegramWorklogSetting({ send_worklog_telegram: enabled, telegram_bot_token: telegramBotToken }),
+    mutationFn: (enabled: boolean) => usersAPI.updateTelegramWorklogSetting({ send_worklog_telegram: enabled, telegram_bot_token: telegramBotToken, daily_tracking_limit_hours: dailyTrackingLimit }),
     onSuccess: (data) => {
       setTelegramToggle(data.send_worklog_telegram);
       setTelegramBotToken(data.telegram_bot_token || '');
+      setDailyTrackingLimit(data.daily_tracking_limit_hours);
       queryClient.invalidateQueries({ queryKey: ['telegram-worklog-setting'] });
       toast.success(data.send_worklog_telegram ? 'Telegram work log notifications enabled' : 'Telegram work log notifications disabled');
     },
@@ -126,7 +131,7 @@ export default function Settings() {
   });
 
   const saveBotTokenMutation = useMutation({
-    mutationFn: (token: string) => usersAPI.updateTelegramWorklogSetting({ send_worklog_telegram: telegramToggle, telegram_bot_token: token }),
+    mutationFn: (token: string) => usersAPI.updateTelegramWorklogSetting({ send_worklog_telegram: telegramToggle, telegram_bot_token: token, daily_tracking_limit_hours: dailyTrackingLimit }),
     onSuccess: (data) => {
       setTelegramBotToken(data.telegram_bot_token || '');
       queryClient.invalidateQueries({ queryKey: ['telegram-worklog-setting'] });
@@ -135,6 +140,19 @@ export default function Settings() {
     onError: (error: unknown) => {
       const err = error as AxiosError<{ message?: string }>;
       toast.error(err.response?.data?.message ?? 'Failed to update bot token');
+    },
+  });
+
+  const saveDailyLimitMutation = useMutation({
+    mutationFn: (limit: number) => usersAPI.updateTelegramWorklogSetting({ send_worklog_telegram: telegramToggle, telegram_bot_token: telegramBotToken, daily_tracking_limit_hours: limit }),
+    onSuccess: (data) => {
+      setDailyTrackingLimit(data.daily_tracking_limit_hours);
+      queryClient.invalidateQueries({ queryKey: ['telegram-worklog-setting'] });
+      toast.success('Daily Tracking Limit updated successfully');
+    },
+    onError: (error: unknown) => {
+      const err = error as AxiosError<{ message?: string }>;
+      toast.error(err.response?.data?.message ?? 'Failed to update daily tracking limit');
     },
   });
 
@@ -329,6 +347,37 @@ export default function Settings() {
                     className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-sm font-semibold rounded-lg shadow transition-colors whitespace-nowrap"
                   >
                     {saveBotTokenMutation.isPending ? 'Saving...' : 'Save Token'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Daily Tracking Limit Config Field */}
+            <div className="pt-4 border-t border-gray-100 space-y-3">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700">Daily Tracking Limit (Hours)</label>
+                <p className="text-xs text-gray-500 mt-0.5 mb-2">
+                  Set the daily goal for employees. They will receive a notification when their tracked time reaches this limit.
+                </p>
+                <div className="flex gap-3">
+                  <div className="relative flex-1">
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={dailyTrackingLimit}
+                      onChange={(e) => setDailyTrackingLimit(parseFloat(e.target.value) || 0)}
+                      placeholder="e.g. 9"
+                      className="block w-full border border-gray-300 rounded-lg pl-3 pr-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 font-mono"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    disabled={saveDailyLimitMutation.isPending}
+                    onClick={() => saveDailyLimitMutation.mutate(dailyTrackingLimit)}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-sm font-semibold rounded-lg shadow transition-colors whitespace-nowrap"
+                  >
+                    {saveDailyLimitMutation.isPending ? 'Saving...' : 'Save Limit'}
                   </button>
                 </div>
               </div>
