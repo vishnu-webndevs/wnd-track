@@ -194,10 +194,6 @@ app.whenReady().then(() => {
         const dist = Math.abs(currentPos.x - lastCheckPos.x) + Math.abs(currentPos.y - lastCheckPos.y);
         if (dist >= 3) {
           activityCounts.mouseMovements++;
-          if (dist >= 15) {
-            activityCounts.mouseClicks++;
-            logDebug(`[CursorPoll] Touch/jump click detected. Dist: ${dist}. Total clicks: ${activityCounts.mouseClicks}, movements: ${activityCounts.mouseMovements}`);
-          }
         }
       }
       lastCheckPos = currentPos;

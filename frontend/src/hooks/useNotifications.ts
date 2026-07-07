@@ -215,7 +215,7 @@ export function useNotifications() {
 /**
  * Trigger a desktop notification using either Electron's native API or the Web Notifications API.
  */
-export function triggerDesktopNotification(data: Partial<NotificationData> & { title: string; message: string }) {
+export function triggerDesktopNotification(data: Partial<NotificationData> & { title: string; message: string; id?: number }) {
   const title = data.title || 'WND Tracker';
   const body = data.message || '';
 
@@ -249,36 +249,17 @@ export function triggerDesktopNotification(data: Partial<NotificationData> & { t
     }
   };
 
-  if (ipcRenderer) {
-    // Electron environment - use native IPC notification to main process
-    try {
-      ipcRenderer.send('show-notification', { title, body, data });
-    } catch (e) {
-      void e;
-      try {
-        const notification = new Notification(title, {
-          body,
-          icon: '/tracker_logo.png',
-          silent: false,
-          requireInteraction: true, // Keep notification visible until user interacts
-        });
-        notification.onclick = handleNotificationClick;
-      } catch (err) {
-        void err;
-      }
-    }
-    return;
-  }
-
-  // Browser environment - use Web Notifications API
+  // Use HTML5 Notification API for both browser and Electron to guarantee OS delivery.
+  // HTML5 Notification doesn't require a registered Start Menu shortcut on Windows, unlike Electron's native notifications.
   if ('Notification' in window) {
     const showNotification = () => {
       try {
         const notification = new Notification(title, {
           body,
           icon: '/tracker_logo.png',
-          requireInteraction: true, // Keep visible until user clicks it (like WhatsApp!)
+          requireInteraction: true,
           silent: false,
+          tag: data.id ? String(data.id) : title, // Deduplicate identical notification popups
         });
         notification.onclick = handleNotificationClick;
         notification.onerror = () => void 0;

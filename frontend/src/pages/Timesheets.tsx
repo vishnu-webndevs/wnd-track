@@ -1483,8 +1483,9 @@ export default function Timesheets() {
                       mouse: acc.mouse + (curr.mouse_clicks || 0),
                       scroll: acc.scroll + (curr.mouse_scrolls || 0),
                       movement: acc.movement + (curr.mouse_movements || 0),
-                      total: acc.total + (curr.total_activity || 0)
-                    }), { keyboard: 0, mouse: 0, scroll: 0, movement: 0, total: 0 });
+                      total: acc.total + (curr.total_activity || 0),
+                      isSuspicious: acc.isSuspicious || (curr as any).is_suspicious || false
+                    }), { keyboard: 0, mouse: 0, scroll: 0, movement: 0, total: 0, isSuspicious: false });
 
                     return (
                       <div key={shot.id} className="flex flex-col h-full border rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow bg-white">
@@ -1492,6 +1493,11 @@ export default function Timesheets() {
                            className="cursor-pointer relative group flex-shrink-0"
                            onClick={() => setSelectedShot(shot)}
                          >
+                           {stats?.isSuspicious && (
+                             <div className="absolute top-2 left-2 bg-red-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-md shadow z-10 flex items-center gap-1 animate-pulse select-none">
+                               ⚠️ Possible Jiggler / Static Screen
+                             </div>
+                           )}
                            <img 
                             src={buildSrc(shot, true)} 
                             onError={(e) => { 

@@ -151,10 +151,19 @@ class DashboardController extends Controller
             ->whereNotNull('duration')
             ->sum('duration');
 
-        $todayHours = TimeLog::where('user_id', $userId)
+        $todayHoursCompleted = TimeLog::where('user_id', $userId)
             ->whereDate('start_time', Carbon::today())
+            ->whereNotNull('end_time')
             ->whereNotNull('duration')
             ->sum('duration');
+
+        $todayHoursActive = TimeLog::where('user_id', $userId)
+            ->whereDate('start_time', Carbon::today())
+            ->whereNull('end_time')
+            ->whereNotNull('duration')
+            ->sum('duration');
+
+        $todayHours = $todayHoursCompleted + $todayHoursActive;
 
         $thisWeekHours = TimeLog::where('user_id', $userId)
             ->whereBetween('start_time', [Carbon::now()->startOfWeek(), Carbon::now()->endOfWeek()])
@@ -221,6 +230,7 @@ class DashboardController extends Controller
                 'total_hours' => round($totalHours / 60, 1),
                 'today_hours' => round($todayHours / 60, 1),
                 'today_minutes' => (int)$todayHours,
+                'today_minutes_completed' => (int)$todayHoursCompleted,
                 'this_week_hours' => round($thisWeekHours / 60, 1),
                 // Meetings
                 'upcoming_meetings' => $upcomingMeetingsCount,

@@ -239,6 +239,7 @@ export default function TimeTracking() {
   const screenshotMissingWarnedRef = useRef<boolean>(false);
   const lastCapturedMinuteRef = useRef<string | null>((window as TTWindow).__tt_core.lastCapturedMinute);
   useEffect(() => { (window as TTWindow).__tt_core.lastCapturedMinute = lastCapturedMinuteRef.current; });
+  const lastScreenThumbRef = useRef<string | null>(null);
   const isCapturingRef = useRef((window as TTWindow).__tt_core.isCapturing);
   useEffect(() => { (window as TTWindow).__tt_core.isCapturing = isCapturingRef.current; });
   const trackerKey = 'tt-tracker';
@@ -632,6 +633,22 @@ export default function TimeTracking() {
       type ImageCaptureClass = new (track: MediaStreamTrack) => { grabFrame?: () => Promise<ImageBitmap> };
       const ImageCaptureCtor = (window as unknown as { ImageCapture?: ImageCaptureClass }).ImageCapture;
       const imageCapture = ImageCaptureCtor ? new ImageCaptureCtor(track) : null;
+      let currentThumbData = '';
+      const generateThumbnail = (canv: HTMLCanvasElement) => {
+        try {
+          const thumbCanvas = document.createElement('canvas');
+          thumbCanvas.width = 16;
+          thumbCanvas.height = 16;
+          const thumbCtx = thumbCanvas.getContext('2d');
+          if (thumbCtx) {
+            thumbCtx.drawImage(canv, 0, 0, 16, 16);
+            return thumbCanvas.toDataURL('image/jpeg', 0.1);
+          }
+        } catch (e) {
+          // ignore
+        }
+        return '';
+      };
 
       let blob: Blob | null = null;
       if (imageCapture && imageCapture.grabFrame) {
@@ -642,6 +659,7 @@ export default function TimeTracking() {
         const ctx = canvas.getContext('2d');
         if (ctx) {
           ctx.drawImage(frame, 0, 0);
+          currentThumbData = generateThumbnail(canvas);
           // Try to get WebP under 100KB
           let quality = 0.7;
           blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/webp', quality));
@@ -670,6 +688,7 @@ export default function TimeTracking() {
         const ctx = canvas.getContext('2d');
         if (ctx) {
           ctx.drawImage(video, 0, 0);
+          currentThumbData = generateThumbnail(canvas);
           // Try to get WebP under 100KB
           let quality = 0.7;
           blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/webp', quality));
@@ -790,6 +809,26 @@ export default function TimeTracking() {
         });
 
         breakdown.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+        // Anti-Cheat: Detect static screen with activity (Jiggler detection)
+        let isSuspicious = false;
+        const totalActivity = breakdown.reduce((sum, item) => sum + (item.total_activity || 0), 0);
+        if (lastScreenThumbRef.current && currentThumbData && lastScreenThumbRef.current === currentThumbData) {
+          if (totalActivity > 30) {
+            isSuspicious = true;
+          }
+        }
+        if (currentThumbData) {
+          lastScreenThumbRef.current = currentThumbData;
+        }
+
+        if (isSuspicious) {
+          breakdown.forEach(item => {
+            if ((item.total_activity || 0) > 0) {
+              item.is_suspicious = true;
+            }
+          });
+        }
 
         // Format capturedAt
         const localCapturedAt = toLocalISOString(captureTargetTime);
@@ -925,9 +964,11 @@ export default function TimeTracking() {
 
     // Check Daily Limit
     if (dailyLimitRef.current && dailyLimitRef.current > 0 && dashboardStatsRef.current && !hasNotifiedDailyLimitRef.current) {
-      const todayMinutes = dashboardStatsRef.current.todayMinutes || 0;
+      const todayMinutesCompleted = dashboardStatsRef.current.todayMinutesCompleted !== undefined
+        ? dashboardStatsRef.current.todayMinutesCompleted
+        : (dashboardStatsRef.current.todayMinutes || 0);
       const currentElapsedMinutes = core.elapsed / 60;
-      const totalMinutes = todayMinutes + currentElapsedMinutes;
+      const totalMinutes = todayMinutesCompleted + currentElapsedMinutes;
       const limitMinutes = dailyLimitRef.current * 60;
 
       if (totalMinutes >= limitMinutes) {

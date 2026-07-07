@@ -37,6 +37,7 @@ export interface ActivityMinute {
   mouse_movements: number;
   total_activity: number;
   timestamp: string;
+  is_suspicious?: boolean;
 }
 
 export const timeTrackingAPI = {

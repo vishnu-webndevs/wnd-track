@@ -65,7 +65,7 @@ export const chatAPI = {
       if (body) formData.append('body', body);
       if (file) formData.append('file', file);
       if (parentId) formData.append('parent_id', String(parentId));
-      
+
       const response = await api.post(`/chat/conversations/${conversationId}/messages`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
@@ -91,7 +91,7 @@ export const chatAPI = {
     const response = await api.post(`/chat/conversations/${conversationId}/typing`, { is_typing: isTyping });
     return response.data;
   },
-  
+
   deleteConversation: async (conversationId: number) => {
     const res = await api.delete(`/chat/conversations/${conversationId}`);
     return res.data;

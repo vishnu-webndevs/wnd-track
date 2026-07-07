@@ -110,6 +110,7 @@ export interface Screenshot {
     mouse_movements: number;
     total_activity: number;
     timestamp: string;
+    is_suspicious?: boolean;
   }>;
   created_at: string;
   updated_at: string;
@@ -140,6 +141,7 @@ export interface DashboardStats {
   overdueTasks: Task[];
   todayHours?: number;
   todayMinutes?: number;
+  todayMinutesCompleted?: number;
   onlineEmployees?: number;
   availableEmployees?: number;
   activeTrackers?: number;

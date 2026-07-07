@@ -21,6 +21,7 @@ export const dashboardAPI = {
       overdueTasks: [],
       todayHours: statsBlock.today_hours ?? 0,
       todayMinutes: statsBlock.today_minutes ?? 0,
+      todayMinutesCompleted: statsBlock.today_minutes_completed ?? 0,
       // Extended properties
       onlineEmployees: statsBlock.online_employees ?? 0,
       availableEmployees: statsBlock.available_employees ?? 0,
