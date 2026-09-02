@@ -336,7 +336,7 @@ class UserController extends Controller
         }
 
         $projectIds = Task::where('assigned_to', $user->id)->pluck('project_id')->unique()->values();
-        $projects = Project::whereIn('id', $projectIds)->orderBy('name')->get(['id', 'name', 'status']);
+        $projects = Project::where('status', '!=', 'completed')->whereIn('id', $projectIds)->orderBy('name')->get(['id', 'name', 'status']);
         
         return response()->json($projects);
     }

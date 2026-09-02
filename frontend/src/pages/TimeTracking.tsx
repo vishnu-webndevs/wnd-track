@@ -300,11 +300,9 @@ export default function TimeTracking() {
 
   const taskOptions = useMemo(() => (projectTasks ?? []), [projectTasks]);
   const projectList = useMemo(() => {
-    if (isAdmin) {
-      return allActiveProjects ?? assignedProjects ?? [];
-    }
-    return assignedProjects ?? [];
-  }, [assignedProjects, allActiveProjects, currentUser]);
+    const rawList = isAdmin ? (allActiveProjects ?? assignedProjects ?? []) : (assignedProjects ?? []);
+    return (rawList ?? []).filter((p) => p.status !== 'completed');
+  }, [assignedProjects, allActiveProjects, isAdmin]);
 
   const getProjectId = (taskId?: number) => selectedProjectIdRef.current ?? taskOptions.find((t) => t.id === taskId)?.project_id;
 

@@ -773,9 +773,12 @@ class DesktopAppController extends Controller
     public function getAssignedProjects()
     {
         $projectIds = Task::where('assigned_to', auth()->id())->pluck('project_id')->unique()->values();
-        $projects = Project::whereIn('id', $projectIds)
-            ->orWhereHas('employees', function ($q) {
-                $q->where('user_id', auth()->id());
+        $projects = Project::where('status', '!=', 'completed')
+            ->where(function ($query) use ($projectIds) {
+                $query->whereIn('id', $projectIds)
+                    ->orWhereHas('employees', function ($q) {
+                        $q->where('user_id', auth()->id());
+                    });
             })
             ->orderBy('name')
             ->get(['id', 'name', 'status']);
