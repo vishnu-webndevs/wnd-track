@@ -535,7 +535,7 @@ export default function Chat() {
             </div>
 
             {/* Message Area */}
-            <div className="flex-1 overflow-y-auto p-4 bg-gray-50/50 dark:bg-gray-950/20 space-y-4">
+            <div className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 p-4 bg-gray-50/50 dark:bg-gray-950/20 space-y-4">
               {messages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-gray-400 text-sm">
                   <MessageSquare className="w-10 h-10 text-gray-300 dark:text-gray-700 mb-2 animate-bounce" />
@@ -581,7 +581,7 @@ export default function Chat() {
                         </div>
                       )}
 
-                      <div id={`msg-${msg.id}`} className={`flex gap-2 ${isSelf ? 'justify-end' : 'justify-start'}`}>
+                      <div id={`msg-${msg.id}`} className={`flex gap-2 w-full ${isSelf ? 'justify-end' : 'justify-start'}`}>
                         {/* Sender Avatar for group chat */}
                         {!isSelf && activeConversation.type === 'group' && (
                           <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs flex-shrink-0 self-end ${getAvatarBg(msg.sender_name)}`}>
@@ -598,13 +598,16 @@ export default function Chat() {
                           )}
 
                           {/* Bubble card */}
-                          <div className={`p-3 rounded-2xl shadow-sm overflow-hidden break-words [overflow-wrap:anywhere] [word-break:break-word] ${
-                            isSelf
-                              ? 'bg-indigo-600 text-white rounded-br-none'
-                              : isMentioned
-                                ? 'bg-amber-50 dark:bg-amber-950/20 text-gray-900 dark:text-white border-2 border-amber-400 rounded-bl-none'
-                                : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white border border-gray-100 dark:border-gray-700 rounded-bl-none'
-                          }`}>
+                          <div 
+                            className={`p-3 rounded-2xl shadow-sm overflow-hidden break-words break-all ${
+                              isSelf
+                                ? 'bg-indigo-600 text-white rounded-br-none'
+                                : isMentioned
+                                  ? 'bg-amber-50 dark:bg-amber-950/20 text-gray-900 dark:text-white border-2 border-amber-400 rounded-bl-none'
+                                  : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white border border-gray-100 dark:border-gray-700 rounded-bl-none'
+                            }`}
+                            style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}
+                          >
                             {/* Parent Message Reply Preview */}
                             {msg.parent && (
                               <div
@@ -663,7 +666,12 @@ export default function Chat() {
 
                             {/* Message text body */}
                             {msg.body && (
-                              <p className="text-sm whitespace-pre-wrap leading-relaxed break-words [overflow-wrap:anywhere] [word-break:break-word]">{msg.body}</p>
+                              <p 
+                                className="text-sm whitespace-pre-wrap leading-relaxed break-words break-all overflow-hidden"
+                                style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}
+                              >
+                                {msg.body}
+                              </p>
                             )}
                             
                             <div className="flex items-center justify-between gap-4 mt-1.5 pt-0.5 border-t border-black/5 dark:border-white/5">

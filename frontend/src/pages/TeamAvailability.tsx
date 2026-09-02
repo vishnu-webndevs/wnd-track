@@ -184,12 +184,20 @@ function ChatDrawer({ isOpen, userId, userName, onClose }: { isOpen: boolean; us
           const isSelf = msg.sender_id === currentUser?.id;
           return (
             <div key={msg.id} className={`flex ${isSelf ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[75%] min-w-0 rounded-2xl px-4 py-2.5 shadow-sm text-sm overflow-hidden break-words [overflow-wrap:anywhere] [word-break:break-word] ${
-                isSelf 
-                  ? 'bg-blue-600 text-white rounded-tr-none' 
-                  : 'bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 border border-gray-100 dark:border-gray-600 rounded-tl-none'
-              }`}>
-                <p className="leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere] [word-break:break-word]">{msg.body}</p>
+              <div 
+                className={`max-w-[75%] min-w-0 rounded-2xl px-4 py-2.5 shadow-sm text-sm overflow-hidden break-words break-all ${
+                  isSelf 
+                    ? 'bg-blue-600 text-white rounded-tr-none' 
+                    : 'bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 border border-gray-100 dark:border-gray-600 rounded-tl-none'
+                }`}
+                style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}
+              >
+                <p 
+                  className="leading-relaxed whitespace-pre-wrap break-words break-all overflow-hidden"
+                  style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}
+                >
+                  {msg.body}
+                </p>
                 <span className={`text-[10px] block text-right mt-1.5 font-medium ${isSelf ? 'text-blue-100' : 'text-gray-400 dark:text-gray-400'}`}>
                   {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </span>
