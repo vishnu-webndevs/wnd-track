@@ -185,7 +185,7 @@ export default function Chat() {
   };
 
   // Handle typing status broadcast
-  const handleMessageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleMessageChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const val = e.target.value;
     setMessageText(val);
     if (!activeConversationId) return;
@@ -589,7 +589,7 @@ export default function Chat() {
                           </div>
                         )}
 
-                        <div className="max-w-[70%] space-y-0.5">
+                        <div className="max-w-[70%] min-w-0 space-y-0.5">
                           {/* Sender name in group */}
                           {!isSelf && activeConversation.type === 'group' && (
                             <p className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 ml-1.5">
@@ -598,7 +598,7 @@ export default function Chat() {
                           )}
 
                           {/* Bubble card */}
-                          <div className={`p-3 rounded-2xl shadow-sm ${
+                          <div className={`p-3 rounded-2xl shadow-sm overflow-hidden break-words [overflow-wrap:anywhere] [word-break:break-word] ${
                             isSelf
                               ? 'bg-indigo-600 text-white rounded-br-none'
                               : isMentioned
@@ -663,7 +663,7 @@ export default function Chat() {
 
                             {/* Message text body */}
                             {msg.body && (
-                              <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.body}</p>
+                              <p className="text-sm whitespace-pre-wrap leading-relaxed break-words [overflow-wrap:anywhere] [word-break:break-word]">{msg.body}</p>
                             )}
                             
                             <div className="flex items-center justify-between gap-4 mt-1.5 pt-0.5 border-t border-black/5 dark:border-white/5">
@@ -833,19 +833,18 @@ export default function Chat() {
                 <Paperclip className="w-4 h-4" />
               </button>
 
-              <input
-                type="text"
+              <textarea
                 value={messageText}
                 onChange={handleMessageChange}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
+                  if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
                     handleSendMessage(e as any);
                   }
                 }}
-                placeholder={selectedFile ? "Add a caption..." : "Type a message..."}
-                className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                autoComplete="off"
+                placeholder={selectedFile ? "Add a caption..." : "Type a message... (Shift+Enter for line break)"}
+                rows={1}
+                className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-none min-h-[38px] max-h-32 leading-normal"
               />
 
               <button

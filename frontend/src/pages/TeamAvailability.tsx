@@ -184,12 +184,12 @@ function ChatDrawer({ isOpen, userId, userName, onClose }: { isOpen: boolean; us
           const isSelf = msg.sender_id === currentUser?.id;
           return (
             <div key={msg.id} className={`flex ${isSelf ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[75%] rounded-2xl px-4 py-2.5 shadow-sm text-sm ${
+              <div className={`max-w-[75%] min-w-0 rounded-2xl px-4 py-2.5 shadow-sm text-sm overflow-hidden break-words [overflow-wrap:anywhere] [word-break:break-word] ${
                 isSelf 
                   ? 'bg-blue-600 text-white rounded-tr-none' 
                   : 'bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 border border-gray-100 dark:border-gray-600 rounded-tl-none'
               }`}>
-                <p className="leading-relaxed break-words">{msg.body}</p>
+                <p className="leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere] [word-break:break-word]">{msg.body}</p>
                 <span className={`text-[10px] block text-right mt-1.5 font-medium ${isSelf ? 'text-blue-100' : 'text-gray-400 dark:text-gray-400'}`}>
                   {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </span>
@@ -209,19 +209,18 @@ function ChatDrawer({ isOpen, userId, userName, onClose }: { isOpen: boolean; us
 
       {/* Message input */}
       <div className="p-3 border-t border-gray-100 dark:border-gray-700 flex items-center gap-2">
-        <input
-          type="text"
+        <textarea
           value={messageText}
-          onChange={handleMessageChange}
+          onChange={(e: any) => handleMessageChange(e)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') {
+            if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
               handleSend(e as any);
             }
           }}
           placeholder="Type a message..."
-          className="flex-1 px-4 py-2.5 text-sm border border-gray-300 dark:border-gray-700 rounded-full bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          autoComplete="off"
+          rows={1}
+          className="flex-1 px-4 py-2 text-sm border border-gray-300 dark:border-gray-700 rounded-2xl bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none min-h-[38px] max-h-28 leading-normal"
         />
         <button
           type="button"
@@ -528,12 +527,80 @@ export default function TeamAvailability() {
     search: '',
   });
 
-  const { presences, loading, error, refetch } = useTeamPresence(filters);
-  const visiblePresences = useMemo(() => {
+  // We fetch overall team presences without status filter so metrics counts are always complete
+  const apiFilters = useMemo(() => ({
+    project_id: filters.project_id,
+    department: filters.department,
+    search: filters.search,
+  }), [filters.project_id, filters.department, filters.search]);
+
+  const { presences, loading, error, refetch } = useTeamPresence(apiFilters);
+
+  const allVisiblePresences = useMemo(() => {
     const myId = currentUser?.id;
     if (!myId) return presences;
     return presences.filter(p => p.user_id !== myId);
   }, [presences, currentUser?.id]);
+
+  // Compute live presence metrics across ALL visible team members
+  const counts = useMemo(() => {
+    let working = 0;
+    let available = 0;
+    let paused = 0;
+    let offline = 0;
+    let internetIssue = 0;
+
+    allVisiblePresences.forEach((p) => {
+      const isOffline = p.status === 'offline';
+      const isInternetIssue = !isOffline && p.internet_connected === false;
+      
+      if (isOffline) {
+        offline++;
+      } else if (isInternetIssue) {
+        internetIssue++;
+      } else if (p.status === 'working') {
+        working++;
+      } else if (p.status === 'paused') {
+        paused++;
+      } else if (p.status === 'available') {
+        available++;
+      }
+    });
+
+    return {
+      total: allVisiblePresences.length,
+      working,
+      available,
+      paused,
+      offline,
+      internetIssue,
+    };
+  }, [allVisiblePresences]);
+
+  // Filter visible presences for grid rendering by selected status filter
+  const visiblePresences = useMemo(() => {
+    if (!filters.status) return allVisiblePresences;
+    return allVisiblePresences.filter(p => {
+      const isOffline = p.status === 'offline';
+      const isInternetIssue = !isOffline && p.internet_connected === false;
+      if (filters.status === 'internet_issue') return isInternetIssue;
+      return p.status === filters.status;
+    });
+  }, [allVisiblePresences, filters.status]);
+
+  const formatLastActive = (dateString?: string | null) => {
+    if (!dateString) return null;
+    const d = new Date(dateString);
+    if (isNaN(d.getTime())) return null;
+    const now = new Date();
+    const isToday = d.toDateString() === now.toDateString();
+    const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (isToday) {
+      return timeStr;
+    }
+    const dateStr = d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+    return `${dateStr}, ${timeStr}`;
+  };
 
   // Dynamic SimplePeer loader
   const [SimplePeer, setSimplePeer] = useState<SimplePeerConstructor | null>(null);
@@ -947,41 +1014,6 @@ export default function TeamAvailability() {
     }
   };
 
-  // Compute live presence metrics
-  const counts = useMemo(() => {
-    let working = 0;
-    let available = 0;
-    let paused = 0;
-    let offline = 0;
-    let internetIssue = 0;
-
-    visiblePresences.forEach((p) => {
-      const isOffline = p.status === 'offline';
-      const isInternetIssue = !isOffline && p.internet_connected === false;
-      
-      if (isOffline) {
-        offline++;
-      } else if (isInternetIssue) {
-        internetIssue++;
-      } else if (p.status === 'working') {
-        working++;
-      } else if (p.status === 'paused') {
-        paused++;
-      } else if (p.status === 'available') {
-        available++;
-      }
-    });
-
-    return {
-      total: visiblePresences.length,
-      working,
-      available,
-      paused,
-      offline,
-      internetIssue,
-    };
-  }, [visiblePresences]);
-
   const getStatusBadge = (status: string, internetConnected: boolean) => {
     const isOffline = status === 'offline';
     const isInternetIssue = !isOffline && !internetConnected;
@@ -1378,7 +1410,7 @@ export default function TeamAvailability() {
                         </p>
                         {presence.last_activity_at && (
                           <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">
-                            Last Active: {new Date(presence.last_activity_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            Last Active: {formatLastActive(presence.last_activity_at)}
                           </p>
                         )}
                       </div>
@@ -1391,7 +1423,7 @@ export default function TeamAvailability() {
                         </p>
                         {presence.last_seen && (
                           <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1">
-                            Last Seen: {new Date(presence.last_seen).toLocaleDateString()} {new Date(presence.last_seen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            Last Seen: {formatLastActive(presence.last_seen)}
                           </p>
                         )}
                       </div>
