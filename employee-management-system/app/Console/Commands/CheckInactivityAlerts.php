@@ -6,6 +6,7 @@ use Illuminate\Console\Command;
 use App\Models\User;
 use App\Models\TimeLog;
 use App\Models\Setting;
+use App\Models\UserPresence;
 use App\Mail\UserInactivityAlertMail;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Cache;
@@ -72,6 +73,8 @@ class CheckInactivityAlerts extends Command
             $cursor->subDay();
         }
 
+        $oldestWorkingDayInWindow = end($recentWorkingDays);
+
         // Get ONLY active users (Users who have NOT left job / status = 'active')
         $users = User::where('status', 'active')
             ->whereIn('role', ['employee', 'project_manager', 'admin'])
@@ -80,47 +83,63 @@ class CheckInactivityAlerts extends Command
         $alertsSentCount = 0;
 
         foreach ($users as $user) {
-            // Additional safety check: skip if status is not active
             if ($user->status !== 'active') {
                 continue;
             }
 
-            // Check if user has ANY tracked time in the required N working days window
-            $hasTrackedInWindow = TimeLog::where('user_id', $user->id)
-                ->whereIn(DB::raw('DATE(start_time)'), $recentWorkingDays)
-                ->where('duration', '>', 0)
-                ->exists();
-
-            // If user has tracked time during these working days, they are active -> skip!
-            if ($hasTrackedInWindow) {
-                continue;
-            }
-
-            // User is inactive for at least N working days!
-            // Calculate total consecutive inactive working days count for display
-            $lastLog = TimeLog::where('user_id', $user->id)
-                ->where('duration', '>', 0)
-                ->orderBy('start_time', 'desc')
-                ->first();
-
             $userInactiveDays = 0;
             $userInactiveDates = [];
-            $checkCursor = Carbon::today();
 
-            if ($lastLog && $lastLog->start_time) {
-                $lastTrackedDate = Carbon::parse($lastLog->start_time)->startOfDay();
+            if ($user->role === 'employee') {
+                // 1. Employees use TimeLog (desktop tracking app)
+                $hasTrackedInWindow = TimeLog::where('user_id', $user->id)
+                    ->whereIn(DB::raw('DATE(start_time)'), $recentWorkingDays)
+                    ->where('duration', '>', 0)
+                    ->exists();
+
+                if ($hasTrackedInWindow) {
+                    continue; // Employee is active in window -> skip
+                }
+
+                $lastLog = TimeLog::where('user_id', $user->id)
+                    ->where('duration', '>', 0)
+                    ->orderBy('start_time', 'desc')
+                    ->first();
+
+                if ($lastLog && $lastLog->start_time) {
+                    $lastActiveDate = Carbon::parse($lastLog->start_time)->startOfDay();
+                } else {
+                    $lastActiveDate = Carbon::parse($user->created_at)->startOfDay();
+                }
             } else {
-                $lastTrackedDate = Carbon::parse($user->created_at)->startOfDay();
+                // 2. Admins & Project Managers use Web Platform Presence (UserPresence / last_seen / last_activity_at)
+                $presence = $user->presence;
+                $lastActiveTimestamp = null;
+
+                if ($presence) {
+                    $lastActiveTimestamp = $presence->last_seen ?? $presence->last_activity_at ?? $presence->updated_at;
+                }
+                if (!$lastActiveTimestamp) {
+                    $lastActiveTimestamp = $user->updated_at ?? $user->created_at;
+                }
+
+                $lastActiveDate = Carbon::parse($lastActiveTimestamp)->startOfDay();
+
+                // Check if Admin/PM was active on the web platform during recent working days window
+                if ($lastActiveDate->format('Y-m-d') >= $oldestWorkingDayInWindow) {
+                    continue; // Admin/PM was active on platform -> skip
+                }
             }
 
-            while ($checkCursor->greaterThan($lastTrackedDate)) {
+            // Calculate total consecutive inactive working days count for display
+            $checkCursor = Carbon::today();
+            while ($checkCursor->greaterThan($lastActiveDate)) {
                 if (!$checkCursor->isSaturday() && !$checkCursor->isSunday()) {
                     $userInactiveDays++;
                     $userInactiveDates[] = $checkCursor->format('Y-m-d');
                 }
                 $checkCursor->subDay();
 
-                // Cap maximum count at 30 days for clean email display
                 if ($userInactiveDays >= 30) {
                     break;
                 }
