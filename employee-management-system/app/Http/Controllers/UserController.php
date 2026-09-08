@@ -747,6 +747,9 @@ class UserController extends Controller
         $data = [
             'send_worklog_telegram' => (bool) $user->send_worklog_telegram,
             'daily_tracking_limit_hours' => (float) \App\Models\Setting::get('daily_tracking_limit_hours', 9),
+            'inactivity_alert_enabled' => (bool) \App\Models\Setting::get('inactivity_alert_enabled', 1),
+            'inactivity_alert_days' => (int) \App\Models\Setting::get('inactivity_alert_days', 2),
+            'inactivity_alert_time' => (string) \App\Models\Setting::get('inactivity_alert_time', '15:00'),
         ];
 
         // Only include sensitive info if admin
@@ -768,6 +771,9 @@ class UserController extends Controller
             'send_worklog_telegram' => 'required|boolean',
             'telegram_bot_token' => 'nullable|string',
             'daily_tracking_limit_hours' => 'nullable|numeric|min:0',
+            'inactivity_alert_enabled' => 'nullable|boolean',
+            'inactivity_alert_days' => 'nullable|integer|min:1|max:30',
+            'inactivity_alert_time' => 'nullable|string',
         ]);
 
         if ($validator->fails()) {
@@ -786,11 +792,26 @@ class UserController extends Controller
             \App\Models\Setting::set('daily_tracking_limit_hours', $request->daily_tracking_limit_hours);
         }
 
+        if ($request->has('inactivity_alert_enabled')) {
+            \App\Models\Setting::set('inactivity_alert_enabled', $request->inactivity_alert_enabled ? '1' : '0');
+        }
+
+        if ($request->has('inactivity_alert_days')) {
+            \App\Models\Setting::set('inactivity_alert_days', (string) $request->inactivity_alert_days);
+        }
+
+        if ($request->has('inactivity_alert_time')) {
+            \App\Models\Setting::set('inactivity_alert_time', (string) $request->inactivity_alert_time);
+        }
+
         return response()->json([
             'message' => 'Settings updated',
             'send_worklog_telegram' => (bool) $user->send_worklog_telegram,
             'telegram_bot_token' => \App\Models\Setting::get('telegram_bot_token', env('TELEGRAM_BOT_TOKEN') ?: ''),
             'daily_tracking_limit_hours' => (float) \App\Models\Setting::get('daily_tracking_limit_hours', 9),
+            'inactivity_alert_enabled' => (bool) \App\Models\Setting::get('inactivity_alert_enabled', 1),
+            'inactivity_alert_days' => (int) \App\Models\Setting::get('inactivity_alert_days', 2),
+            'inactivity_alert_time' => (string) \App\Models\Setting::get('inactivity_alert_time', '15:00'),
         ]);
     }
 
