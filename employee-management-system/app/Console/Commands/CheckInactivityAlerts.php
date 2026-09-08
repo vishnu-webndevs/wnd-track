@@ -9,6 +9,7 @@ use App\Models\Setting;
 use App\Mail\UserInactivityAlertMail;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 
 class CheckInactivityAlerts extends Command
@@ -25,7 +26,7 @@ class CheckInactivityAlerts extends Command
      *
      * @var string
      */
-    protected $description = 'Check for users inactive for N or more consecutive working days and send email alerts';
+    protected $description = 'Check for active users inactive for N consecutive working days and send email alerts';
 
     /**
      * Execute the console command.
@@ -61,7 +62,17 @@ class CheckInactivityAlerts extends Command
             $consecutiveDaysNeeded = 1;
         }
 
-        // Get all active users
+        // Collect the last N working days (excluding Sat & Sun) starting from today going backwards
+        $recentWorkingDays = [];
+        $cursor = Carbon::today();
+        while (count($recentWorkingDays) < $consecutiveDaysNeeded) {
+            if (!$cursor->isSaturday() && !$cursor->isSunday()) {
+                $recentWorkingDays[] = $cursor->format('Y-m-d');
+            }
+            $cursor->subDay();
+        }
+
+        // Get ONLY active users (Users who have NOT left job / status = 'active')
         $users = User::where('status', 'active')
             ->whereIn('role', ['employee', 'project_manager', 'admin'])
             ->get();
@@ -69,107 +80,122 @@ class CheckInactivityAlerts extends Command
         $alertsSentCount = 0;
 
         foreach ($users as $user) {
-            // Count total consecutive inactive working days going back from today (excluding Saturday & Sunday)
-            $cursor = Carbon::today();
+            // Additional safety check: skip if status is not active
+            if ($user->status !== 'active') {
+                continue;
+            }
+
+            // Check if user has ANY tracked time in the required N working days window
+            $hasTrackedInWindow = TimeLog::where('user_id', $user->id)
+                ->whereIn(DB::raw('DATE(start_time)'), $recentWorkingDays)
+                ->where('duration', '>', 0)
+                ->exists();
+
+            // If user has tracked time during these working days, they are active -> skip!
+            if ($hasTrackedInWindow) {
+                continue;
+            }
+
+            // User is inactive for at least N working days!
+            // Calculate total consecutive inactive working days count for display
+            $lastLog = TimeLog::where('user_id', $user->id)
+                ->where('duration', '>', 0)
+                ->orderBy('start_time', 'desc')
+                ->first();
+
             $userInactiveDays = 0;
             $userInactiveDates = [];
+            $checkCursor = Carbon::today();
 
-            while (true) {
-                if (!$cursor->isSaturday() && !$cursor->isSunday()) {
-                    $trackedSeconds = TimeLog::where('user_id', $user->id)
-                        ->whereDate('start_time', $cursor->format('Y-m-d'))
-                        ->sum('duration');
+            if ($lastLog && $lastLog->start_time) {
+                $lastTrackedDate = Carbon::parse($lastLog->start_time)->startOfDay();
+            } else {
+                $lastTrackedDate = Carbon::parse($user->created_at)->startOfDay();
+            }
 
-                    if ($trackedSeconds > 0) {
-                        // User tracked time on this working day, stop counting
-                        break;
-                    }
-
+            while ($checkCursor->greaterThan($lastTrackedDate)) {
+                if (!$checkCursor->isSaturday() && !$checkCursor->isSunday()) {
                     $userInactiveDays++;
-                    $userInactiveDates[] = $cursor->format('Y-m-d');
+                    $userInactiveDates[] = $checkCursor->format('Y-m-d');
                 }
+                $checkCursor->subDay();
 
-                $cursor = $cursor->copy()->subDay();
-
-                // Safety guard to avoid infinite loop (limit max 365 days)
-                if (Carbon::today()->diffInDays($cursor) > 365) {
+                // Cap maximum count at 30 days for clean email display
+                if ($userInactiveDays >= 30) {
                     break;
                 }
             }
 
-            // Only trigger if inactive working days reaches or exceeds configured threshold
-            if ($userInactiveDays >= $consecutiveDaysNeeded) {
-                $cacheKey = 'inactivity_alert_sent_' . $user->id . '_' . Carbon::today()->format('Y-m-d');
-                if (!$force && Cache::has($cacheKey)) {
-                    $this->info("Alert already sent today for {$user->name} ({$user->email}). Skipped.");
-                    continue;
-                }
+            if ($userInactiveDays < $consecutiveDaysNeeded) {
+                $userInactiveDays = $consecutiveDaysNeeded;
+            }
 
-                $this->warn("User {$user->name} (Role: {$user->role}) is inactive for {$userInactiveDays} consecutive working days!");
+            $cacheKey = 'inactivity_alert_sent_' . $user->id . '_' . Carbon::today()->format('Y-m-d');
+            if (!$force && Cache::has($cacheKey)) {
+                $this->info("Alert already sent today for {$user->name} ({$user->email}). Skipped.");
+                continue;
+            }
 
-                // 1. Send alert to the user themself
+            $this->warn("User {$user->name} (Role: {$user->role}) is inactive for {$userInactiveDays} consecutive working days!");
+
+            // 1. Send alert to the user themself (Only if active)
+            try {
+                Mail::to($user->email)->queue(new UserInactivityAlertMail(
+                    $user,
+                    'self',
+                    $userInactiveDays,
+                    $userInactiveDates
+                ));
+                $this->info("Email queued for user: {$user->email}");
+            } catch (\Exception $e) {
+                $this->error("Failed queueing email to {$user->email}: " . $e->getMessage());
+            }
+
+            // 2. Recipients for Admin and Project Manager notifications (Only ACTIVE admins & managers)
+            $managementRecipients = [];
+
+            if ($user->role === 'employee') {
+                $assignedManagerIds = $user->assignedProjects()->pluck('manager_id')->filter()->unique()->toArray();
+                $pmEmails = User::whereIn('id', $assignedManagerIds)->where('status', 'active')->pluck('email')->toArray();
+                $allPmEmails = User::where('role', 'project_manager')->where('status', 'active')->pluck('email')->toArray();
+                $pmEmails = array_values(array_unique(array_merge($pmEmails, $allPmEmails)));
+
+                $adminEmails = User::where('role', 'admin')->where('status', 'active')->pluck('email')->toArray();
+                $managementRecipients = array_values(array_unique(array_merge($pmEmails, $adminEmails)));
+            } elseif ($user->role === 'project_manager') {
+                $adminEmails = User::where('role', 'admin')->where('status', 'active')->pluck('email')->toArray();
+                $managementRecipients = array_values(array_unique($adminEmails));
+            } elseif ($user->role === 'admin') {
+                $otherAdminEmails = User::where('role', 'admin')
+                    ->where('status', 'active')
+                    ->where('id', '!=', $user->id)
+                    ->pluck('email')
+                    ->toArray();
+                $managementRecipients = array_values(array_unique($otherAdminEmails));
+            }
+
+            // Filter out user's own email from management recipients list to avoid duplicate email to self
+            $managementRecipients = array_values(array_filter($managementRecipients, function ($email) use ($user) {
+                return strtolower($email) !== strtolower($user->email);
+            }));
+
+            if (!empty($managementRecipients)) {
                 try {
-                    Mail::to($user->email)->send(new UserInactivityAlertMail(
+                    Mail::to($managementRecipients)->queue(new UserInactivityAlertMail(
                         $user,
-                        'self',
+                        $user->role === 'employee' ? 'manager' : 'admin',
                         $userInactiveDays,
                         $userInactiveDates
                     ));
-                    $this->info("Email sent to user: {$user->email}");
+                    $this->info("Email queued for management: " . implode(', ', $managementRecipients));
                 } catch (\Exception $e) {
-                    $this->error("Failed sending email to {$user->email}: " . $e->getMessage());
+                    $this->error("Failed queueing management emails: " . $e->getMessage());
                 }
-
-                // 2. Recipients for Admin and Project Manager notifications
-                $managementRecipients = [];
-
-                if ($user->role === 'employee') {
-                    // Send to project managers of user's assigned projects + all project managers
-                    $assignedManagerIds = $user->assignedProjects()->pluck('manager_id')->filter()->unique()->toArray();
-                    $pmEmails = User::whereIn('id', $assignedManagerIds)->pluck('email')->toArray();
-                    $allPmEmails = User::where('role', 'project_manager')->pluck('email')->toArray();
-                    $pmEmails = array_values(array_unique(array_merge($pmEmails, $allPmEmails)));
-
-                    // Send to all Admins
-                    $adminEmails = User::where('role', 'admin')->pluck('email')->toArray();
-
-                    $managementRecipients = array_values(array_unique(array_merge($pmEmails, $adminEmails)));
-                } elseif ($user->role === 'project_manager') {
-                    // Send to all Admins
-                    $adminEmails = User::where('role', 'admin')->pluck('email')->toArray();
-                    $managementRecipients = array_values(array_unique($adminEmails));
-                } elseif ($user->role === 'admin') {
-                    // Send to other Admins
-                    $otherAdminEmails = User::where('role', 'admin')
-                        ->where('id', '!=', $user->id)
-                        ->pluck('email')
-                        ->toArray();
-                    $managementRecipients = array_values(array_unique($otherAdminEmails));
-                }
-
-                // Filter out user's own email from management recipients list to avoid duplicate email to self
-                $managementRecipients = array_values(array_filter($managementRecipients, function ($email) use ($user) {
-                    return strtolower($email) !== strtolower($user->email);
-                }));
-
-                if (!empty($managementRecipients)) {
-                    try {
-                        Mail::to($managementRecipients)->send(new UserInactivityAlertMail(
-                            $user,
-                            $user->role === 'employee' ? 'manager' : 'admin',
-                            $userInactiveDays,
-                            $userInactiveDates
-                        ));
-                        $this->info("Email sent to management: " . implode(', ', $managementRecipients));
-                    } catch (\Exception $e) {
-                        $this->error("Failed sending management emails: " . $e->getMessage());
-                    }
-                }
-
-                // Mark alert as sent for today
-                Cache::put($cacheKey, true, now()->addHours(24));
-                $alertsSentCount++;
             }
+
+            // Mark alert as sent for today
+            Cache::put($cacheKey, true, now()->addHours(24));
+            $alertsSentCount++;
         }
 
         $this->info("Completed inactivity check. Total alerts sent: {$alertsSentCount}");
