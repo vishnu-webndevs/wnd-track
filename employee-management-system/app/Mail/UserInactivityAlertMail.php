@@ -8,9 +8,8 @@ use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Contracts\Queue\ShouldQueue;
 
-class UserInactivityAlertMail extends Mailable implements ShouldQueue
+class UserInactivityAlertMail extends Mailable
 {
     use Queueable, SerializesModels;
 

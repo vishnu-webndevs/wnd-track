@@ -159,15 +159,15 @@ class CheckInactivityAlerts extends Command
 
             // 1. Send alert to the user themself (Only if active)
             try {
-                Mail::to($user->email)->queue(new UserInactivityAlertMail(
+                Mail::to($user->email)->send(new UserInactivityAlertMail(
                     $user,
                     'self',
                     $userInactiveDays,
                     $userInactiveDates
                 ));
-                $this->info("Email queued for user: {$user->email}");
+                $this->info("Email sent to user: {$user->email}");
             } catch (\Exception $e) {
-                $this->error("Failed queueing email to {$user->email}: " . $e->getMessage());
+                $this->error("Failed sending email to {$user->email}: " . $e->getMessage());
             }
 
             // 2. Recipients for Admin and Project Manager notifications (Only ACTIVE admins & managers)
@@ -199,16 +199,18 @@ class CheckInactivityAlerts extends Command
             }));
 
             if (!empty($managementRecipients)) {
-                try {
-                    Mail::to($managementRecipients)->queue(new UserInactivityAlertMail(
-                        $user,
-                        $user->role === 'employee' ? 'manager' : 'admin',
-                        $userInactiveDays,
-                        $userInactiveDates
-                    ));
-                    $this->info("Email queued for management: " . implode(', ', $managementRecipients));
-                } catch (\Exception $e) {
-                    $this->error("Failed queueing management emails: " . $e->getMessage());
+                foreach ($managementRecipients as $mgmtEmail) {
+                    try {
+                        Mail::to($mgmtEmail)->send(new UserInactivityAlertMail(
+                            $user,
+                            $user->role === 'employee' ? 'manager' : 'admin',
+                            $userInactiveDays,
+                            $userInactiveDates
+                        ));
+                        $this->info("Email sent to management: {$mgmtEmail}");
+                    } catch (\Exception $e) {
+                        $this->error("Failed sending management email to {$mgmtEmail}: " . $e->getMessage());
+                    }
                 }
             }
 
