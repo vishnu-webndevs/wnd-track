@@ -46,12 +46,13 @@ class CheckInactivityAlerts extends Command
             return 0;
         }
 
-        // Check scheduled time (e.g., 15:00)
+        // Check scheduled time (e.g., 15:00 or 11:00)
         $scheduledTime = Setting::get('inactivity_alert_time', '15:00');
+        $formattedScheduledTime = date('H:i', strtotime($scheduledTime));
         $currentTime = now()->format('H:i');
 
-        if (!$force && $currentTime !== $scheduledTime) {
-            $this->info("Current time ({$currentTime}) does not match configured alert time ({$scheduledTime}). Skipped.");
+        if (!$force && $currentTime < $formattedScheduledTime) {
+            $this->info("Current time ({$currentTime}) is before configured alert time ({$formattedScheduledTime}). Skipped.");
             return 0;
         }
 

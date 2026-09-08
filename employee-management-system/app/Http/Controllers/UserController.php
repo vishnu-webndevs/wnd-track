@@ -801,7 +801,8 @@ class UserController extends Controller
         }
 
         if ($request->has('inactivity_alert_time')) {
-            \App\Models\Setting::set('inactivity_alert_time', (string) $request->inactivity_alert_time);
+            $formattedTime = date('H:i', strtotime($request->inactivity_alert_time));
+            \App\Models\Setting::set('inactivity_alert_time', $formattedTime);
         }
 
         return response()->json([
