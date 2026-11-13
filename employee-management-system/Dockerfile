@@ -15,6 +15,8 @@ RUN mkdir -p storage/logs bootstrap/cache storage/app/public storage/app/public/
     && chmod -R 775 storage bootstrap/cache storage/app/public public \
     && sed -i 's/\r$//' /etc/s6-overlay/s6-rc.d/reverb/run \
     && chmod +x /etc/s6-overlay/s6-rc.d/reverb/run \
+    && chown -R www-data:www-data /etc/s6-overlay \
+    && chmod -R 775 /etc/s6-overlay \
     && composer install \
         --no-interaction \
         --optimize-autoloader \
@@ -23,9 +25,10 @@ RUN mkdir -p storage/logs bootstrap/cache storage/app/public storage/app/public/
     && php artisan storage:link || true \
     && chown -h www-data:www-data public/storage
 
-USER www-data
+RUN php artisan package:discover --ansi \
+    && chown -R www-data:www-data storage bootstrap/cache
 
-RUN php artisan package:discover --ansi
+USER root
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
   CMD curl -fsS http://localhost:8080/up || exit 1
