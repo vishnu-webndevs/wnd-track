@@ -3,6 +3,10 @@
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
 
+Route::get('/up', function () {
+    return response('OK', 200);
+});
+
 Route::get('/', function () {
     return view('welcome');
 });

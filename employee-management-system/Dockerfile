@@ -2,6 +2,9 @@ FROM serversideup/php:8.2-fpm-nginx
 
 USER root
 
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 # Increase Nginx Buffer Size to prevent buffering to temp file
 ENV NGINX_CLIENT_BODY_BUFFER_SIZE=50M
 ENV NGINX_CLIENT_MAX_BODY_SIZE=50M
