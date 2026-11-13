@@ -41,6 +41,23 @@ export interface ActivityMinute {
 }
 
 export const timeTrackingAPI = {
+  getCurrentActiveLog: async () => {
+    const res = await api.get('/desktop/current-log');
+    return res.data.active_log as {
+      id: number;
+      project_id: number;
+      task_id?: number;
+      start_time: string;
+      duration?: number;
+      description?: string;
+      project?: { id: number; name: string };
+      task?: { id: number; title: string };
+    } | null;
+  },
+  forceStopActiveLog: async (end_work_log?: string) => {
+    const res = await api.post('/desktop/force-stop', { end_work_log });
+    return res.data;
+  },
   syncTimeLog: async (payload: SyncTimeLogPayload) => {
     const res = await api.post('/desktop/time-log', payload);
     return res.data.time_log;

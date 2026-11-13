@@ -192,6 +192,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/desktop/time-logs', [DesktopAppController::class, 'getUserTimeLogs']);
     Route::get('/desktop/screenshots', [DesktopAppController::class, 'getUserScreenshots']);
     Route::post('/desktop/batch', [DesktopAppController::class, 'submitBatch']);
+    Route::get('/desktop/current-log', [DesktopAppController::class, 'getCurrentActiveLog']);
+    Route::post('/desktop/force-stop', [DesktopAppController::class, 'forceStopActiveLog']);
 });
 
 use Illuminate\Support\Facades\Broadcast;

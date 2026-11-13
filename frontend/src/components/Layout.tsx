@@ -249,12 +249,28 @@ export default function Layout({ children }: LayoutProps) {
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed.isTracking || coreRunning) {
-          alert('You cannot logout while the time tracker is running. Please stop the tracker first.');
-          return;
+          const confirmLogout = window.confirm(
+            'Time tracker is currently running. Logging out will stop and clear your current tracking session. Do you want to proceed?'
+          );
+          if (!confirmLogout) {
+            return;
+          }
+          try {
+            win.__tt_core?.cleanup?.();
+            localStorage.removeItem('tt-tracker');
+          } catch { void 0; }
         }
       } else if (coreRunning) {
-        alert('You cannot logout while the time tracker is running. Please stop the tracker first.');
-        return;
+        const confirmLogout = window.confirm(
+          'Time tracker is currently running. Logging out will stop and clear your current tracking session. Do you want to proceed?'
+        );
+        if (!confirmLogout) {
+          return;
+        }
+        try {
+          win.__tt_core?.cleanup?.();
+          localStorage.removeItem('tt-tracker');
+        } catch { void 0; }
       }
     } catch { void 0; }
 

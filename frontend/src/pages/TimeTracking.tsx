@@ -324,7 +324,10 @@ export default function TimeTracking() {
     mutationFn: (args: { id: number; payload: Parameters<typeof timeTrackingAPI.updateTimeLog>[1] }) =>
       timeTrackingAPI.updateTimeLog(args.id, args.payload),
   });
+  const isSyncingRef = useRef(false);
   const syncOfflineData = useCallback(async () => {
+    if (isSyncingRef.current) return;
+    isSyncingRef.current = true;
     try {
       const raw = localStorage.getItem('tt_offline_sync_queue');
       if (!raw) return;
@@ -341,7 +344,12 @@ export default function TimeTracking() {
             await createTimeLog.mutateAsync(item.payload);
           }
           syncedCount++;
-        } catch {
+        } catch (err: any) {
+          // If the log was closed (409) or doesn't exist (404), discard to prevent infinite retry loops
+          const status = err?.response?.status;
+          if (status === 409 || status === 404) {
+            continue;
+          }
           remainingQueue.push(item);
         }
       }
@@ -351,7 +359,9 @@ export default function TimeTracking() {
       }
       
       localStorage.setItem('tt_offline_sync_queue', JSON.stringify(remainingQueue));
-    } catch { void 0; }
+    } catch { void 0; } finally {
+      isSyncingRef.current = false;
+    }
   }, [createTimeLog, updateTimeLog]);
 
   useEffect(() => {
@@ -1133,7 +1143,18 @@ export default function TimeTracking() {
             lastNetworkSuccessRef.current = new Date();
             networkFailureStartRef.current = null;
           },
-          onError: () => {
+          onError: (err: any) => {
+            if (err?.response?.status === 409) {
+              toast.error('Previous tracking session was closed on server. Resetting tracker.');
+              const core = (window as TTWindow).__tt_core;
+              core?.cleanup?.();
+              setIsTracking(false);
+              setIsPaused(false);
+              setPausedTimeLogId(undefined);
+              setActiveTimeLogId(undefined);
+              try { localStorage.removeItem(trackerKey); } catch { void 0; }
+              return;
+            }
             if (!networkFailureStartRef.current) {
               networkFailureStartRef.current = new Date();
             }
@@ -1208,6 +1229,19 @@ export default function TimeTracking() {
           };
 
           if ((parsed.isTracking || parsed.isPaused) && !core.isTracking && !core.isPaused) {
+            // Check if saved session is stale (older than 12 hours)
+            const sessionDate = parsed.startAt ? new Date(parsed.startAt) : (parsed.lastHeartbeat ? new Date(parsed.lastHeartbeat) : null);
+            if (sessionDate && (Date.now() - sessionDate.getTime() > 12 * 60 * 60 * 1000)) {
+              try { localStorage.removeItem(trackerKey); } catch { void 0; }
+              core.cleanup();
+              setIsTracking(false);
+              setIsPaused(false);
+              setPausedTimeLogId(undefined);
+              setActiveTimeLogId(undefined);
+              toast.info('Previous session from over 12 hours ago was expired. Ready to start fresh.');
+              return;
+            }
+
             if (parsed.isPaused) {
               setIsPaused(true);
               core.isPaused = true;
@@ -1791,21 +1825,25 @@ export default function TimeTracking() {
           });
           if (!isPauseAction) toast.success('Tracking stopped and saved');
           else toast.success('Tracking paused');
-        } catch {
-          const offlineQueue = JSON.parse(localStorage.getItem('tt_offline_sync_queue') || '[]');
-          offlineQueue.push({
-            type: 'update',
-            id: activeLogId,
-            payload: {
-              end_time: toLocalISOString(end),
-              duration: durationMinutes,
-              description: currentNote,
-              end_work_log: endWorkLogText || undefined,
-              tracker_action: isPauseAction ? 'pause' : 'stop',
-            }
-          });
-          localStorage.setItem('tt_offline_sync_queue', JSON.stringify(offlineQueue));
-          toast.warning(isPauseAction ? 'Tracking paused offline (will sync later)' : 'Tracking stopped offline (will sync later)');
+        } catch (err: any) {
+          if (err?.response?.status === 409) {
+            toast.success('Tracking session already closed on server');
+          } else {
+            const offlineQueue = JSON.parse(localStorage.getItem('tt_offline_sync_queue') || '[]');
+            offlineQueue.push({
+              type: 'update',
+              id: activeLogId,
+              payload: {
+                end_time: toLocalISOString(end),
+                duration: durationMinutes,
+                description: currentNote,
+                end_work_log: endWorkLogText || undefined,
+                tracker_action: isPauseAction ? 'pause' : 'stop',
+              }
+            });
+            localStorage.setItem('tt_offline_sync_queue', JSON.stringify(offlineQueue));
+            toast.warning(isPauseAction ? 'Tracking paused offline (will sync later)' : 'Tracking stopped offline (will sync later)');
+          }
         }
       } else if (wasPaused && !isPauseAction) {
         try {
@@ -1817,18 +1855,22 @@ export default function TimeTracking() {
             }
           });
           toast.success('Tracking stopped and saved');
-        } catch {
-          const offlineQueue = JSON.parse(localStorage.getItem('tt_offline_sync_queue') || '[]');
-          offlineQueue.push({
-            type: 'update',
-            id: activeLogId,
-            payload: {
-              end_work_log: endWorkLogText || undefined,
-              tracker_action: 'stop',
-            }
-          });
-          localStorage.setItem('tt_offline_sync_queue', JSON.stringify(offlineQueue));
-          toast.warning('Tracking stopped offline (will sync later)');
+        } catch (err: any) {
+          if (err?.response?.status === 409) {
+            toast.success('Tracking session already closed on server');
+          } else {
+            const offlineQueue = JSON.parse(localStorage.getItem('tt_offline_sync_queue') || '[]');
+            offlineQueue.push({
+              type: 'update',
+              id: activeLogId,
+              payload: {
+                end_work_log: endWorkLogText || undefined,
+                tracker_action: 'stop',
+              }
+            });
+            localStorage.setItem('tt_offline_sync_queue', JSON.stringify(offlineQueue));
+            toast.warning('Tracking stopped offline (will sync later)');
+          }
         }
       }
     } else if (startTime && currentTaskId && wasTracking) {

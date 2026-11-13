@@ -251,12 +251,19 @@ class DesktopAppController extends Controller
             if ($request->end_work_log && empty($timeLog->end_work_log)) {
                 // We will allow this to proceed to update the end_work_log and send notifications
             } else {
-                // If request also provides end_time or use_server_time, it's a stop request.
-                if (($request->has('end_time') && $request->end_time) || ($request->has('use_server_time') && $request->use_server_time)) {
+                // If request also provides end_time, use_server_time, or tracker_action is stop, it's a stop request.
+                if (($request->has('end_time') && $request->end_time) || 
+                    ($request->has('use_server_time') && $request->use_server_time) ||
+                    $request->tracker_action === 'stop') {
+                    
+                    if ($request->filled('end_work_log')) {
+                        $timeLog->update(['end_work_log' => $request->end_work_log]);
+                    }
+
                     return response()->json([
                         'message' => 'Time log already closed',
                         'time_log' => $timeLog
-                    ]);
+                    ], 200);
                 }
 
                 // If request is a heartbeat (no end_time, just duration), we should reject it.
@@ -979,5 +986,91 @@ class DesktopAppController extends Controller
             'screenshots' => $screens,
             'activity_count' => count($activities)
         ], 201);
+    }
+
+    /**
+     * Get the current active (running) time log for the authenticated user.
+     * Useful for checking live status from mobile/web.
+     */
+    public function getCurrentActiveLog(Request $request)
+    {
+        $log = TimeLog::with(['project:id,name', 'task:id,title'])
+            ->where('user_id', auth()->id())
+            ->whereNull('end_time')
+            ->latest('id')
+            ->first();
+
+        return response()->json([
+            'active_log' => $log
+        ]);
+    }
+
+    /**
+     * Force stop the current active running time log from mobile/web.
+     */
+    public function forceStopActiveLog(Request $request)
+    {
+        $log = TimeLog::with(['project', 'task'])
+            ->where('user_id', auth()->id())
+            ->whereNull('end_time')
+            ->latest('id')
+            ->first();
+
+        if (!$log) {
+            return response()->json([
+                'message' => 'No running time log found.'
+            ], 200);
+        }
+
+        $now = now();
+        $start = $log->start_time ? \Carbon\Carbon::parse($log->start_time) : null;
+        $duration = $start ? $start->diffInMinutes($now) : 0;
+        $endWorkLog = $request->input('end_work_log', 'Stopped remotely via mobile/web');
+
+        $log->update([
+            'end_time' => $now,
+            'duration' => $duration,
+            'end_work_log' => $endWorkLog,
+        ]);
+
+        try {
+            app(\App\Services\PresenceService::class)->updatePresence(
+                auth()->id(),
+                'offline',
+                $log->project_id,
+                $log->task_id
+            );
+        } catch (\Throwable $e) {
+            Log::warning('Failed to update presence on remote stop: ' . $e->getMessage());
+        }
+
+        // Notify admins and employee via Telegram if applicable
+        try {
+            $user = auth()->user();
+            $projectName = $log->project?->name ?? 'N/A';
+            $taskTitle = $log->task?->title ?? 'N/A';
+            $nowFormatted = $now->format('d M Y, h:i A');
+            $hours = floor($duration / 60);
+            $mins = $duration % 60;
+            $durationStr = ($hours > 0 ? "{$hours}h " : '') . "{$mins}m";
+
+            $telegram = new TelegramService();
+            $telegram->notifyTrackerEvent(
+                'stop',
+                $user->name,
+                $projectName,
+                $taskTitle,
+                $nowFormatted,
+                $endWorkLog,
+                $durationStr
+            );
+        } catch (\Throwable $e) {
+            Log::warning('Telegram notify error on remote stop: ' . $e->getMessage());
+        }
+
+        return response()->json([
+            'message' => 'Time log stopped successfully.',
+            'time_log' => $log
+        ]);
     }
 }

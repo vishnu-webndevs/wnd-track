@@ -2,13 +2,15 @@ import { useQuery } from '@tanstack/react-query';
 import { 
   Users, Briefcase, CheckCircle, Clock, TrendingUp, Timer, 
   Video, MessageSquare, Bell, Calendar, UserCheck, UserX, 
-  ExternalLink, Play, Sparkles
+  ExternalLink, Play, Sparkles, Square, X
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { dashboardAPI } from '../api/dashboard';
+import { timeTrackingAPI } from '../api/timeTracking';
 import { useAuthStore } from '../stores/authStore';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { useState, useEffect } from 'react';
+import { toast } from 'sonner';
 
 export default function Dashboard() {
   const { user } = useAuthStore();
@@ -19,6 +21,35 @@ export default function Dashboard() {
     taskTitle?: string;
     startAt?: string;
   } | null>(null);
+  const [showStopModal, setShowStopModal] = useState(false);
+  const [stopWorkLog, setStopWorkLog] = useState('');
+  const [isStopping, setIsStopping] = useState(false);
+
+  const { data: serverActiveLog, refetch: refetchActiveLog } = useQuery({
+    queryKey: ['server-active-log'],
+    queryFn: () => timeTrackingAPI.getCurrentActiveLog(),
+    enabled: !!user,
+    refetchInterval: 10000,
+  });
+
+  const handleRemoteStop = async () => {
+    setIsStopping(true);
+    try {
+      await timeTrackingAPI.forceStopActiveLog(stopWorkLog.trim() || undefined);
+      toast.success('Tracker stopped successfully!');
+      setShowStopModal(false);
+      setStopWorkLog('');
+      refetchActiveLog();
+      try {
+        localStorage.removeItem('tt-tracker');
+      } catch { void 0; }
+      setActiveTracking(null);
+    } catch {
+      toast.error('Failed to stop tracker.');
+    } finally {
+      setIsStopping(false);
+    }
+  };
 
   useEffect(() => {
     const checkTracking = () => {
@@ -104,23 +135,99 @@ export default function Dashboard() {
       </div>
 
       {/* Active Tracking Status */}
-      {activeTracking && (
-        <div className="bg-gradient-to-r from-indigo-600 to-indigo-800 rounded-2xl shadow-lg p-5 text-white flex flex-col sm:flex-row items-center justify-between gap-4 animate-in fade-in duration-300">
-          <div className="flex items-center gap-4 w-full sm:w-auto">
-            <div className="bg-indigo-500/30 backdrop-blur p-3 rounded-xl border border-indigo-400/20 animate-pulse">
-              <Timer className="h-6 w-6 text-white" />
+      {(() => {
+        const currentRunning = activeTracking || (serverActiveLog ? {
+          isTracking: true,
+          projectName: serverActiveLog.project?.name || 'Active Project',
+          taskTitle: serverActiveLog.task?.title || 'Active Task',
+          startAt: serverActiveLog.start_time
+        } : null);
+
+        if (!currentRunning) return null;
+
+        return (
+          <div className="bg-gradient-to-r from-indigo-600 to-indigo-800 rounded-2xl shadow-lg p-5 text-white flex flex-col sm:flex-row items-center justify-between gap-4 animate-in fade-in duration-300">
+            <div className="flex items-center gap-4 w-full sm:w-auto">
+              <div className="bg-indigo-500/30 backdrop-blur p-3 rounded-xl border border-indigo-400/20 animate-pulse">
+                <Timer className="h-6 w-6 text-white" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                  <p className="text-xs text-indigo-200 uppercase tracking-widest font-black">
+                    {serverActiveLog && !activeTracking ? 'Active Session (Desktop/Remote)' : 'Currently Tracking'}
+                  </p>
+                </div>
+                <h2 className="text-lg font-black">{currentRunning.taskTitle || 'Working...'}</h2>
+                <p className="text-sm text-indigo-200">{currentRunning.projectName || 'Active Project'}</p>
+              </div>
             </div>
-            <div>
-              <p className="text-xs text-indigo-200 uppercase tracking-widest font-black">Currently Tracking</p>
-              <h2 className="text-lg font-black">{activeTracking.taskTitle || 'Working...'}</h2>
-              <p className="text-sm text-indigo-200">{activeTracking.projectName || 'Active Project'}</p>
+            <div className="w-full sm:w-auto flex flex-row sm:flex-col items-center sm:items-end justify-between gap-3 border-t sm:border-t-0 border-indigo-500/30 pt-3 sm:pt-0">
+              <div className="text-left sm:text-right">
+                <p className="text-xs text-indigo-200 uppercase tracking-wider font-semibold">Started At</p>
+                <p className="text-sm font-bold bg-indigo-900/30 px-3 py-1 rounded-lg border border-indigo-500/20 mt-0.5">
+                  {currentRunning.startAt ? new Date(currentRunning.startAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '-'}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowStopModal(true)}
+                className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5 shrink-0"
+              >
+                <Square className="w-3.5 h-3.5 fill-current" />
+                Stop Tracker
+              </button>
             </div>
           </div>
-          <div className="text-right w-full sm:w-auto flex sm:flex-col justify-between items-center sm:items-end border-t sm:border-t-0 border-indigo-500/30 pt-3 sm:pt-0">
-            <p className="text-xs text-indigo-200 uppercase tracking-wider font-semibold">Started At</p>
-            <p className="text-sm font-bold bg-indigo-900/30 px-3 py-1 rounded-lg border border-indigo-500/20 mt-0.5">
-              {activeTracking.startAt ? new Date(activeTracking.startAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '-'}
+        );
+      })()}
+
+      {/* Remote Stop Modal */}
+      {showStopModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4 animate-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center border-b border-gray-100 dark:border-gray-800 pb-3">
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                <Square className="w-4 h-4 text-rose-600 fill-current" />
+                Stop Active Tracker
+              </h3>
+              <button 
+                onClick={() => setShowStopModal(false)}
+                className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-sm text-gray-600 dark:text-gray-300">
+              Aapka active tracking session close kar diya jayega. Please aaj ka work log yahan likhein:
             </p>
+
+            <textarea
+              rows={4}
+              value={stopWorkLog}
+              onChange={(e) => setStopWorkLog(e.target.value)}
+              placeholder="Aaj aapne kya-kya kaam kiya? (Work summary / accomplishments...)"
+              className="w-full text-sm p-3 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowStopModal(false)}
+                disabled={isStopping}
+                className="px-4 py-2 text-sm font-semibold rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleRemoteStop}
+                disabled={isStopping}
+                className="px-4 py-2 text-sm font-bold rounded-xl bg-rose-600 hover:bg-rose-700 text-white shadow transition-all flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {isStopping ? 'Stopping...' : 'Stop & Submit Log'}
+              </button>
+            </div>
           </div>
         </div>
       )}
